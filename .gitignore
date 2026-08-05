@@ -1,0 +1,12 @@
+node_modules/
+.turbo/
+*.log
+.env
+dist/
+build/
+.DS_Store
+*.pdf
+*.db
+*.db-journal
+backend.err.log
+frontend.err.log

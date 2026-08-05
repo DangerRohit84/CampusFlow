@@ -1,0 +1,358 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         String    @default("STUDENT")
+  collegeId    String?
+  collegeName  String?
+  studentId    String?   @unique
+  empNumber    String?   @unique
+  departmentId String?
+  incomingYear Int?
+  outgoingYear Int?
+  avatar       String?
+  preferences  String?   @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  schedules      Schedule[]
+  notifications  Notification[]
+  assignments    Assignment[]
+  grades         Grade[]
+  attendance     Attendance[]
+  chatSessions   ChatSession[]
+  integrations   UserIntegration[]
+  tasks          Task[]
+  college        College?    @relation(fields: [collegeId], references: [id])
+  department     Department? @relation(fields: [departmentId], references: [id])
+  hackathonsCreated Hackathon[] @relation("HackathonCreator")
+  registrations     HackathonRegistration[]
+  formsCreated      Form[]
+  formResponses     FormResponse[]
+  teachingCourses   Course[]
+  enrollments       Enrollment[]
+}
+
+model Schedule {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  course      String?
+  location    String?
+  teacher     String?
+  dayOfWeek   Int
+  startTime   String
+  endTime     String
+  type        String   @default("CLASS")
+  color       String?
+  recurring   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("GENERAL")
+  priority  String   @default("MEDIUM")
+  read      Boolean  @default(false)
+  source    String?
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Assignment {
+  id          String   @id @default(uuid())
+  userId      String
+  courseId     String
+  title       String
+  description String?
+  dueDate     DateTime
+  status      String   @default("PENDING")
+  priority    String   @default("MEDIUM")
+  progress    Int      @default(0)
+  grade       String?
+  maxGrade    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Grade {
+  id         String   @id @default(uuid())
+  userId     String
+  courseId    String?
+  courseName String
+  semester   Int
+  credits    Int
+  grade      String
+  gpa        Float
+  createdAt  DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id])
+}
+
+model Attendance {
+  id         String   @id @default(uuid())
+  userId     String
+  courseId    String?
+  courseName String
+  date       DateTime
+  status     String
+  createdAt  DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id])
+}
+
+model Course {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  credits   Int      @default(3)
+  teacherId String
+  collegeId String?
+  semester  String?
+  teacher   User     @relation(fields: [teacherId], references: [id])
+  college   College? @relation(fields: [collegeId], references: [id])
+  enrollments Enrollment[]
+  grades     Grade[]
+  attendances Attendance[]
+  createdAt  DateTime @default(now())
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  studentId String
+  courseId   String
+  student   User     @relation(fields: [studentId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  enrolledAt DateTime @default(now())
+
+  @@unique([studentId, courseId])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String?
+  date        DateTime
+  startTime   String?
+  endTime     String?
+  duration    Int?
+  category    String   @default("personal")
+  priority    String   @default("MEDIUM")
+  status      String   @default("PENDING")
+  completed   Boolean  @default(false)
+  color       String?
+  isClass     Boolean  @default(false)
+  courseId     String?
+  location    String?
+  recurrence  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String
+  content   String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model UserIntegration {
+  id           String    @id @default(uuid())
+  userId       String
+  type         String
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  metadata     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+}
+
+model College {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique
+  address     String?
+  phone       String?
+  website     String?
+  logo        String?
+  adminEmail  String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  hackathons  Hackathon[]
+  forms       Form[]
+  courses     Course[]
+  departments Department[]
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String
+  collegeId String
+  createdAt DateTime @default(now())
+
+  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  users   User[]
+
+  @@unique([collegeId, name])
+}
+
+model Hackathon {
+  id              String   @id @default(uuid())
+  creatorId       String
+  collegeId       String?
+  title           String
+  description     String?
+  url             String?
+  organizer       String?
+  registrationUrl String?
+  startDate       DateTime?
+  endDate         DateTime?
+  deadline        DateTime?
+  teamSize        Int?
+  themes          String?   @default("[]")
+  location        String?
+  mode            String?   @default("OFFLINE")
+  eligibility     String?   @default("{}")
+  prizePool       String?
+  duration        String?
+  schedule        String?
+  bootcamps       String?   @default("[]")
+  highlights      String?   @default("[]")
+  targetDepartments  String?  @default("[]")
+  targetYears        String?  @default("[]")
+  eligibilityEnabled Boolean  @default(false)
+  status          String   @default("DRAFT")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  creator       User                   @relation("HackathonCreator", fields: [creatorId], references: [id])
+  college       College?               @relation(fields: [collegeId], references: [id])
+  registrations HackathonRegistration[]
+  rounds        HackathonRound[]
+}
+
+model HackathonRegistration {
+  id           String   @id @default(uuid())
+  hackathonId  String
+  userId       String
+  teamName     String?
+  teamMembers  String?
+  projectIdea  String?
+  status       String   @default("REGISTERED")
+  currentRound Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hackathonId, userId])
+}
+
+model HackathonRound {
+  id           String   @id @default(uuid())
+  hackathonId  String
+  roundNumber  Int
+  title        String
+  description  String?
+  date         DateTime?
+  resultDate   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+
+  @@unique([hackathonId, roundNumber])
+}
+
+model Form {
+  id          String    @id @default(uuid())
+  creatorId   String
+  collegeId   String?
+  title       String
+  description String?
+  status      String    @default("ACTIVE")
+  allowEdit   Boolean   @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  creator   User           @relation(fields: [creatorId], references: [id])
+  college   College?       @relation(fields: [collegeId], references: [id])
+  fields    FormField[]
+  responses FormResponse[]
+}
+
+model FormField {
+  id          String   @id @default(uuid())
+  formId      String
+  label       String
+  type        String   @default("TEXT")
+  required    Boolean  @default(false)
+  options     String?   @default("[]")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+}
+
+model FormResponse {
+  id         String   @id @default(uuid())
+  formId     String
+  userId     String
+  answers    String   @default("{}")
+  submittedAt DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([formId, userId])
+}
