@@ -46,6 +46,7 @@ export default function HackathonsPage() {
   const [targetDepartments, setTargetDepartments] = useState<string[]>([])
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
+  const [showEligibilityPopup, setShowEligibilityPopup] = useState(false)
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -164,22 +165,26 @@ export default function HackathonsPage() {
       toast.error('Title is required')
       return
     }
+    setShowEligibilityPopup(true)
+  }
+
+  const handleConfirmCreate = async (withEligibility: boolean) => {
     try {
       await hackathonAPI.create({
         ...form,
         themes: form.themes ? form.themes.split(',').map((t) => t.trim()) : [],
         rounds: aiRounds.length > 0 ? aiRounds : undefined,
-        targetDepartments: eligibilityEnabled ? targetDepartments : [],
-        targetYears: eligibilityEnabled ? targetYears : [],
-        eligibilityEnabled,
+        targetDepartments: withEligibility ? targetDepartments : [],
+        targetYears: withEligibility ? targetYears : [],
+        eligibilityEnabled: withEligibility && (targetDepartments.length > 0 || targetYears.length > 0),
       })
       toast.success('Hackathon created!')
+      setShowEligibilityPopup(false)
       setShowCreate(false)
       setForm({ title: '', description: '', url: '', organizer: '', registrationUrl: '', startDate: '', endDate: '', deadline: '', teamSize: '', themes: '', location: '', mode: 'OFFLINE', eligibility: '', prizePool: '', duration: '', schedule: '', bootcamps: '', highlights: '' })
       setAiRounds([])
       setTargetDepartments([])
       setTargetYears([])
-      setEligibilityEnabled(false)
       loadHackathons()
     } catch (err) {
       toast.error('Failed to create hackathon')
@@ -552,80 +557,6 @@ export default function HackathonsPage() {
                   />
                 </div>
 
-                {/* Eligibility Targeting */}
-                <div className="p-4 bg-surface-50 rounded-xl border border-surface-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium text-surface-900">Eligibility Filtering</label>
-                      <p className="text-xs text-surface-400">Restrict who can register</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setEligibilityEnabled(!eligibilityEnabled)}
-                      className={clsx('relative w-11 h-6 rounded-full transition-colors',
-                        eligibilityEnabled ? 'bg-primary-500' : 'bg-surface-300'
-                      )}
-                    >
-                      <span className={clsx('absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform',
-                        eligibilityEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                      )} />
-                    </button>
-                  </div>
-
-                  {eligibilityEnabled && (
-                    <>
-                      <div>
-                        <label className="text-xs font-medium text-surface-600 mb-1.5 block">Target Departments</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {departments.map(d => (
-                            <button
-                              key={d.id}
-                              type="button"
-                              onClick={() => setTargetDepartments(prev =>
-                                prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
-                              )}
-                              className={clsx('px-2.5 py-1 rounded-lg text-xs font-medium border transition-all',
-                                targetDepartments.includes(d.id)
-                                  ? 'bg-primary-100 border-primary-300 text-primary-700'
-                                  : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                              )}
-                            >
-                              {d.name}
-                            </button>
-                          ))}
-                          {departments.length === 0 && (
-                            <p className="text-xs text-surface-400">No departments. Create one in Admin → Departments.</p>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-surface-400 mt-1">Leave empty = all departments eligible</p>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-surface-600 mb-1.5 block">Target Years</label>
-                        <div className="flex gap-1.5">
-                          {[1, 2, 3, 4].map(y => (
-                            <button
-                              key={y}
-                              type="button"
-                              onClick={() => setTargetYears(prev =>
-                                prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
-                              )}
-                              className={clsx('w-10 h-8 rounded-lg text-xs font-bold border transition-all',
-                                targetYears.includes(y)
-                                  ? 'bg-primary-100 border-primary-300 text-primary-700'
-                                  : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                              )}
-                            >
-                              {y}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-surface-400 mt-1">Leave empty = all years eligible</p>
-                      </div>
-                    </>
-                  )}
-                </div>
-
                 {aiRounds.length > 0 && (
                   <div className="mt-4">
                     <label className="text-sm font-medium text-surface-700 mb-2 block">
@@ -658,6 +589,103 @@ export default function HackathonsPage() {
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg">
                   Create
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Eligibility Popup */}
+      <AnimatePresence>
+        {showEligibilityPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            onClick={() => { setShowEligibilityPopup(false); setTargetDepartments([]); setTargetYears([]) }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+            >
+              <h2 className="text-lg font-bold text-surface-900 mb-1">Who can register?</h2>
+              <p className="text-sm text-surface-500 mb-5">Select departments and years, or skip to allow everyone.</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {departments.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => setTargetDepartments(prev =>
+                          prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
+                        )}
+                        className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          targetDepartments.includes(d.id)
+                            ? 'bg-primary-100 border-primary-300 text-primary-700'
+                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                        )}
+                      >
+                        {d.name}
+                      </button>
+                    ))}
+                    {departments.length === 0 && (
+                      <p className="text-xs text-surface-400">No departments created yet.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Years</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4].map(y => (
+                      <button
+                        key={y}
+                        type="button"
+                        onClick={() => setTargetYears(prev =>
+                          prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
+                        )}
+                        className={clsx('w-12 h-9 rounded-lg text-sm font-bold border transition-all',
+                          targetYears.includes(y)
+                            ? 'bg-primary-100 border-primary-300 text-primary-700'
+                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                        )}
+                      >
+                        {y}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {(targetDepartments.length > 0 || targetYears.length > 0) && (
+                  <div className="flex items-center gap-2 p-2.5 bg-primary-50 rounded-xl text-xs text-primary-700 font-medium">
+                    <CheckCircle2 size={14} />
+                    {targetDepartments.length > 0 && <span>{targetDepartments.length} dept{targetDepartments.length > 1 ? 's' : ''}</span>}
+                    {targetDepartments.length > 0 && targetYears.length > 0 && <span>·</span>}
+                    {targetYears.length > 0 && <span>Year {targetYears.sort().join(', ')}</span>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => handleConfirmCreate(false)}
+                  className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 text-sm"
+                >
+                  Skip — Everyone
+                </button>
+                <button
+                  onClick={() => handleConfirmCreate(true)}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg text-sm"
+                >
+                  Confirm
                 </button>
               </div>
             </motion.div>
