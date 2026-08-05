@@ -145,7 +145,7 @@ export default function Layout() {
 
       {/* Today's Classes Widget */}
       {sidebarOpen && (
-        <div className="px-3 mb-3">
+        <div className="px-3 mb-3 shrink-0">
           <div className="p-4 bg-gradient-to-br from-surface-50 to-primary-50 rounded-2xl border border-surface-100">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -158,8 +158,8 @@ export default function Layout() {
             {todayClasses.length === 0 ? (
               <p className="text-xs text-surface-400 text-center py-2">No classes today</p>
             ) : (
-              <div className="space-y-2">
-                {todayClasses.slice(0, 4).map((cls: any) => {
+              <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                {todayClasses.map((cls: any) => {
                   const isPast = cls.endTime <= currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
                   return (
                     <div key={cls.id} className={clsx('flex items-center gap-2 p-2 rounded-lg transition-all', isPast ? 'opacity-40' : 'bg-white/80')}>
@@ -172,9 +172,6 @@ export default function Layout() {
                     </div>
                   )
                 })}
-                {todayClasses.length > 4 && (
-                  <p className="text-[10px] text-surface-400 text-center">+{todayClasses.length - 4} more</p>
-                )}
               </div>
             )}
 
@@ -186,7 +183,7 @@ export default function Layout() {
       )}
 
       {/* User */}
-      <div className="p-3 border-t border-surface-100">
+      <div className="p-3 border-t border-surface-100 shrink-0">
         <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-xs shadow-md">
             {user?.name?.charAt(0) || 'S'}
@@ -210,7 +207,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-surface-50 overflow-hidden">
       {/* Desktop Sidebar */}
-      <aside className={clsx('hidden lg:flex flex-col border-r border-surface-100 bg-white transition-all duration-300', sidebarOpen ? 'w-64' : 'w-[68px]')}>
+      <aside className={clsx('hidden lg:flex flex-col border-r border-surface-100 bg-white transition-all duration-300 overflow-hidden', sidebarOpen ? 'w-64' : 'w-[68px]')}>
         <SidebarContent />
       </aside>
 
