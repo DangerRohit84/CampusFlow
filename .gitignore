@@ -10,3 +10,4 @@ build/
 *.db-journal
 backend.err.log
 frontend.err.log
+uploads/

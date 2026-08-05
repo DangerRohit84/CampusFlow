@@ -39,8 +39,20 @@ export default function FormDetailPage() {
     ? departments.filter(d => targetDeptIds.includes(d.id)).map(d => d.name)
     : []
 
-  const isEligible = !form?.eligibilityEnabled || (() => {
+  const formRooms = form?.formRooms || []
+
+  const isEligible = (() => {
     if (!user || user.role !== 'STUDENT') return true
+    
+    // Check room-based eligibility
+    if (formRooms.length > 0) {
+      // Backend handles actual room membership check, but for UI we show the form
+      // The backend will reject if not a member
+      return true
+    }
+    
+    // Check department/year eligibility
+    if (!form?.eligibilityEnabled) return true
     if (targetDeptIds.length > 0 && (!user.departmentId || !targetDeptIds.includes(user.departmentId))) return false
     if (targetYearsList.length > 0 && user.incomingYear) {
       const currentYear = Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
@@ -412,6 +424,19 @@ export default function FormDetailPage() {
                 {targetDeptNames.length === 0 && targetYearsList.length === 0 && (
                   <p className="text-xs text-surface-500">Open to all departments and years</p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {form.formRooms && form.formRooms.length > 0 && (
+            <div className="bg-white rounded-2xl border border-surface-100 p-5">
+              <h3 className="font-bold text-surface-900 mb-3">Linked Rooms</h3>
+              <div className="flex flex-wrap gap-2">
+                {form.formRooms.map((fr: any) => (
+                  <span key={fr.room.id} className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                    🏠 {fr.room.name}
+                  </span>
+                ))}
               </div>
             </div>
           )}

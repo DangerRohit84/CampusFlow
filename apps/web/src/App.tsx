@@ -22,11 +22,27 @@ import AdminPage from './pages/AdminPage'
 import CollegeRegistrationPage from './pages/CollegeRegistrationPage'
 import AddTeacherPage from './pages/AddTeacherPage'
 import AddStudentPage from './pages/AddStudentPage'
+import RoomsPage from './pages/RoomsPage'
+import RoomDetailPage from './pages/RoomDetailPage'
+import StudentRoomsPage from './pages/StudentRoomsPage'
+import StudentRoomDetailPage from './pages/StudentRoomDetailPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return <>{children}</>
+}
+
+function RoomsRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (user?.role === 'STUDENT') return <StudentRoomsPage />
+  return <RoomsPage />
+}
+
+function RoomDetailRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (user?.role === 'STUDENT') return <StudentRoomDetailPage />
+  return <RoomDetailPage />
 }
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -65,6 +81,8 @@ export default function App() {
           <Route path="hackathons/:id" element={<HackathonDetailPage />} />
           <Route path="forms" element={<FormsPage />} />
           <Route path="forms/:id" element={<FormDetailPage />} />
+          <Route path="rooms" element={<RoomsRoute />} />
+          <Route path="rooms/:id" element={<RoomDetailRoute />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
           <Route path="admin/add-teachers" element={<AddTeacherPage />} />

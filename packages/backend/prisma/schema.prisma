@@ -41,6 +41,10 @@ model User {
   formResponses     FormResponse[]
   teachingCourses   Course[]
   enrollments       Enrollment[]
+  createdRooms      Room[]
+  joinedRooms       RoomMember[]
+  uploadedResources Resource[]
+  roomNotifications RoomNotification[]
 }
 
 model Schedule {
@@ -328,10 +332,25 @@ model Form {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  creator   User           @relation(fields: [creatorId], references: [id])
-  college   College?       @relation(fields: [collegeId], references: [id])
-  fields    FormField[]
-  responses FormResponse[]
+  creator    User           @relation(fields: [creatorId], references: [id])
+  college    College?       @relation(fields: [collegeId], references: [id])
+  fields     FormField[]
+  responses  FormResponse[]
+  formRooms  FormRoom[]
+}
+
+model FormRoom {
+  id        String   @id @default(uuid())
+  formId    String
+  roomId    String
+  createdAt DateTime @default(now())
+  
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  @@unique([formId, roomId])
+  @@index([formId])
+  @@index([roomId])
 }
 
 model FormField {
@@ -358,4 +377,72 @@ model FormResponse {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([formId, userId])
+}
+
+model Room {
+  id            String   @id @default(uuid())
+  name          String
+  description   String   @default("")
+  joinCode      String   @unique
+  teacherId     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  teacher     User          @relation(fields: [teacherId], references: [id])
+  members     RoomMember[]
+  resources   Resource[]
+  notifications RoomNotification[]
+  formRooms   FormRoom[]
+
+  @@index([teacherId])
+  @@index([joinCode])
+}
+
+model RoomMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  studentId String
+  joinedAt  DateTime @default(now())
+
+  room    Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, studentId])
+  @@index([roomId])
+  @@index([studentId])
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  description String   @default("")
+  fileUrl     String
+  fileType    String   @default("other") // pdf, ppt, link, other
+  category    String   @default("other") // lecture, assignment, reference, other
+  roomId      String
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+
+  room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploadedBy], references: [id])
+
+  @@index([roomId])
+  @@index([uploadedBy])
+}
+
+model RoomNotification {
+  id         String   @id @default(uuid())
+  roomId     String
+  studentId  String
+  message    String
+  resourceUrl String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  room    Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([studentId])
+  @@index([isRead])
 }

@@ -19,6 +19,7 @@ import hackathonRoutes from './routes/hackathons'
 import formRoutes from './routes/forms'
 import adminRoutes from './routes/admin'
 import departmentRoutes from './routes/departments'
+import roomsRouter from './routes/rooms'
 import prisma from './config/db'
 
 const app = express()
@@ -39,7 +40,7 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'CampusFlow API',
     version: '1.0.0',
-    features: ['auth', 'schedules', 'assignments', 'notifications', 'chat', 'ai', 'search', 'websocket', 'hackathons'],
+    features: ['auth', 'schedules', 'assignments', 'notifications', 'chat', 'ai', 'search', 'websocket', 'hackathons', 'rooms'],
   })
 })
 
@@ -95,6 +96,7 @@ app.use('/api/hackathons', hackathonRoutes)
 app.use('/api/forms', formRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/departments', departmentRoutes)
+app.use('/api/rooms', roomsRouter)
 
 // 404 handler
 app.use('/api/*', (req, res) => {

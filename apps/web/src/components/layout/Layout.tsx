@@ -3,14 +3,14 @@ import { useAuthStore } from '../../store/authStore'
 import {
   LayoutDashboard, Calendar, MessageSquare, BookOpen,
   Bell, Settings, LogOut, Menu, X, GraduationCap,
-  ChevronRight, Sparkles, Search, BarChart3, Award, Target, Clock, Trophy,
-  ClipboardList, Shield
+  ChevronRight, Sparkles, Search, Award, Target, Clock, Trophy,
+  ClipboardList, Shield, DoorOpen
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 import CommandPalette from '../CommandPalette'
-import { timetableAPI, hackathonAPI, formAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI } from '../../lib/api'
 
 const navByRole: Record<string, any[]> = {
   STUDENT: [
@@ -18,11 +18,11 @@ const navByRole: Record<string, any[]> = {
     { path: '/schedule', label: 'Planner', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
+    { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
     { path: '/assignments', label: 'Assignments', icon: BookOpen },
     { path: '/grades', label: 'Grades', icon: Award },
     { path: '/attendance', label: 'Attendance', icon: Target },
-    { path: '/insights', label: 'AI Insights', icon: BarChart3 },
     { path: '/settings', label: 'Settings', icon: Settings },
   ],
   TEACHER: [
@@ -30,6 +30,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/schedule', label: 'Planner', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
+    { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
     { path: '/settings', label: 'Settings', icon: Settings },
   ],
@@ -38,6 +39,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
+    { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ],
   SUPER_ADMIN: [
@@ -45,6 +47,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
+    { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ],
 }
@@ -58,6 +61,8 @@ export default function Layout() {
   const [todayClasses, setTodayClasses] = useState<any[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
   const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0 })
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [showNotifications, setShowNotifications] = useState(false)
 
   // Load today's classes
   useEffect(() => {
@@ -93,6 +98,15 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
+  // Load notifications for students
+  useEffect(() => {
+    if (user?.role === 'STUDENT') {
+      roomAPI.getNotifications().then(setNotifications).catch(() => {})
+    }
+  }, [user?.role, location.pathname])
+
+  const unreadCount = notifications.filter(n => !n.isRead).length
 
   const handleLogout = () => { logout(); navigate('/login') }
 
@@ -178,6 +192,55 @@ export default function Layout() {
             <button onClick={() => navigate('/schedule')} className="w-full mt-2 text-[10px] font-semibold text-primary-600 hover:text-primary-700 flex items-center justify-center gap-1">
               View full schedule <ChevronRight size={10} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications (Students only) */}
+      {user?.role === 'STUDENT' && (
+        <div className="px-3">
+          <div className="relative">
+            <button 
+              onClick={() => setShowNotifications(!showNotifications)} 
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-surface-600 hover:bg-surface-100 transition-all relative"
+            >
+              <Bell size={18} />
+              <span className="text-sm font-medium">Notifications</span>
+              {unreadCount > 0 && (
+                <span className="ml-auto w-5 h-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            {showNotifications && (
+              <div className="absolute left-0 right-0 bottom-full mb-2 bg-white rounded-xl shadow-lg border z-50 max-h-80 overflow-y-auto">
+                <div className="p-3 border-b font-semibold text-sm flex items-center justify-between">
+                  <span>Notifications</span>
+                  <button onClick={() => setShowNotifications(false)} className="text-surface-400 hover:text-surface-600">
+                    <X size={14} />
+                  </button>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="p-6 text-center text-surface-400 text-sm">No notifications yet</div>
+                ) : (
+                  notifications.slice(0, 10).map(n => (
+                    <div 
+                      key={n.id} 
+                      className={`p-3 border-b last:border-0 hover:bg-surface-50 cursor-pointer transition-all ${!n.isRead ? 'bg-primary-50/50' : ''}`}
+                      onClick={() => {
+                        roomAPI.markNotificationRead(n.id).catch(() => {})
+                        setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x))
+                        if (n.roomId) navigate(`/rooms/${n.roomId}`)
+                        setShowNotifications(false)
+                      }}
+                    >
+                      <p className="text-sm">{n.message}</p>
+                      <p className="text-xs text-surface-400 mt-1">{n.room?.name || ''}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

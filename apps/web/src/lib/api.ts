@@ -220,6 +220,45 @@ export const formAPI = {
   update: (id: string, data: any) => api.put(`/forms/${id}`, data).then((r) => r.data),
 }
 
+// Rooms
+export const roomAPI = {
+  // Room CRUD
+  getAll: () => api.get('/rooms').then((r) => r.data),
+  getOne: (id: string) => api.get(`/rooms/${id}`).then((r) => r.data),
+  create: (data: { name: string; description?: string; departmentId?: string; targetYears?: number[] }) =>
+    api.post('/rooms', data).then((r) => r.data),
+  update: (id: string, data: { name?: string; description?: string; departmentId?: string; targetYears?: number[] }) =>
+    api.put(`/rooms/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/rooms/${id}`).then((r) => r.data),
+
+  // Join / Leave
+  joinByCode: (roomId: string, code: string) =>
+    api.post(`/rooms/${roomId}/join`, { code }).then((r) => r.data),
+  joinByCodeOnly: (code: string) =>
+    api.post('/rooms/join', { code }).then((r) => r.data),
+  leave: (roomId: string) => api.post(`/rooms/${roomId}/leave`).then((r) => r.data),
+
+  // Members
+  getMembers: (roomId: string) => api.get(`/rooms/${roomId}/members`).then((r) => r.data),
+
+  // Resources
+  uploadResource: (roomId: string, formData: FormData) =>
+    api.post(`/rooms/${roomId}/resources`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data),
+  getResources: (roomId: string) => api.get(`/rooms/${roomId}/resources`).then((r) => r.data),
+  deleteResource: (roomId: string, resourceId: string) =>
+    api.delete(`/rooms/${roomId}/resources/${resourceId}`).then((r) => r.data),
+
+  // Notifications
+  getNotifications: () => api.get('/rooms/notifications/list').then((r) => r.data),
+  markNotificationRead: (id: string) => api.post(`/rooms/notifications/${id}/read`).then((r) => r.data),
+
+  // Bulk import
+  bulkImport: (roomId: string, rollNumbers: string[]) =>
+    api.post('/rooms/import', { roomId, rollNumbers }).then((r) => r.data),
+}
+
 // Departments
 export const departmentAPI = {
   getAll: () => api.get('/departments').then((r) => r.data),

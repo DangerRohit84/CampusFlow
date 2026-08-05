@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { formAPI, departmentAPI } from '../lib/api'
+import { formAPI, departmentAPI, roomAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
@@ -33,6 +33,9 @@ export default function FormsPage() {
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
   const [showEligibilityPopup, setShowEligibilityPopup] = useState(false)
+  const [eligibilityMode, setEligibilityMode] = useState<'rooms' | 'department'>('rooms')
+  const [teacherRooms, setTeacherRooms] = useState<any[]>([])
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
 
   // Edit modal state
   const [showEdit, setShowEdit] = useState(false)
@@ -43,6 +46,12 @@ export default function FormsPage() {
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+
+  const toggleRoom = (id: string) => {
+    setSelectedRoomIds(prev =>
+      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
+    )
+  }
 
   const getFormStatus = (f: any): 'active' | 'expiring' | 'expired' => {
     if (f.expiresAt) {
@@ -68,6 +77,9 @@ export default function FormsPage() {
   useEffect(() => {
     loadForms()
     departmentAPI.getAll().then(setDepartments).catch(() => {})
+    if (isTeacher) {
+      roomAPI.getAll().then(setTeacherRooms).catch(() => {})
+    }
   }, [])
 
   const loadForms = async () => {
@@ -107,16 +119,23 @@ export default function FormsPage() {
 
   const handleConfirmCreate = async (withEligibility: boolean) => {
     try {
-      await formAPI.create({
+      const payload: any = {
         title: formTitle,
         description: formDesc,
         allowEdit,
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         fields: fields.filter((f) => f.label),
-        targetDepartments: withEligibility ? targetDepartments : [],
-        targetYears: withEligibility ? targetYears : [],
-        eligibilityEnabled: withEligibility && (targetDepartments.length > 0 || targetYears.length > 0),
-      })
+      }
+
+      if (eligibilityMode === 'rooms' && selectedRoomIds.length > 0) {
+        payload.roomIds = selectedRoomIds
+      } else if (eligibilityMode === 'department' && withEligibility) {
+        payload.targetDepartments = targetDepartments
+        payload.targetYears = targetYears
+        payload.eligibilityEnabled = targetDepartments.length > 0 || targetYears.length > 0
+      }
+
+      await formAPI.create(payload)
       toast.success('Form created!')
       setShowEligibilityPopup(false)
       setFormTitle('')
@@ -126,6 +145,8 @@ export default function FormsPage() {
       setFields([{ label: '', type: 'TEXT', required: false, options: [] }])
       setTargetDepartments([])
       setTargetYears([])
+      setSelectedRoomIds([])
+      setEligibilityMode('rooms')
       loadForms()
     } catch (err) {
       toast.error('Failed to create form')
@@ -583,65 +604,124 @@ export default function FormsPage() {
               className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
             >
               <h2 className="text-lg font-bold text-surface-900 mb-1">Who can respond?</h2>
-              <p className="text-sm text-surface-500 mb-5">Select departments and years, or skip to allow everyone.</p>
+              <p className="text-sm text-surface-500 mb-5">Select rooms or departments, or skip to allow everyone.</p>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {departments.map(d => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => setTargetDepartments(prev =>
-                          prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
-                        )}
-                        className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
-                          targetDepartments.includes(d.id)
-                            ? 'bg-primary-100 border-primary-300 text-primary-700'
-                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                        )}
-                      >
-                        {d.name}
-                      </button>
-                    ))}
-                    {departments.length === 0 && (
-                      <p className="text-xs text-surface-400">No departments created yet.</p>
-                    )}
+              {/* Two mode buttons */}
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => setEligibilityMode('rooms')}
+                  className={`flex-1 p-3 rounded-xl border-2 transition-all ${
+                    eligibilityMode === 'rooms'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700'
+                      : 'border-surface-200 hover:border-surface-300 text-surface-600'
+                  }`}
+                >
+                  <div className="text-center">
+                    <span className="text-2xl block mb-1">🏠</span>
+                    <p className="font-semibold text-sm">Rooms</p>
+                    <p className="text-xs text-surface-400">Select specific rooms</p>
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Years</label>
-                  <div className="flex gap-2">
-                    {[1, 2, 3, 4].map(y => (
-                      <button
-                        key={y}
-                        type="button"
-                        onClick={() => setTargetYears(prev =>
-                          prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
-                        )}
-                        className={clsx('w-12 h-9 rounded-lg text-sm font-bold border transition-all',
-                          targetYears.includes(y)
-                            ? 'bg-primary-100 border-primary-300 text-primary-700'
-                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                        )}
-                      >
-                        {y}
-                      </button>
-                    ))}
+                </button>
+                <button
+                  onClick={() => setEligibilityMode('department')}
+                  className={`flex-1 p-3 rounded-xl border-2 transition-all ${
+                    eligibilityMode === 'department'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700'
+                      : 'border-surface-200 hover:border-surface-300 text-surface-600'
+                  }`}
+                >
+                  <div className="text-center">
+                    <span className="text-2xl block mb-1">🏫</span>
+                    <p className="font-semibold text-sm">Department</p>
+                    <p className="text-xs text-surface-400">Select dept + year</p>
                   </div>
-                </div>
-
-                {(targetDepartments.length > 0 || targetYears.length > 0) && (
-                  <div className="flex items-center gap-2 p-2.5 bg-primary-50 rounded-xl text-xs text-primary-700 font-medium">
-                    <CheckCircle2 size={14} />
-                    {targetDepartments.length > 0 && <span>{targetDepartments.length} dept{targetDepartments.length > 1 ? 's' : ''}</span>}
-                    {targetDepartments.length > 0 && targetYears.length > 0 && <span>·</span>}
-                    {targetYears.length > 0 && <span>Year {targetYears.sort().join(', ')}</span>}
-                  </div>
-                )}
+                </button>
               </div>
+
+              {/* Rooms selection */}
+              {eligibilityMode === 'rooms' && (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {teacherRooms.length === 0 ? (
+                    <p className="text-sm text-surface-400 text-center py-4">No rooms yet. Create a room first.</p>
+                  ) : (
+                    teacherRooms.map(room => (
+                      <label key={room.id} className="flex items-center gap-3 p-2.5 rounded-xl border hover:bg-surface-50 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedRoomIds.includes(room.id)}
+                          onChange={() => toggleRoom(room.id)}
+                          className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-surface-800">{room.name}</p>
+                          <p className="text-xs text-surface-400">{room._count?.members || 0} members</p>
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* Department selection */}
+              {eligibilityMode === 'department' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {departments.map(d => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => setTargetDepartments(prev =>
+                            prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
+                          )}
+                          className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                            targetDepartments.includes(d.id)
+                              ? 'bg-primary-100 border-primary-300 text-primary-700'
+                              : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                          )}
+                        >
+                          {d.name}
+                        </button>
+                      ))}
+                      {departments.length === 0 && (
+                        <p className="text-xs text-surface-400">No departments created yet.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-surface-600 mb-2 block">Years</label>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 4].map(y => (
+                        <button
+                          key={y}
+                          type="button"
+                          onClick={() => setTargetYears(prev =>
+                            prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
+                          )}
+                          className={clsx('w-12 h-9 rounded-lg text-sm font-bold border transition-all',
+                            targetYears.includes(y)
+                              ? 'bg-primary-100 border-primary-300 text-primary-700'
+                              : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                          )}
+                        >
+                          {y}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {(targetDepartments.length > 0 || targetYears.length > 0) && (
+                    <div className="flex items-center gap-2 p-2.5 bg-primary-50 rounded-xl text-xs text-primary-700 font-medium">
+                      <CheckCircle2 size={14} />
+                      {targetDepartments.length > 0 && <span>{targetDepartments.length} dept{targetDepartments.length > 1 ? 's' : ''}</span>}
+                      {targetDepartments.length > 0 && targetYears.length > 0 && <span>·</span>}
+                      {targetYears.length > 0 && <span>Year {targetYears.sort().join(', ')}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-3 mt-6">
                 <button

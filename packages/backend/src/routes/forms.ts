@@ -15,7 +15,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
+    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds } = req.body
 
     const form = await prisma.form.create({
       data: {
@@ -42,6 +42,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { fields: { orderBy: { order: 'asc' } } },
     })
 
+    // Link rooms to form if provided
+    if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+      for (const roomId of roomIds) {
+        await prisma.formRoom.create({
+          data: { formId: form.id, roomId }
+        })
+      }
+    }
+
     res.status(201).json(form)
   } catch (error) {
     console.error('Create form error:', error)
@@ -62,7 +71,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (user.role === 'SUPER_ADMIN') {
       forms = await prisma.form.findMany({
-        include: { creator: { select: { name: true } }, fields: true, responses: true },
+        include: { creator: { select: { name: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
       })
     } else if (user.role === 'COLLEGE_ADMIN' || user.role === 'TEACHER') {
@@ -73,7 +82,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             { creator: { department: user.department } },
           ],
         },
-        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true },
+        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
       })
     } else {
@@ -82,7 +91,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           status: 'ACTIVE',
           creator: { department: user.department },
         },
-        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true },
+        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
       })
     }
@@ -153,6 +162,9 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
           include: { user: { select: { name: true, email: true, department: true, studentId: true } } },
           orderBy: { submittedAt: 'desc' },
         },
+        formRooms: {
+          include: { room: { select: { id: true, name: true } } }
+        },
       },
     })
 
@@ -196,6 +208,25 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
       return
+    }
+
+    // Check room-based eligibility first
+    const formRooms = await prisma.formRoom.findMany({
+      where: { formId: req.params.id },
+      select: { roomId: true }
+    })
+
+    if (formRooms.length > 0) {
+      const isMember = await prisma.roomMember.findFirst({
+        where: {
+          studentId: req.userId!,
+          roomId: { in: formRooms.map((fr: any) => fr.roomId) }
+        }
+      })
+      if (!isMember) {
+        res.status(403).json({ error: 'You are not eligible for this form' })
+        return
+      }
     }
 
     // Check eligibility if enabled
