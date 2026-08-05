@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { formAPI } from '../lib/api'
+import { formAPI, departmentAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
@@ -26,6 +26,13 @@ export default function FormsPage() {
   ])
   const [allowEdit, setAllowEdit] = useState(false)
   const [expiresAt, setExpiresAt] = useState('')
+
+  // Eligibility state
+  const [departments, setDepartments] = useState<any[]>([])
+  const [targetDepartments, setTargetDepartments] = useState<string[]>([])
+  const [targetYears, setTargetYears] = useState<number[]>([])
+  const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
+  const [showEligibilityPopup, setShowEligibilityPopup] = useState(false)
 
   // Edit modal state
   const [showEdit, setShowEdit] = useState(false)
@@ -60,6 +67,7 @@ export default function FormsPage() {
 
   useEffect(() => {
     loadForms()
+    departmentAPI.getAll().then(setDepartments).catch(() => {})
   }, [])
 
   const loadForms = async () => {
@@ -93,6 +101,11 @@ export default function FormsPage() {
       toast.error('Title and at least one field required')
       return
     }
+    setShowCreate(false)
+    setShowEligibilityPopup(true)
+  }
+
+  const handleConfirmCreate = async (withEligibility: boolean) => {
     try {
       await formAPI.create({
         title: formTitle,
@@ -100,14 +113,19 @@ export default function FormsPage() {
         allowEdit,
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         fields: fields.filter((f) => f.label),
+        targetDepartments: withEligibility ? targetDepartments : [],
+        targetYears: withEligibility ? targetYears : [],
+        eligibilityEnabled: withEligibility && (targetDepartments.length > 0 || targetYears.length > 0),
       })
       toast.success('Form created!')
-      setShowCreate(false)
+      setShowEligibilityPopup(false)
       setFormTitle('')
       setFormDesc('')
       setAllowEdit(false)
       setExpiresAt('')
       setFields([{ label: '', type: 'TEXT', required: false, options: [] }])
+      setTargetDepartments([])
+      setTargetYears([])
       loadForms()
     } catch (err) {
       toast.error('Failed to create form')
@@ -540,6 +558,103 @@ export default function FormsPage() {
                 </button>
                 <button onClick={handleEdit} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium">
                   Update
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Eligibility Popup */}
+      <AnimatePresence>
+        {showEligibilityPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            onClick={() => { setShowEligibilityPopup(false); setShowCreate(true); setTargetDepartments([]); setTargetYears([]) }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+            >
+              <h2 className="text-lg font-bold text-surface-900 mb-1">Who can respond?</h2>
+              <p className="text-sm text-surface-500 mb-5">Select departments and years, or skip to allow everyone.</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {departments.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => setTargetDepartments(prev =>
+                          prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
+                        )}
+                        className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          targetDepartments.includes(d.id)
+                            ? 'bg-primary-100 border-primary-300 text-primary-700'
+                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                        )}
+                      >
+                        {d.name}
+                      </button>
+                    ))}
+                    {departments.length === 0 && (
+                      <p className="text-xs text-surface-400">No departments created yet.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Years</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4].map(y => (
+                      <button
+                        key={y}
+                        type="button"
+                        onClick={() => setTargetYears(prev =>
+                          prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
+                        )}
+                        className={clsx('w-12 h-9 rounded-lg text-sm font-bold border transition-all',
+                          targetYears.includes(y)
+                            ? 'bg-primary-100 border-primary-300 text-primary-700'
+                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
+                        )}
+                      >
+                        {y}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {(targetDepartments.length > 0 || targetYears.length > 0) && (
+                  <div className="flex items-center gap-2 p-2.5 bg-primary-50 rounded-xl text-xs text-primary-700 font-medium">
+                    <CheckCircle2 size={14} />
+                    {targetDepartments.length > 0 && <span>{targetDepartments.length} dept{targetDepartments.length > 1 ? 's' : ''}</span>}
+                    {targetDepartments.length > 0 && targetYears.length > 0 && <span>·</span>}
+                    {targetYears.length > 0 && <span>Year {targetYears.sort().join(', ')}</span>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => handleConfirmCreate(false)}
+                  className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 text-sm"
+                >
+                  Skip — Everyone
+                </button>
+                <button
+                  onClick={() => handleConfirmCreate(true)}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg text-sm"
+                >
+                  Confirm
                 </button>
               </div>
             </motion.div>

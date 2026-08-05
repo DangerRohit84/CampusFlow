@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { formAPI } from '../lib/api'
+import { formAPI, departmentAPI } from '../lib/api'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, FileText, Users, Download, Loader2, CheckCircle, Send, Clock, Plus
+  ArrowLeft, FileText, Users, Download, Loader2, CheckCircle, Send, Clock, Plus, GraduationCap, BookOpen
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -19,12 +19,39 @@ export default function FormDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [extendDays, setExtendDays] = useState('7')
+  const [departments, setDepartments] = useState<any[]>([])
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
   const isExpired = form?.expiresAt && new Date() > new Date(form.expiresAt)
 
+  // Eligibility computation
+  const safeParse = (json: any): any[] => {
+    try {
+      if (Array.isArray(json)) return json
+      if (typeof json === 'string') return JSON.parse(json || '[]')
+      return []
+    } catch { return [] }
+  }
+
+  const targetDeptIds: string[] = safeParse(form?.targetDepartments)
+  const targetYearsList: number[] = safeParse(form?.targetYears)
+  const targetDeptNames = targetDeptIds.length > 0 && departments.length > 0
+    ? departments.filter(d => targetDeptIds.includes(d.id)).map(d => d.name)
+    : []
+
+  const isEligible = !form?.eligibilityEnabled || (() => {
+    if (!user || user.role !== 'STUDENT') return true
+    if (targetDeptIds.length > 0 && (!user.departmentId || !targetDeptIds.includes(user.departmentId))) return false
+    if (targetYearsList.length > 0 && user.incomingYear) {
+      const currentYear = Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
+      if (!targetYearsList.includes(currentYear)) return false
+    }
+    return true
+  })()
+
   useEffect(() => {
     if (id) loadForm()
+    departmentAPI.getAll().then(setDepartments).catch(() => {})
   }, [id])
 
   const loadForm = async () => {
@@ -171,6 +198,12 @@ export default function FormDetailPage() {
                 </div>
               )}
 
+              {!isEligible && (
+                <div className="mb-4 p-3 bg-red-50 rounded-xl border border-red-200 flex items-center gap-2">
+                  <span className="text-sm text-red-700 font-medium">You are not eligible to respond to this form.</span>
+                </div>
+              )}
+
               <div className="space-y-4">
                 {form.fields.map((field: any) => (
                   <div key={field.id}>
@@ -289,6 +322,10 @@ export default function FormDetailPage() {
                   <p className="text-sm font-medium text-red-700">Form has expired</p>
                   <p className="text-xs text-red-500">Expired on {new Date(form.expiresAt).toLocaleString()}</p>
                 </div>
+              ) : !isEligible ? (
+                <div className="mt-6 p-4 bg-red-50 rounded-xl text-center">
+                  <p className="text-sm font-medium text-red-700">You are not eligible to respond to this form</p>
+                </div>
               ) : !submitted || form.allowEdit ? (
                 <button
                   onClick={handleSubmit}
@@ -348,6 +385,36 @@ export default function FormDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Targeting Badges */}
+          {form.eligibilityEnabled && (
+            <div className="bg-white rounded-2xl border border-surface-100 p-5">
+              <h3 className="font-bold text-surface-900 mb-3">Target Audience</h3>
+              <div className="space-y-3">
+                {targetDeptNames.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <GraduationCap size={14} className="text-violet-500 shrink-0" />
+                    <span className="text-xs font-semibold text-surface-500">Departments:</span>
+                    {targetDeptNames.map(name => (
+                      <span key={name} className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-bold">{name}</span>
+                    ))}
+                  </div>
+                )}
+                {targetYearsList.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <BookOpen size={14} className="text-purple-500 shrink-0" />
+                    <span className="text-xs font-semibold text-surface-500">Years:</span>
+                    {targetYearsList.sort().map(y => (
+                      <span key={y} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold">Year {y}</span>
+                    ))}
+                  </div>
+                )}
+                {targetDeptNames.length === 0 && targetYearsList.length === 0 && (
+                  <p className="text-xs text-surface-500">Open to all departments and years</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {isTeacher && (
             <div className="bg-white rounded-2xl border border-surface-100 p-5">

@@ -314,16 +314,19 @@ model HackathonRound {
 }
 
 model Form {
-  id          String    @id @default(uuid())
-  creatorId   String
-  collegeId   String?
-  title       String
-  description String?
-  status      String    @default("ACTIVE")
-  allowEdit   Boolean   @default(false)
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  creatorId           String
+  collegeId           String?
+  title               String
+  description         String?
+  status              String    @default("ACTIVE")
+  allowEdit           Boolean   @default(false)
+  expiresAt           DateTime?
+  targetDepartments   String    @default("[]")
+  targetYears         String    @default("[]")
+  eligibilityEnabled  Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   creator   User           @relation(fields: [creatorId], references: [id])
   college   College?       @relation(fields: [collegeId], references: [id])

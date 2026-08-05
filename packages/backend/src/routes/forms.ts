@@ -15,7 +15,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { title, description, fields, allowEdit, expiresAt } = req.body
+    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
 
     const form = await prisma.form.create({
       data: {
@@ -26,6 +26,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         status: 'ACTIVE',
         allowEdit: allowEdit || false,
         expiresAt: expiresAt ? new Date(expiresAt) : null,
+        targetDepartments: JSON.stringify(targetDepartments || []),
+        targetYears: JSON.stringify(targetYears || []),
+        eligibilityEnabled: eligibilityEnabled || false,
         fields: {
           create: fields?.map((f: any, i: number) => ({
             label: f.label,
@@ -99,7 +102,20 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'Only teachers can update forms' })
       return
     }
-    const { title, description, allowEdit, expiresAt } = req.body
+
+    // Check ownership for TEACHER role
+    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id } })
+    if (!existingForm) {
+      res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    if (user.role === 'TEACHER' && existingForm.creatorId !== req.userId) {
+      res.status(403).json({ error: 'Can only update your own forms' })
+      return
+    }
+
+    const { title, description, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
     const form = await prisma.form.update({
       where: { id: req.params.id },
       data: {
@@ -107,6 +123,9 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         ...(description !== undefined && { description }),
         ...(allowEdit !== undefined && { allowEdit }),
         ...(expiresAt !== undefined && { expiresAt: expiresAt ? new Date(expiresAt) : null }),
+        ...(targetDepartments !== undefined && { targetDepartments: JSON.stringify(targetDepartments) }),
+        ...(targetYears !== undefined && { targetYears: JSON.stringify(targetYears) }),
+        ...(eligibilityEnabled !== undefined && { eligibilityEnabled }),
       },
     })
     res.json(form)
@@ -119,6 +138,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // Get single form with fields
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
     const form = await prisma.form.findUnique({
       where: { id: req.params.id },
       include: {
@@ -133,6 +158,18 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    // Authorization check: Students can only see active forms
+    if (user.role === 'STUDENT' && form.status !== 'ACTIVE') {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    // Teachers can only see their own forms
+    if (user.role === 'TEACHER' && form.creatorId !== req.userId) {
+      res.status(403).json({ error: 'Access denied' })
       return
     }
 
@@ -161,6 +198,33 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    // Check eligibility if enabled
+    if (form.eligibilityEnabled) {
+      let targetDepts: string[] = []
+      let targetYears: number[] = []
+      try {
+        targetDepts = JSON.parse(form.targetDepartments || '[]')
+      } catch { targetDepts = [] }
+      try {
+        targetYears = JSON.parse(form.targetYears || '[]')
+      } catch { targetYears = [] }
+
+      // Must match department if targetDepartments specified
+      if (targetDepts.length > 0 && (!user.departmentId || !targetDepts.includes(user.departmentId))) {
+        res.status(403).json({ error: 'Your department is not eligible for this form' })
+        return
+      }
+
+      // Must match year if targetYears specified
+      if (targetYears.length > 0 && user.incomingYear) {
+        const currentYear = Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
+        if (!targetYears.includes(currentYear)) {
+          res.status(403).json({ error: `Only year ${targetYears.join(', ')} students are eligible for this form` })
+          return
+        }
+      }
+    }
+
     // Check if form is expired
     if (form.expiresAt && new Date() > form.expiresAt) {
       res.status(400).json({ error: 'Form has expired' })
@@ -171,6 +235,12 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
     const existing = await prisma.formResponse.findUnique({
       where: { formId_userId: { formId: req.params.id, userId: req.userId! } },
     })
+
+    // Enforce allowEdit setting
+    if (!form.allowEdit && existing) {
+      res.status(403).json({ error: 'This form does not allow editing responses' })
+      return
+    }
 
     if (existing) {
       // Update existing response
@@ -217,6 +287,12 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    // Check ownership for TEACHER role
+    if (user.role === 'TEACHER' && form.creatorId !== req.userId) {
+      res.status(403).json({ error: 'Can only extend your own forms' })
+      return
+    }
+
     const updated = await prisma.form.update({
       where: { id: req.params.id },
       data: { expiresAt: new Date(expiresAt) },
@@ -232,6 +308,12 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
 // Export form responses to Excel
 router.get('/:id/export', async (req: AuthRequest, res: Response) => {
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
     const form = await prisma.form.findUnique({
       where: { id: req.params.id },
       include: {
@@ -244,6 +326,12 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
 
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    // Authorization check: Teachers can only export their own forms
+    if (user.role === 'TEACHER' && form.creatorId !== req.userId) {
+      res.status(403).json({ error: 'Access denied' })
       return
     }
 
@@ -272,7 +360,10 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
 
     // Rows
     form.responses.forEach((resp, idx) => {
-      const answers = JSON.parse(resp.answers)
+      let answers: any = {}
+      try {
+        answers = JSON.parse(resp.answers)
+      } catch { answers = {} }
       const row: any = {
         sno: idx + 1,
         rollNo: resp.user.studentId || '',
