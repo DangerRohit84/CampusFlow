@@ -20,8 +20,15 @@ export default function FormDetailPage() {
   const [submitted, setSubmitted] = useState(false)
   const [extendDays, setExtendDays] = useState('7')
   const [departments, setDepartments] = useState<any[]>([])
+  const [editingFields, setEditingFields] = useState(false)
+  const [editFields, setEditFields] = useState<any[]>([])
+  const [savingFields, setSavingFields] = useState(false)
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isCRofLinkedRoom = user?.role === 'STUDENT' && form.formRooms?.some(
+    (fr: any) => fr.room.members?.some((m: any) => m.studentId === user.id && m.isCR)
+  )
+  const canEdit = isTeacher || isCRofLinkedRoom
   const isExpired = form?.expiresAt && new Date() > new Date(form.expiresAt)
 
   // Eligibility computation
@@ -118,6 +125,66 @@ export default function FormDetailPage() {
       loadForm()
     } catch (err) {
       toast.error('Failed to extend')
+    }
+  }
+
+  const startEditFields = () => {
+    setEditFields(form.fields.map((f: any) => ({
+      id: f.id,
+      label: f.label,
+      type: f.type,
+      required: f.required,
+      options: (() => { try { return JSON.parse(f.options || '[]') } catch { return [] } })(),
+    })))
+    setEditingFields(true)
+  }
+
+  const addEditField = () => {
+    setEditFields([...editFields, { label: '', type: 'TEXT', required: false, options: [] }])
+  }
+
+  const updateEditField = (index: number, updates: any) => {
+    const updated = [...editFields]
+    updated[index] = { ...updated[index], ...updates }
+    setEditFields(updated)
+  }
+
+  const removeEditField = (index: number) => {
+    if (editFields.length <= 1) return
+    setEditFields(editFields.filter((_: any, i: number) => i !== index))
+  }
+
+  const saveFields = async () => {
+    const valid = editFields.filter((f: any) => f.label)
+    if (valid.length === 0) {
+      toast.error('Need at least one field')
+      return
+    }
+    setSavingFields(true)
+    try {
+      await formAPI.updateFields(id!, valid)
+      toast.success('Fields updated!')
+      setEditingFields(false)
+      loadForm()
+    } catch (err) {
+      toast.error('Failed to update fields')
+    } finally {
+      setSavingFields(false)
+    }
+  }
+
+  const getFieldIcon = (type: string) => {
+    switch (type) {
+      case 'TEXT': return '📝'
+      case 'TEXTAREA': return '📄'
+      case 'SELECT': return '📋'
+      case 'RADIO': return '🔘'
+      case 'CHECKBOX': return '☑️'
+      case 'NUMBER': return '🔢'
+      case 'EMAIL': return '📧'
+      case 'DATE': return '📅'
+      case 'RATING': return '⭐'
+      default: return '📝'
     }
   }
 
@@ -441,17 +508,92 @@ export default function FormDetailPage() {
             </div>
           )}
 
-          {isTeacher && (
+          {canEdit && (
             <div className="bg-white rounded-2xl border border-surface-100 p-5">
-              <h3 className="font-bold text-surface-900 mb-3">Field Summary</h3>
-              <div className="space-y-2">
-                {form.fields.map((field: any) => (
-                  <div key={field.id} className="flex items-center justify-between text-sm">
-                    <span className="text-surface-600">{field.label}</span>
-                    <span className="text-xs text-surface-400">{field.type}</span>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-surface-900">Form Fields</h3>
+                {!editingFields ? (
+                  <button onClick={startEditFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700">Edit</button>
+                ) : (
+                  <div className="flex gap-3">
+                    <button onClick={() => setEditingFields(false)} className="text-xs font-semibold text-surface-500 hover:text-surface-700">Cancel</button>
+                    <button onClick={saveFields} disabled={savingFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700 disabled:opacity-50">
+                      {savingFields ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
+
+              {editingFields ? (
+                <div className="space-y-2">
+                  {editFields.map((field: any, i: number) => (
+                    <div key={i} className="p-2.5 bg-surface-50 rounded-xl border border-surface-100">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-sm">{getFieldIcon(field.type)}</span>
+                        <input
+                          type="text"
+                          value={field.label}
+                          onChange={(e) => updateEditField(i, { label: e.target.value })}
+                          className="flex-1 px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
+                          placeholder="Field label"
+                        />
+                        <button onClick={() => removeEditField(i)} disabled={editFields.length <= 1} className="text-red-400 hover:text-red-600 text-xs disabled:opacity-30">✕</button>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={field.type}
+                          onChange={(e) => updateEditField(i, { type: e.target.value })}
+                          className="px-1.5 py-0.5 bg-white border border-surface-200 rounded-lg text-xs"
+                        >
+                          <option value="TEXT">Text</option>
+                          <option value="TEXTAREA">Long Text</option>
+                          <option value="NUMBER">Number</option>
+                          <option value="EMAIL">Email</option>
+                          <option value="DATE">Date</option>
+                          <option value="SELECT">Dropdown</option>
+                          <option value="RADIO">Radio</option>
+                          <option value="CHECKBOX">Checkbox</option>
+                          <option value="RATING">Rating</option>
+                        </select>
+                        <label className="flex items-center gap-0.5 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            onChange={(e) => updateEditField(i, { required: e.target.checked })}
+                            className="rounded"
+                          />
+                          Req
+                        </label>
+                      </div>
+                      {(field.type === 'SELECT' || field.type === 'RADIO' || field.type === 'CHECKBOX') && (
+                        <input
+                          type="text"
+                          value={field.options?.join(', ') || ''}
+                          onChange={(e) => updateEditField(i, { options: e.target.value.split(',').map((o: string) => o.trim()).filter(Boolean) })}
+                          className="w-full mt-1.5 px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
+                          placeholder="Options (comma separated)"
+                        />
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={addEditField} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-lg">
+                    <Plus size={12} /> Add Field
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {form.fields.map((field: any) => (
+                    <div key={field.id} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs">{getFieldIcon(field.type)}</span>
+                        <span className="text-surface-600">{field.label}</span>
+                        {field.required && <span className="text-red-500 text-xs">*</span>}
+                      </div>
+                      <span className="text-xs text-surface-400">{field.type}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
