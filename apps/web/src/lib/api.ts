@@ -218,6 +218,7 @@ export const formAPI = {
   },
   extend: (id: string, expiresAt: string) => api.post(`/forms/${id}/extend`, { expiresAt }).then((r) => r.data),
   update: (id: string, data: any) => api.put(`/forms/${id}`, data).then((r) => r.data),
+  updateFields: (id: string, fields: any[]) => api.put(`/forms/${id}/fields`, { fields }).then((r) => r.data),
 }
 
 // Rooms
@@ -230,6 +231,12 @@ export const roomAPI = {
   update: (id: string, data: { name?: string; description?: string; departmentId?: string; targetYears?: number[] }) =>
     api.put(`/rooms/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/rooms/${id}`).then((r) => r.data),
+
+  // Class Representative (CR)
+  makeCR: (roomId: string, studentId: string) =>
+    api.post(`/rooms/${roomId}/make-cr`, { studentId }).then((r) => r.data),
+  removeCR: (roomId: string, studentId: string) =>
+    api.post(`/rooms/${roomId}/remove-cr`, { studentId }).then((r) => r.data),
 
   // Join / Leave
   joinByCode: (roomId: string, code: string) =>
