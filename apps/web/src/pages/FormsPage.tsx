@@ -5,12 +5,12 @@ import { formAPI, departmentAPI, roomAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
-  Filter, Clock, AlertTriangle, CheckCircle2
+  Filter, Clock, CheckCircle2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
-type FilterTab = 'all' | 'active' | 'expiring' | 'expired'
+type FilterTab = 'all' | 'active' | 'expired'
 
 export default function FormsPage() {
   const { user } = useAuthStore()
@@ -45,7 +45,10 @@ export default function FormsPage() {
   const [editAllowEdit, setEditAllowEdit] = useState(false)
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
+  const [crRoomIds, setCrRoomIds] = useState<string[]>([])
+
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const canCreate = isTeacher || crRoomIds.length > 0
 
   const toggleRoom = (id: string) => {
     setSelectedRoomIds(prev =>
@@ -64,13 +67,13 @@ export default function FormsPage() {
 
   const tabCounts = useMemo(() => ({
     all: forms.length,
-    active: forms.filter(f => getFormStatus(f) === 'active').length,
-    expiring: forms.filter(f => getFormStatus(f) === 'expiring').length,
+    active: forms.filter(f => getFormStatus(f) !== 'expired').length,
     expired: forms.filter(f => getFormStatus(f) === 'expired').length,
   }), [forms])
 
   const filteredForms = useMemo(() => {
     if (activeTab === 'all') return forms
+    if (activeTab === 'active') return forms.filter(f => getFormStatus(f) !== 'expired')
     return forms.filter(f => getFormStatus(f) === activeTab)
   }, [forms, activeTab])
 
@@ -80,7 +83,16 @@ export default function FormsPage() {
     if (isTeacher) {
       roomAPI.getAll().then(setTeacherRooms).catch(() => {})
     }
-  }, [])
+    if (user?.role === 'STUDENT') {
+      roomAPI.getAll().then((rooms: any[]) => {
+        const crRooms = rooms.filter((r: any) =>
+          r.members?.some((m: any) => m.studentId === user.id && m.isCR)
+        )
+        setCrRoomIds(crRooms.map((r: any) => r.id))
+        setTeacherRooms(crRooms)
+      }).catch(() => {})
+    }
+  }, [user])
 
   const loadForms = async () => {
     try {
@@ -190,12 +202,6 @@ export default function FormsPage() {
     }
   }
 
-  const isNearDeadline = (dateStr: string) => {
-    if (!dateStr) return false
-    const diff = new Date(dateStr).getTime() - Date.now()
-    return diff > 0 && diff <= 3 * 24 * 60 * 60 * 1000
-  }
-
   const getFieldIcon = (type: string) => {
     switch (type) {
       case 'TEXT': return '📝'
@@ -226,7 +232,7 @@ export default function FormsPage() {
           <h1 className="text-2xl font-bold text-surface-900">Forms</h1>
           <p className="text-surface-500 text-sm mt-1">Create and manage custom forms</p>
         </div>
-        {isTeacher && (
+        {canCreate && (
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
@@ -241,7 +247,6 @@ export default function FormsPage() {
         {([
           { key: 'all', label: 'All', icon: Filter },
           { key: 'active', label: 'Active', icon: CheckCircle2 },
-          { key: 'expiring', label: 'Expiring Soon', icon: AlertTriangle },
           { key: 'expired', label: 'Expired', icon: Clock },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
@@ -284,24 +289,23 @@ export default function FormsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredForms.map((f) => {
             const isExpired = f.expiresAt && new Date(f.expiresAt) < new Date()
-            const nearDeadline = f.expiresAt && isNearDeadline(f.expiresAt)
 
             return (
               <motion.div
                 key={f.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-surface-100 p-5 hover:shadow-lg transition-all cursor-pointer group"
+                className={clsx(
+                  'bg-white rounded-2xl border p-5 hover:shadow-lg transition-all cursor-pointer group',
+                  getFormStatus(f) === 'expiring' ? 'border-red-200 bg-red-50/30' : 'border-surface-100'
+                )}
                 onClick={() => navigate(`/forms/${f.id}`)}
               >
                 <div className="flex items-start justify-between mb-3">
-                  {nearDeadline ? (
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                      Expiring Soon
-                    </span>
-                  ) : isExpired ? (
+                  {isExpired ? (
                     <span className="px-2 py-1 rounded-full text-xs font-semibold bg-surface-100 text-surface-500">Expired</span>
+                  ) : getFormStatus(f) === 'expiring' ? (
+                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Expiring Soon</span>
                   ) : (
                     <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">{f.status || 'Active'}</span>
                   )}
@@ -338,16 +342,18 @@ export default function FormsPage() {
                     {f.responses?.length || 0}
                   </span>
                   {f.expiresAt && (
-                    <span className={clsx('flex items-center gap-1', nearDeadline && 'text-red-600 font-semibold')}>
-                      <Calendar size={11} className={nearDeadline ? 'text-red-500' : 'text-surface-400'} />
-                      {new Date(f.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    <span className="flex items-center gap-1">
+                      <Calendar size={11} className={clsx(getFormStatus(f) === 'expiring' ? 'text-red-400' : 'text-surface-400')} />
+                      <span className={clsx(getFormStatus(f) === 'expiring' ? 'text-red-500 font-medium' : '')}>
+                        {new Date(f.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </span>
                     </span>
                   )}
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-surface-100 flex items-center justify-between">
                   <span className="text-xs text-surface-400">
-                    {new Date(f.createdAt).toLocaleDateString()}
+                    {f.expiresAt ? `Due ${new Date(f.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No deadline'}
                   </span>
                   <ChevronRight size={14} className="text-surface-400 group-hover:text-primary-500 transition-colors" />
                 </div>
