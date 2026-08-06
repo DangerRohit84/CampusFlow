@@ -83,21 +83,37 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         orderBy: { createdAt: 'desc' },
       })
     } else if (user.role === 'COLLEGE_ADMIN' || user.role === 'TEACHER') {
+      // Teachers see: their own forms + forms in their department + forms linked to their rooms
+      const teacherRoomIds = (await prisma.room.findMany({
+        where: { teacherId: req.userId },
+        select: { id: true },
+      })).map(r => r.id)
+
       forms = await prisma.form.findMany({
         where: {
           OR: [
             { creatorId: req.userId },
             { creator: { department: user.department } },
+            { formRooms: { some: { roomId: { in: teacherRoomIds } } } },
           ],
         },
         include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
       })
     } else {
+      // Students see: forms linked to their rooms + forms in their department
+      const studentRoomIds = (await prisma.roomMember.findMany({
+        where: { studentId: req.userId },
+        select: { roomId: true },
+      })).map(m => m.roomId)
+
       forms = await prisma.form.findMany({
         where: {
           status: 'ACTIVE',
-          creator: { department: user.department },
+          OR: [
+            { creator: { department: user.department } },
+            { formRooms: { some: { roomId: { in: studentRoomIds } } } },
+          ],
         },
         include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
