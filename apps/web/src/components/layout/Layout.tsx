@@ -141,12 +141,13 @@ export default function Layout() {
           const nearCount = item.path === '/hackathons' ? nearDeadlineCount.hackathons
             : item.path === '/forms' ? nearDeadlineCount.forms : 0
           return (
-            <button key={item.path} onClick={() => navigate(item.path)}
-              className={clsx('w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-medium transition-all duration-200 group relative',
+            <button key={item.path} onClick={() => navigate(item.path)} title={item.label}
+              className={clsx('w-full flex items-center gap-3 rounded-xl font-medium transition-all duration-200 group relative',
+                sidebarOpen ? 'px-4 py-2.5' : 'justify-center px-0 py-2.5',
                 isActive ? 'bg-gradient-to-r from-primary-50 to-accent-50 text-primary-700 shadow-sm' : 'text-surface-500 hover:bg-surface-100 hover:text-surface-900'
               )}>
               {isActive && <motion.div layoutId="activeTab" className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-gradient-to-b from-primary-500 to-accent-500 rounded-r-full" />}
-              <Icon size={18} className={isActive ? 'text-primary-600' : 'text-surface-400 group-hover:text-surface-600'} />
+              <Icon size={20} className={isActive ? 'text-primary-600' : 'text-surface-400 group-hover:text-surface-600'} />
               {sidebarOpen && <span className="flex-1 text-left text-sm">{item.label}</span>}
               {sidebarOpen && nearCount > 0 && (
                 <span className="px-1.5 py-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[18px] text-center">{nearCount}</span>
@@ -221,7 +222,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-surface-50 overflow-hidden">
       {/* Desktop Sidebar */}
-      <aside className={clsx('hidden lg:flex flex-col border-r border-surface-100 bg-white transition-all duration-300 overflow-hidden', sidebarOpen ? 'w-64' : 'w-[68px]')}>
+      <aside className={clsx('hidden lg:flex flex-col border-r border-surface-100 bg-white transition-all duration-300 overflow-hidden', sidebarOpen ? 'w-64' : 'w-[72px]')}>
         <SidebarContent />
       </aside>
 
