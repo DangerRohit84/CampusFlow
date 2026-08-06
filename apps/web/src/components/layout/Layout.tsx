@@ -196,6 +196,24 @@ export default function Layout() {
         </div>
       )}
 
+      {/* Logout */}
+      <div className="px-3 mt-auto pb-3">
+        <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-xs shadow-md">
+            {user?.name?.charAt(0) || 'S'}
+          </div>
+          {sidebarOpen && (
+            <>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-surface-900 truncate">{user?.name || 'Student'}</p>
+                <p className="text-[10px] text-surface-400 truncate">{user?.email || 'student@campus.edu'}</p>
+              </div>
+              <button onClick={handleLogout} className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Logout">
+                <LogOut size={16} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
