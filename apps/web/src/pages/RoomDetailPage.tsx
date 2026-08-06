@@ -169,6 +169,21 @@ export default function RoomDetailPage() {
     setExpandedCategories((prev) => ({ ...prev, [cat]: !prev[cat] }))
   }
 
+  const handleToggleCR = async (studentId: string, isCurrentlyCR: boolean) => {
+    try {
+      if (isCurrentlyCR) {
+        await roomAPI.removeCR(id!, studentId)
+        toast.success('CR removed')
+      } else {
+        await roomAPI.makeCR(id!, studentId)
+        toast.success('Student is now CR')
+      }
+      loadRoom()
+    } catch (err) {
+      toast.error('Failed to update CR status')
+    }
+  }
+
   const totalResources = Object.values(resources).flat().length
 
   if (loading) {
@@ -283,6 +298,7 @@ export default function RoomDetailPage() {
                     <th className="text-left py-2 text-surface-500 font-medium">Name</th>
                     <th className="text-left py-2 text-surface-500 font-medium">Email</th>
                     <th className="text-left py-2 text-surface-500 font-medium">Department</th>
+                    <th className="text-left py-2 text-surface-500 font-medium">CR</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,10 +306,29 @@ export default function RoomDetailPage() {
                     <tr key={member.id} className="border-b border-surface-50">
                       <td className="py-2 font-mono text-xs text-surface-600">{member.studentId || '-'}</td>
                       <td className="py-2">
-                        <p className="font-medium text-surface-900">{member.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-surface-900">{member.name}</p>
+                          {member.isCR && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 rounded-full">
+                              CR
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 text-xs text-surface-400">{member.email}</td>
                       <td className="py-2 text-xs text-surface-500">{member.department?.name || '-'}</td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => handleToggleCR(member.studentId, member.isCR)}
+                          className={`text-xs font-semibold px-2 py-1 rounded-lg ${
+                            member.isCR
+                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                              : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                          }`}
+                        >
+                          {member.isCR ? 'Remove CR' : 'Make CR'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
