@@ -20,7 +20,6 @@ const providerSchema = z.object({
 
 // Chat with any OpenAI-compatible provider
 async function chatWithProvider(userMessage: string, provider?: { baseUrl?: string; apiKey?: string; model?: string }, context?: string): Promise<string> {
-  const baseUrl = provider?.baseUrl || 'https://api.groq.com/openai/v1'
   const apiKey = provider?.apiKey || config.groqApiKey || ''
   const model = provider?.model || 'llama-3.3-70b-versatile'
 
@@ -29,7 +28,9 @@ async function chatWithProvider(userMessage: string, provider?: { baseUrl?: stri
   }
 
   try {
-    const groq = new Groq({ apiKey, baseURL: baseUrl })
+    const clientOptions: any = { apiKey }
+    if (provider?.baseUrl) clientOptions.baseURL = provider.baseUrl
+    const groq = new Groq(clientOptions)
     const completion = await groq.chat.completions.create({
       messages: [
         { role: 'system', content: 'You are CampusFlow, an AI-powered campus assistant for university students. Be concise, friendly, and actionable.' },
