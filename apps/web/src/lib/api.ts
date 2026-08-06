@@ -95,13 +95,13 @@ export const assignmentAPI = {
   delete: (id: string) => api.delete(`/assignments/${id}`).then((r) => r.data),
 }
 
-// Notifications
+// Notifications (unified via room notifications)
 export const notificationAPI = {
-  getAll: (unread?: boolean) => api.get('/notifications', { params: { unread } }).then((r) => r.data),
-  getUnreadCount: () => api.get('/notifications/unread-count').then((r) => r.data),
-  markRead: (id: string) => api.put(`/notifications/${id}/read`).then((r) => r.data),
-  markAllRead: () => api.put('/notifications/read-all').then((r) => r.data),
-  delete: (id: string) => api.delete(`/notifications/${id}`).then((r) => r.data),
+  getAll: (unread?: boolean) => api.get('/rooms/notifications/list').then((r) => r.data),
+  getUnreadCount: () => api.get('/rooms/notifications/list').then((r) => r.data.filter((n: any) => !n.isRead).length),
+  markRead: (id: string) => api.post(`/rooms/notifications/${id}/read`).then((r) => r.data),
+  markAllRead: () => api.put('/rooms/notifications/read-all').then((r) => r.data),
+  delete: (id: string) => api.delete(`/rooms/notifications/${id}`).then((r) => r.data),
 }
 
 // Chat

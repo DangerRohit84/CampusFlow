@@ -826,6 +826,35 @@ router.post('/notifications/:id/read', async (req: AuthRequest, res: Response) =
   }
 })
 
+// 13b. PUT /notifications/read-all — Mark all as read
+router.put('/notifications/read-all', async (req: AuthRequest, res: Response) => {
+  try {
+    await prisma.roomNotification.updateMany({
+      where: { studentId: req.userId!, isRead: false },
+      data: { isRead: true },
+    })
+    res.json({ message: 'All notifications marked as read' })
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to mark all as read' })
+  }
+})
+
+// 13c. DELETE /notifications/:id — Delete notification
+router.delete('/notifications/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id)
+    const notif = await prisma.roomNotification.findUnique({ where: { id } })
+    if (!notif || notif.studentId !== req.userId) {
+      res.status(404).json({ error: 'Notification not found' })
+      return
+    }
+    await prisma.roomNotification.delete({ where: { id } })
+    res.json({ message: 'Notification deleted' })
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete notification' })
+  }
+})
+
 // 14. POST /import — Bulk import students (Teacher only, optional)
 router.post('/import', async (req: AuthRequest, res: Response) => {
   try {
