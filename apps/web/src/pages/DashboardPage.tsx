@@ -5,7 +5,7 @@ import {
   Calendar, BookOpen, Clock, TrendingUp, Bell, FileText,
   ChevronRight, Sparkles, Users, Target, Zap, Trophy,
   ClipboardList, GraduationCap, Shield, DoorOpen,
-  ArrowUpRight, CheckCircle, AlertCircle, BarChart3, Plus,
+  ArrowUpRight, CheckCircle, AlertCircle, BarChart3, Plus, MessageSquare,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Card from '../components/ui/Card'
@@ -138,7 +138,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
           </Card>
         </motion.div>
 
-        {/* Quick Actions + Courses */}
+        {/* Quick Actions */}
         <motion.div variants={item} className="space-y-6">
           <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
             <div className="flex items-center gap-2 mb-4">
@@ -162,30 +162,21 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
             </div>
           </Card>
 
-          {/* Courses list */}
           <Card>
-            <h3 className="font-bold text-surface-900 mb-4">My Courses</h3>
+            <h3 className="font-bold text-surface-900 mb-3">Recent Notifications</h3>
             <div className="space-y-3">
-              {loading ? (
-                <p className="text-sm text-surface-400">Loading...</p>
-              ) : !data?.courses?.length ? (
-                <div className="text-center py-4">
-                  <BookOpen size={24} className="mx-auto text-surface-300 mb-2" />
-                  <p className="text-sm text-surface-400">No courses assigned</p>
-                </div>
-              ) : (
-                data.courses.map((c: any) => (
-                  <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50">
-                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                      <BookOpen size={14} className="text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-surface-900 truncate">{c.name}</p>
-                      <p className="text-xs text-surface-400">{c.code}</p>
-                    </div>
-                    <Badge variant="default">{c.credits}cr</Badge>
+              {data?.recentNotifications?.slice(0, 4).map((n: any) => (
+                <div key={n.id} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center shrink-0">
+                    <Bell size={14} />
                   </div>
-                ))
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-surface-700">{n.title || n.message}</p>
+                    <p className="text-xs text-surface-400 mt-0.5">{new Date(n.createdAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              )) || (
+                <p className="text-sm text-surface-400 text-center py-4">No recent notifications</p>
               )}
             </div>
           </Card>
