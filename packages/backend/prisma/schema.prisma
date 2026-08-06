@@ -402,6 +402,7 @@ model RoomMember {
   id        String   @id @default(uuid())
   roomId    String
   studentId String
+  isCR      Boolean  @default(false)
   joinedAt  DateTime @default(now())
 
   room    Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
