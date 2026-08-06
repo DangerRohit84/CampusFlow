@@ -15,7 +15,7 @@ import { timetableAPI, hackathonAPI, formAPI, roomAPI } from '../../lib/api'
 const navByRole: Record<string, any[]> = {
   STUDENT: [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/schedule', label: 'Planner', icon: Calendar },
+    { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
@@ -27,8 +27,7 @@ const navByRole: Record<string, any[]> = {
   ],
   TEACHER: [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/schedule', label: 'Planner', icon: Calendar },
-    { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+    { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },

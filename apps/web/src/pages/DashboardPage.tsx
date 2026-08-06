@@ -68,8 +68,8 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
   const stats = [
     { label: 'My Courses', value: data?.totalCourses || 0, icon: BookOpen, color: 'from-blue-400 to-blue-600', bg: 'bg-blue-50' },
     { label: 'My Students', value: data?.totalStudents || 0, icon: Users, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Hackathons', value: data?.activeHackathons || 0, icon: Trophy, color: 'from-purple-400 to-purple-600', bg: 'bg-purple-50' },
     { label: 'Active Forms', value: data?.activeForms || 0, icon: ClipboardList, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
+    { label: 'Notifications', value: `${data?.unreadNotifications || 0} New`, icon: Bell, color: 'from-accent-400 to-accent-600', bg: 'bg-accent-50' },
   ]
 
   return (
@@ -78,7 +78,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
         <h1 className="text-3xl font-bold text-surface-900">
           {greeting}, <span className="gradient-text">{useAuthStore.getState().user?.name?.split(' ')[0] || 'Teacher'}</span> 👋
         </h1>
-        <p className="text-surface-500 mt-1">Manage your courses, hackathons, and forms</p>
+        <p className="text-surface-500 mt-1">Manage your courses, students, and timetable</p>
       </motion.div>
 
       {/* Stats */}
@@ -89,49 +89,48 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
       </motion.div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Recent Hackathons */}
+        {/* Today's Schedule */}
         <motion.div variants={item} className="lg:col-span-2">
           <Card padding="none" className="overflow-hidden">
             <div className="p-6 pb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                  <Trophy className="w-5 h-5 text-purple-600" />
+                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-primary-600" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-surface-900">My Hackathons</h3>
-                  <p className="text-xs text-surface-400">Hackathons you've created</p>
+                  <h3 className="font-bold text-surface-900">Today's Schedule</h3>
+                  <p className="text-xs text-surface-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
                 </div>
               </div>
-              <button onClick={() => navigate('/hackathons')} className="text-xs font-semibold text-primary-600 hover:text-primary-700 flex items-center gap-1">
-                View all <ChevronRight size={12} />
+              <button onClick={() => navigate('/schedule')} className="text-xs font-semibold text-primary-600 hover:text-primary-700 flex items-center gap-1">
+                View timetable <ChevronRight size={12} />
               </button>
             </div>
             <div className="px-6 pb-6 space-y-3">
               {loading ? (
-                <div className="text-center py-12 text-surface-400">Loading...</div>
-              ) : !data?.recentHackathons?.length ? (
+                <div className="text-center py-12 text-surface-400">Loading schedule...</div>
+              ) : !data?.todaySchedule?.length ? (
                 <div className="text-center py-12">
-                  <Trophy size={32} className="mx-auto text-surface-300 mb-3" />
-                  <p className="text-surface-500 font-medium">No hackathons yet</p>
-                  <p className="text-sm text-surface-400">Create your first hackathon to get started</p>
+                  <Calendar size={32} className="mx-auto text-surface-300 mb-3" />
+                  <p className="text-surface-500 font-medium">No classes today</p>
+                  <p className="text-sm text-surface-400">Enjoy your day off!</p>
                 </div>
               ) : (
-                data.recentHackathons.map((h: any, i: number) => (
-                  <motion.div key={h.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }}
-                    onClick={() => navigate(`/hackathons/${h.id}`)}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors cursor-pointer group">
-                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
-                      <Trophy size={18} className="text-purple-600" />
-                    </div>
+                data.todaySchedule.map((event: any, i: number) => (
+                  <motion.div key={event.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors group cursor-pointer">
+                    <div className="w-1 h-12 rounded-full" style={{ backgroundColor: event.color || '#5c7cfa' }} />
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-surface-900 group-hover:text-primary-700 transition-colors truncate">{h.title}</p>
-                      <p className="text-xs text-surface-400 mt-0.5">
-                        {h.startDate ? new Date(h.startDate).toLocaleDateString() : 'No date set'}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-surface-900 group-hover:text-primary-700 transition-colors">{event.title}</p>
+                        <Badge variant={typeColor(event.type) as any}>{event.type}</Badge>
+                      </div>
+                      <p className="text-sm text-surface-500 mt-0.5">{event.location}</p>
+                      {event.teacher && <p className="text-xs text-surface-400 mt-0.5">{event.teacher}</p>}
                     </div>
-                    <Badge variant={h.status === 'PUBLISHED' ? 'success' : h.status === 'DRAFT' ? 'warning' : 'default'}>
-                      {h.status}
-                    </Badge>
+                    <div className="text-right shrink-0">
+                      <div className="flex items-center gap-1.5 text-surface-900 font-semibold"><Clock size={14} className="text-surface-400" />{event.startTime}</div>
+                    </div>
                   </motion.div>
                 ))
               )}
@@ -139,7 +138,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
           </Card>
         </motion.div>
 
-        {/* Quick Actions */}
+        {/* Quick Actions + Courses */}
         <motion.div variants={item} className="space-y-6">
           <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
             <div className="flex items-center gap-2 mb-4">
@@ -148,8 +147,8 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
             </div>
             <p className="text-sm text-white/80 mb-4">Jump to what you need</p>
             <div className="space-y-2">
-              <button onClick={() => navigate('/hackathons')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Trophy size={14} className="inline mr-2" />Create Hackathon
+              <button onClick={() => navigate('/schedule')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <Calendar size={14} className="inline mr-2" />View Timetable
               </button>
               <button onClick={() => navigate('/forms')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
                 <ClipboardList size={14} className="inline mr-2" />Create Form
@@ -157,8 +156,8 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
               <button onClick={() => navigate('/rooms')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
                 <DoorOpen size={14} className="inline mr-2" />Manage Rooms
               </button>
-              <button onClick={() => navigate('/schedule')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Calendar size={14} className="inline mr-2" />View Schedule
+              <button onClick={() => navigate('/chat')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <MessageSquare size={14} className="inline mr-2" />AI Assistant
               </button>
             </div>
           </Card>
