@@ -196,73 +196,6 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Notifications (Students only) */}
-      {user?.role === 'STUDENT' && (
-        <div className="px-3">
-          <div className="relative">
-            <button 
-              onClick={() => setShowNotifications(!showNotifications)} 
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-surface-600 hover:bg-surface-100 transition-all relative"
-            >
-              <Bell size={18} />
-              <span className="text-sm font-medium">Notifications</span>
-              {unreadCount > 0 && (
-                <span className="ml-auto w-5 h-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-            {showNotifications && (
-              <div className="absolute left-0 right-0 bottom-full mb-2 bg-white rounded-xl shadow-lg border z-50 max-h-80 overflow-y-auto">
-                <div className="p-3 border-b font-semibold text-sm flex items-center justify-between">
-                  <span>Notifications</span>
-                  <button onClick={() => setShowNotifications(false)} className="text-surface-400 hover:text-surface-600">
-                    <X size={14} />
-                  </button>
-                </div>
-                {notifications.length === 0 ? (
-                  <div className="p-6 text-center text-surface-400 text-sm">No notifications yet</div>
-                ) : (
-                  notifications.slice(0, 10).map(n => (
-                    <div 
-                      key={n.id} 
-                      className={`p-3 border-b last:border-0 hover:bg-surface-50 cursor-pointer transition-all ${!n.isRead ? 'bg-primary-50/50' : ''}`}
-                      onClick={() => {
-                        roomAPI.markNotificationRead(n.id).catch(() => {})
-                        setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x))
-                        if (n.roomId) navigate(`/rooms/${n.roomId}`)
-                        setShowNotifications(false)
-                      }}
-                    >
-                      <p className="text-sm">{n.message}</p>
-                      <p className="text-xs text-surface-400 mt-1">{n.room?.name || ''}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* User */}
-      <div className="p-3 border-t border-surface-100 shrink-0">
-        <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-xs shadow-md">
-            {user?.name?.charAt(0) || 'S'}
-          </div>
-          {sidebarOpen && (
-            <>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-surface-900 truncate">{user?.name || 'Student'}</p>
-                <p className="text-[10px] text-surface-400 truncate">{user?.email || 'student@campus.edu'}</p>
-              </div>
-              <button onClick={handleLogout} className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Logout">
-                <LogOut size={16} />
-              </button>
-            </>
-          )}
-        </div>
       </div>
     </div>
   )
@@ -303,7 +236,11 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <button className="relative p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors" onClick={() => navigate('/notifications')}>
               <Bell size={18} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
             <div className="hidden sm:flex items-center gap-2 pl-2 ml-2 border-l border-surface-200">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-[10px]">{user?.name?.charAt(0) || 'S'}</div>
