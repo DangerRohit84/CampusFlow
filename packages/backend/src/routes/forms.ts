@@ -292,8 +292,13 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         select: { roomId: true },
       })).map(m => m.roomId)
       const linkedToMyRoom = form.formRooms?.some((fr: any) => studentRoomIds.includes(fr.roomId))
-      const sameDept = form.targetDepartments?.includes(user.departmentId || '')
-      if (!linkedToMyRoom && !sameDept) {
+      let sameDept = false
+      try {
+        const targetDepts = JSON.parse(form.targetDepartments || '[]')
+        sameDept = Array.isArray(targetDepts) && targetDepts.includes(user.departmentId)
+      } catch {}
+      const noRestrictions = !form.eligibilityEnabled && (!form.targetDepartments || form.targetDepartments === '[]')
+      if (!linkedToMyRoom && !sameDept && !noRestrictions) {
         res.status(403).json({ error: 'Access denied' })
         return
       }
