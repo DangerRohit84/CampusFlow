@@ -881,4 +881,88 @@ router.post('/import', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Make a student CR (Teacher only)
+router.post('/:id/make-cr', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id)
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || user.role !== 'TEACHER') {
+      res.status(403).json({ error: 'Only teachers can manage CR status' })
+      return
+    }
+
+    const room = await prisma.room.findUnique({ where: { id } })
+    if (!room || room.teacherId !== req.userId!) {
+      res.status(403).json({ error: 'You can only manage CR in your own rooms' })
+      return
+    }
+
+    const { studentId } = req.body
+    if (!studentId) {
+      res.status(400).json({ error: 'studentId is required' })
+      return
+    }
+
+    const member = await prisma.roomMember.findUnique({
+      where: { roomId_studentId: { roomId: id, studentId } }
+    })
+    if (!member) {
+      res.status(404).json({ error: 'Student is not a member of this room' })
+      return
+    }
+
+    const updated = await prisma.roomMember.update({
+      where: { id: member.id },
+      data: { isCR: true },
+    })
+
+    res.json({ member: updated })
+  } catch (error) {
+    console.error('Make CR error:', error)
+    res.status(500).json({ error: 'Failed to make CR' })
+  }
+})
+
+// Remove CR status (Teacher only)
+router.post('/:id/remove-cr', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id)
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || user.role !== 'TEACHER') {
+      res.status(403).json({ error: 'Only teachers can manage CR status' })
+      return
+    }
+
+    const room = await prisma.room.findUnique({ where: { id } })
+    if (!room || room.teacherId !== req.userId!) {
+      res.status(403).json({ error: 'You can only manage CR in your own rooms' })
+      return
+    }
+
+    const { studentId } = req.body
+    if (!studentId) {
+      res.status(400).json({ error: 'studentId is required' })
+      return
+    }
+
+    const member = await prisma.roomMember.findUnique({
+      where: { roomId_studentId: { roomId: id, studentId } }
+    })
+    if (!member) {
+      res.status(404).json({ error: 'Student is not a member of this room' })
+      return
+    }
+
+    const updated = await prisma.roomMember.update({
+      where: { id: member.id },
+      data: { isCR: false },
+    })
+
+    res.json({ member: updated })
+  } catch (error) {
+    console.error('Remove CR error:', error)
+    res.status(500).json({ error: 'Failed to remove CR' })
+  }
+})
+
 export default router
