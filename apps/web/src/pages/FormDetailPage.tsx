@@ -25,7 +25,7 @@ export default function FormDetailPage() {
   const [savingFields, setSavingFields] = useState(false)
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
-  const isCRofLinkedRoom = user?.role === 'STUDENT' && form.formRooms?.some(
+  const isCRofLinkedRoom = user?.role === 'STUDENT' && form?.formRooms?.some(
     (fr: any) => fr.room.members?.some((m: any) => m.studentId === user.id && m.isCR)
   )
   const canEdit = isTeacher || isCRofLinkedRoom
