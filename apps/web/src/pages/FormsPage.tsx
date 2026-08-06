@@ -124,6 +124,7 @@ export default function FormsPage() {
       return
     }
     setShowCreate(false)
+    setEligibilityMode('rooms')
     setShowEligibilityPopup(true)
   }
 
@@ -608,10 +609,12 @@ export default function FormsPage() {
               className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
             >
               <h2 className="text-lg font-bold text-surface-900 mb-1">Who can respond?</h2>
-              <p className="text-sm text-surface-500 mb-5">Select rooms or departments, or skip to allow everyone.</p>
+              <p className="text-sm text-surface-500 mb-5">{isTeacher ? 'Select rooms or departments, or skip to allow everyone.' : 'Select rooms where you are CR, or skip to allow everyone.'}</p>
 
               {/* Two mode buttons */}
-              <div className="flex gap-3 mb-4">
+              <div className={`gap-3 mb-4 ${!isTeacher ? '' : 'flex'}`}>
+                {!isTeacher ? null : (
+                <>
                 <button
                   onClick={() => setEligibilityMode('rooms')}
                   className={`flex-1 p-3 rounded-xl border-2 transition-all ${
@@ -640,6 +643,8 @@ export default function FormsPage() {
                     <p className="text-xs text-surface-400">Select dept + year</p>
                   </div>
                 </button>
+                </>
+                )}
               </div>
 
               {/* Rooms selection */}
@@ -666,8 +671,8 @@ export default function FormsPage() {
                 </div>
               )}
 
-              {/* Department selection */}
-              {eligibilityMode === 'department' && (
+              {/* Department selection — teacher only */}
+              {isTeacher && eligibilityMode === 'department' && (
                 <div className="space-y-4">
                   <div>
                     <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
