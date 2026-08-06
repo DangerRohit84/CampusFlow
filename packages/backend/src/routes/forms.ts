@@ -265,16 +265,38 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // Authorization check: Students can only see active forms
-    if (user.role === 'STUDENT' && form.status !== 'ACTIVE') {
-      res.status(403).json({ error: 'Access denied' })
-      return
+    // Teachers/College Admin: must be creator OR form linked to their rooms
+    if (user.role === 'TEACHER' || user.role === 'COLLEGE_ADMIN') {
+      const isCreator = form.creatorId === req.userId
+      if (!isCreator) {
+        const teacherRoomIds = (await prisma.room.findMany({
+          where: { teacherId: req.userId },
+          select: { id: true },
+        })).map(r => r.id)
+        const linkedToMyRoom = form.formRooms?.some((fr: any) => teacherRoomIds.includes(fr.roomId))
+        if (!linkedToMyRoom) {
+          res.status(403).json({ error: 'Access denied' })
+          return
+        }
+      }
     }
 
-    // Teachers can only see their own forms
-    if (user.role === 'TEACHER' && form.creatorId !== req.userId) {
-      res.status(403).json({ error: 'Access denied' })
-      return
+    // Students: must be active + linked to their room or same department
+    if (user.role === 'STUDENT') {
+      if (form.status !== 'ACTIVE') {
+        res.status(403).json({ error: 'Access denied' })
+        return
+      }
+      const studentRoomIds = (await prisma.roomMember.findMany({
+        where: { studentId: req.userId },
+        select: { roomId: true },
+      })).map(m => m.roomId)
+      const linkedToMyRoom = form.formRooms?.some((fr: any) => studentRoomIds.includes(fr.roomId))
+      const sameDept = form.targetDepartments?.includes(user.departmentId || '')
+      if (!linkedToMyRoom && !sameDept) {
+        res.status(403).json({ error: 'Access denied' })
+        return
+      }
     }
 
     res.json(form)
