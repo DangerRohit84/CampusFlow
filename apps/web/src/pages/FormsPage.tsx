@@ -85,9 +85,7 @@ export default function FormsPage() {
     }
     if (user?.role === 'STUDENT') {
       roomAPI.getAll().then((rooms: any[]) => {
-        const crRooms = rooms.filter((r: any) =>
-          r.members?.some((m: any) => m.studentId === user.id && m.isCR)
-        )
+        const crRooms = rooms.filter((r: any) => r.isCR === true)
         setCrRoomIds(crRooms.map((r: any) => r.id))
         setTeacherRooms(crRooms)
       }).catch(() => {})

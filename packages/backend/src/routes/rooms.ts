@@ -172,7 +172,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         orderBy: { joinedAt: 'desc' }
       })
 
-      rooms = memberRooms.map((m: any) => m.room)
+      rooms = memberRooms.map((m: any) => ({
+        ...m.room,
+        isCR: m.isCR,
+        roomMemberId: m.id,
+      }))
     }
 
     res.json(rooms)
