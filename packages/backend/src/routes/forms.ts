@@ -10,12 +10,20 @@ router.use(authenticate)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-      res.status(403).json({ error: 'Only teachers can create forms' })
+    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds } = req.body
+
+    const isCR = user?.role === 'STUDENT' && roomIds?.length > 0 && await prisma.roomMember.findFirst({
+      where: {
+        studentId: req.userId!,
+        isCR: true,
+        roomId: { in: roomIds },
+      }
+    })
+
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN' && !isCR)) {
+      res.status(403).json({ error: 'Only teachers or CRs can create forms' })
       return
     }
-
-    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds } = req.body
 
     const form = await prisma.form.create({
       data: {
@@ -103,24 +111,32 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Update form (Teacher only)
+// Update form (Teacher or CR of linked room)
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-      res.status(403).json({ error: 'Only teachers can update forms' })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
       return
     }
 
-    // Check ownership for TEACHER role
     const existingForm = await prisma.form.findUnique({ where: { id: req.params.id } })
     if (!existingForm) {
       res.status(404).json({ error: 'Form not found' })
       return
     }
 
-    if (user.role === 'TEACHER' && existingForm.creatorId !== req.userId) {
-      res.status(403).json({ error: 'Can only update your own forms' })
+    const isOwner = user.role === 'TEACHER' && existingForm.creatorId === req.userId
+    const isAdmin = user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
+    const isCRofLinkedRoom = user.role === 'STUDENT' && await prisma.formRoom.findFirst({
+      where: {
+        formId: req.params.id,
+        room: { members: { some: { studentId: req.userId!, isCR: true } } },
+      }
+    })
+
+    if (!isOwner && !isAdmin && !isCRofLinkedRoom) {
+      res.status(403).json({ error: 'You do not have permission to edit this form' })
       return
     }
 
@@ -141,6 +157,66 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Update form error:', error)
     res.status(500).json({ error: 'Failed to update form' })
+  }
+})
+
+// Update form fields (Teacher or CR of linked room)
+router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id } })
+    if (!existingForm) {
+      res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    const isOwner = user.role === 'TEACHER' && existingForm.creatorId === req.userId
+    const isAdmin = user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
+    const isCRofLinkedRoom = user.role === 'STUDENT' && await prisma.formRoom.findFirst({
+      where: {
+        formId: req.params.id,
+        room: { members: { some: { studentId: req.userId!, isCR: true } } },
+      }
+    })
+
+    if (!isOwner && !isAdmin && !isCRofLinkedRoom) {
+      res.status(403).json({ error: 'You do not have permission to edit this form' })
+      return
+    }
+
+    const { fields } = req.body
+    if (!Array.isArray(fields)) {
+      res.status(400).json({ error: 'Fields must be an array' })
+      return
+    }
+
+    // Delete existing fields and recreate
+    await prisma.formField.deleteMany({ where: { formId: req.params.id } })
+
+    const created = await Promise.all(
+      fields.map((f: any, i: number) =>
+        prisma.formField.create({
+          data: {
+            formId: req.params.id,
+            label: f.label,
+            type: f.type || 'TEXT',
+            required: f.required || false,
+            options: JSON.stringify(f.options || []),
+            order: i,
+          },
+        })
+      )
+    )
+
+    res.json(created)
+  } catch (error) {
+    console.error('Update fields error:', error)
+    res.status(500).json({ error: 'Failed to update fields' })
   }
 })
 
@@ -432,8 +508,18 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    if (form.creatorId !== req.userId) {
-      res.status(403).json({ error: 'Can only delete your own forms' })
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const isOwner = form.creatorId === req.userId
+    const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isCRofLinkedRoom = user?.role === 'STUDENT' && await prisma.formRoom.findFirst({
+      where: {
+        formId: req.params.id,
+        room: { members: { some: { studentId: req.userId!, isCR: true } } },
+      }
+    })
+
+    if (!isOwner && !isAdmin && !isCRofLinkedRoom) {
+      res.status(403).json({ error: 'You do not have permission to delete this form' })
       return
     }
 
