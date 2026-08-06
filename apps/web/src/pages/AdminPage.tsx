@@ -30,6 +30,7 @@ export default function AdminPage() {
   const [newDept, setNewDept] = useState({ name: '' })
   const [renamingDept, setRenamingDept] = useState<string | null>(null)
   const [renameDeptName, setRenameDeptName] = useState('')
+  const [userSubTab, setUserSubTab] = useState<'students' | 'teachers' | 'college_admins' | 'super_admins'>('students')
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isCollegeAdmin = user?.role === 'COLLEGE_ADMIN'
@@ -409,7 +410,7 @@ export default function AdminPage() {
       {activeTab === 'users' && (
         <div className="bg-white rounded-2xl border border-surface-100 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-surface-900">Users ({users.length})</h2>
+            <h2 className="font-bold text-surface-900">Users</h2>
             <div className="flex gap-2">
               {isCollegeAdmin && (
                 <>
@@ -426,52 +427,127 @@ export default function AdminPage() {
             </div>
           </div>
 
+          {/* Sub-tabs for roles */}
+          <div className="flex gap-2 mb-4 border-b border-surface-100 pb-2">
+            <button
+              onClick={() => setUserSubTab('students')}
+              className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                userSubTab === 'students' ? 'bg-green-50 text-green-700' : 'text-surface-500 hover:bg-surface-100'
+              )}
+            >
+              Students ({users.filter(u => u.role === 'STUDENT').length})
+            </button>
+            <button
+              onClick={() => setUserSubTab('teachers')}
+              className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                userSubTab === 'teachers' ? 'bg-blue-50 text-blue-700' : 'text-surface-500 hover:bg-surface-100'
+              )}
+            >
+              Teachers ({users.filter(u => u.role === 'TEACHER').length})
+            </button>
+            <button
+              onClick={() => setUserSubTab('college_admins')}
+              className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                userSubTab === 'college_admins' ? 'bg-purple-50 text-purple-700' : 'text-surface-500 hover:bg-surface-100'
+              )}
+            >
+              College Admins ({users.filter(u => u.role === 'COLLEGE_ADMIN').length})
+            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setUserSubTab('super_admins')}
+                className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                  userSubTab === 'super_admins' ? 'bg-red-50 text-red-700' : 'text-surface-500 hover:bg-surface-100'
+                )}
+              >
+                Super Admins ({users.filter(u => u.role === 'SUPER_ADMIN').length})
+              </button>
+            )}
+          </div>
+
+          {/* Filtered user table */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-100">
                   <th className="text-left py-2 text-surface-500 font-medium">Name</th>
                   <th className="text-left py-2 text-surface-500 font-medium">Email</th>
-                  <th className="text-left py-2 text-surface-500 font-medium">Role</th>
-                  <th className="text-left py-2 text-surface-500 font-medium">Department</th>
+                  {userSubTab === 'students' && (
+                    <>
+                      <th className="text-left py-2 text-surface-500 font-medium">Roll Number</th>
+                      <th className="text-left py-2 text-surface-500 font-medium">Department</th>
+                      <th className="text-left py-2 text-surface-500 font-medium">Year</th>
+                    </>
+                  )}
+                  {userSubTab === 'teachers' && (
+                    <th className="text-left py-2 text-surface-500 font-medium">Emp Number</th>
+                  )}
                   <th className="text-left py-2 text-surface-500 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-surface-50">
-                    <td className="py-2 font-medium text-surface-900">{u.name}</td>
-                    <td className="py-2 text-surface-600">{u.email}</td>
-                    <td className="py-2">
-                      <select
-                        value={u.role}
-                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                        className={clsx('px-2 py-1 rounded-full text-xs font-semibold border-0',
-                          u.role === 'SUPER_ADMIN' ? 'bg-red-100 text-red-700' :
-                          u.role === 'COLLEGE_ADMIN' ? 'bg-purple-100 text-purple-700' :
-                          u.role === 'TEACHER' ? 'bg-blue-100 text-blue-700' :
-                          'bg-green-100 text-green-700'
-                        )}
-                      >
-                        <option value="STUDENT">Student</option>
-                        <option value="TEACHER">Teacher</option>
-                        <option value="COLLEGE_ADMIN">College Admin</option>
-                        {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
-                      </select>
-                    </td>
-                    <td className="py-2 text-surface-600">{u.department?.name || '-'}</td>
-                    <td className="py-2">
-                      <button
-                        onClick={() => handleDeleteUser(u.id)}
-                        className="p-1 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {users
+                  .filter(u => {
+                    if (userSubTab === 'students') return u.role === 'STUDENT'
+                    if (userSubTab === 'teachers') return u.role === 'TEACHER'
+                    if (userSubTab === 'college_admins') return u.role === 'COLLEGE_ADMIN'
+                    if (userSubTab === 'super_admins') return u.role === 'SUPER_ADMIN'
+                    return true
+                  })
+                  .map((u) => (
+                    <tr key={u.id} className="border-b border-surface-50 hover:bg-surface-50 transition-all">
+                      <td className="py-2 font-medium text-surface-900">{u.name}</td>
+                      <td className="py-2 text-surface-600">{u.email}</td>
+                      {userSubTab === 'students' && (
+                        <>
+                          <td className="py-2 text-surface-600">{u.studentId || '-'}</td>
+                          <td className="py-2 text-surface-600">{u.department?.name || '-'}</td>
+                          <td className="py-2 text-surface-600">{u.incomingYear ? `Year ${Math.min(new Date().getFullYear() - u.incomingYear + 1, 4)}` : '-'}</td>
+                        </>
+                      )}
+                      {userSubTab === 'teachers' && (
+                        <td className="py-2 text-surface-600">{u.empNumber || '-'}</td>
+                      )}
+                      <td className="py-2">
+                        <div className="flex items-center gap-1">
+                          {userSubTab !== 'super_admins' && (
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                              className={clsx('px-2 py-1 rounded-full text-xs font-semibold border-0',
+                                u.role === 'SUPER_ADMIN' ? 'bg-red-100 text-red-700' :
+                                u.role === 'COLLEGE_ADMIN' ? 'bg-purple-100 text-purple-700' :
+                                u.role === 'TEACHER' ? 'bg-blue-100 text-blue-700' :
+                                'bg-green-100 text-green-700'
+                              )}
+                            >
+                              <option value="STUDENT">Student</option>
+                              <option value="TEACHER">Teacher</option>
+                              <option value="COLLEGE_ADMIN">College Admin</option>
+                              {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
+                            </select>
+                          )}
+                          <button
+                            onClick={() => handleDeleteUser(u.id)}
+                            className="p-1 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
+            {users.filter(u => {
+              if (userSubTab === 'students') return u.role === 'STUDENT'
+              if (userSubTab === 'teachers') return u.role === 'TEACHER'
+              if (userSubTab === 'college_admins') return u.role === 'COLLEGE_ADMIN'
+              if (userSubTab === 'super_admins') return u.role === 'SUPER_ADMIN'
+              return false
+            }).length === 0 && (
+              <p className="text-center text-surface-400 py-8">No users in this category</p>
+            )}
           </div>
         </div>
       )}

@@ -287,6 +287,56 @@ async function main() {
   }
   console.log('Created', rounds.length, 'rounds')
 
+  // Create demo forms
+  const forms = [
+    {
+      creatorId: teacher.id,
+      collegeId: college.id,
+      title: 'Course Feedback Survey',
+      description: 'Help us improve the Data Structures course. Your feedback is valuable!',
+      status: 'ACTIVE',
+      allowEdit: true,
+      expiresAt: new Date('2026-09-30'),
+      targetDepartments: JSON.stringify([]),
+      targetYears: JSON.stringify([]),
+      eligibilityEnabled: false,
+      fields: {
+        create: [
+          { label: 'How would you rate the course overall?', type: 'RATING', required: true, options: '[]', order: 0 },
+          { label: 'What did you like most about the course?', type: 'TEXT', required: false, options: '[]', order: 1 },
+          { label: 'Any suggestions for improvement?', type: 'TEXTAREA', required: false, options: '[]', order: 2 },
+          { label: 'Would you recommend this course?', type: 'SELECT', required: true, options: JSON.stringify(['Yes', 'No', 'Maybe']), order: 3 },
+        ],
+      },
+    },
+    {
+      creatorId: teacher.id,
+      collegeId: college.id,
+      title: 'Hackathon Team Registration',
+      description: 'Register your team for the upcoming campus hackathon. All fields are required.',
+      status: 'ACTIVE',
+      allowEdit: false,
+      expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      targetDepartments: JSON.stringify([]),
+      targetYears: JSON.stringify([]),
+      eligibilityEnabled: false,
+      fields: {
+        create: [
+          { label: 'Team Name', type: 'TEXT', required: true, options: '[]', order: 0 },
+          { label: 'Team Members (names & roll numbers)', type: 'TEXTAREA', required: true, options: '[]', order: 1 },
+          { label: 'Project Idea', type: 'TEXTAREA', required: true, options: '[]', order: 2 },
+          { label: 'Preferred Tech Stack', type: 'SELECT', required: true, options: JSON.stringify(['React/Node', 'Python/Django', 'Flutter/Dart', 'MERN Stack', 'Other']), order: 3 },
+          { label: 'Have you participated in a hackathon before?', type: 'SELECT', required: true, options: JSON.stringify(['Yes', 'No']), order: 4 },
+        ],
+      },
+    },
+  ]
+
+  for (const f of forms) {
+    await prisma.form.create({ data: f })
+  }
+  console.log('Created', forms.length, 'forms')
+
   console.log('Seed completed!')
 }
 

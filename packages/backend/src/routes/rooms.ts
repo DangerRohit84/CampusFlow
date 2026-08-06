@@ -579,7 +579,13 @@ router.get('/:id/members', async (req: AuthRequest, res: Response) => {
       orderBy: { joinedAt: 'asc' }
     })
 
-    res.json(members.map((m: any) => m.student))
+    res.json(members.map((m: any) => ({
+      ...m.student,
+      roomId: m.roomId,
+      roomMemberId: m.id,
+      isCR: m.isCR,
+      joinedAt: m.joinedAt,
+    })))
   } catch (error) {
     console.error('List members error:', error)
     res.status(500).json({ error: 'Failed to list members' })

@@ -130,9 +130,101 @@ router.get('/integrations', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get dashboard stats
+// Get dashboard stats (role-specific)
 router.get('/dashboard', async (req: AuthRequest, res: Response) => {
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
+
+    // ── Teacher Dashboard ──────────────────────────────────────────
+    if (user.role === 'TEACHER') {
+      const [courses, hackathons, forms, enrollments] = await Promise.all([
+        prisma.course.findMany({ where: { teacherId: user.id } }),
+        prisma.hackathon.findMany({ where: { creatorId: user.id } }),
+        prisma.form.findMany({ where: { creatorId: user.id } }),
+        prisma.enrollment.findMany({
+          where: { course: { teacherId: user.id } },
+          include: { student: { select: { id: true, name: true, email: true } } },
+        }),
+      ])
+
+      const activeHackathons = hackathons.filter((h) => h.status === 'PUBLISHED').length
+      const activeForms = forms.filter((f) => f.status === 'ACTIVE').length
+
+      return res.json({
+        role: 'TEACHER',
+        totalCourses: courses.length,
+        totalStudents: enrollments.length,
+        hackathons: hackathons.length,
+        activeHackathons,
+        forms: forms.length,
+        activeForms,
+        courses: courses.slice(0, 5),
+        recentHackathons: hackathons.slice(0, 3).map((h) => ({
+          id: h.id,
+          title: h.title,
+          status: h.status,
+          startDate: h.startDate,
+          createdAt: h.createdAt,
+        })),
+      })
+    }
+
+    // ── Admin Dashboard (College Admin & Super Admin) ──────────────
+    if (user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN') {
+      const collegeFilter =
+        user.role === 'COLLEGE_ADMIN' && user.collegeId
+          ? { collegeId: user.collegeId }
+          : {}
+
+      const [
+        totalUsers,
+        totalTeachers,
+        totalStudents,
+        totalAdmins,
+        hackathons,
+        forms,
+        pendingColleges,
+        totalColleges,
+      ] = await Promise.all([
+        prisma.user.count({ where: collegeFilter }),
+        prisma.user.count({ where: { ...collegeFilter, role: 'TEACHER' } }),
+        prisma.user.count({ where: { ...collegeFilter, role: 'STUDENT' } }),
+        prisma.user.count({ where: { ...collegeFilter, role: 'COLLEGE_ADMIN' } }),
+        prisma.hackathon.findMany({
+          where: user.role === 'SUPER_ADMIN' ? {} : collegeFilter,
+          select: { id: true, title: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.form.findMany({
+          where: user.role === 'SUPER_ADMIN' ? {} : collegeFilter,
+          select: { id: true, title: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+        user.role === 'SUPER_ADMIN'
+          ? prisma.college.count({ where: { status: 'PENDING' } })
+          : Promise.resolve(0),
+        user.role === 'SUPER_ADMIN'
+          ? prisma.college.count()
+          : Promise.resolve(1),
+      ])
+
+      return res.json({
+        role: user.role,
+        totalUsers,
+        totalTeachers,
+        totalStudents,
+        totalAdmins,
+        hackathons: hackathons.length,
+        forms: forms.length,
+        pendingColleges,
+        totalColleges,
+        recentHackathons: hackathons.slice(0, 3),
+        recentForms: forms.slice(0, 3),
+      })
+    }
+
+    // ── Student Dashboard (default) ────────────────────────────────
     const [grades, attendance, assignments, notifications, schedules] = await Promise.all([
       prisma.grade.findMany({ where: { userId: req.userId } }),
       prisma.attendance.findMany({ where: { userId: req.userId } }),
@@ -160,6 +252,7 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     const todaySchedule = schedules.filter((s) => s.dayOfWeek === today)
 
     res.json({
+      role: 'STUDENT',
       cgpa,
       attendancePercent,
       pendingAssignments: pendingAssignments.length,

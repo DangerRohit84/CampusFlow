@@ -319,7 +319,7 @@ export default function RoomDetailPage() {
                       <td className="py-2 text-xs text-surface-500">{member.department?.name || '-'}</td>
                       <td className="py-2">
                         <button
-                          onClick={() => handleToggleCR(member.studentId, member.isCR)}
+                          onClick={() => handleToggleCR(member.id, member.isCR)}
                           className={`text-xs font-semibold px-2 py-1 rounded-lg ${
                             member.isCR
                               ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
