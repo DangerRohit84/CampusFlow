@@ -116,7 +116,7 @@ router.get('/calendar', async (req: AuthRequest, res: Response) => {
     if (user.role === 'SUPER_ADMIN') {
       // Super admin sees all
     } else if (user.collegeId) {
-      where.collegeId = user.collegeId
+      where.OR = [{ collegeId: user.collegeId }, { collegeId: null }]
     }
 
     // Filter by date range

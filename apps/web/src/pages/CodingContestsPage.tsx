@@ -80,7 +80,14 @@ export default function CodingContestsPage() {
       const end = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
         .toISOString().split('T')[0]
       const data = await codingContestAPI.getCalendar(start, end)
-      setCalendarData(data)
+      // Group flat array by date string
+      const grouped: Record<string, any[]> = {}
+      for (const contest of (Array.isArray(data) ? data : [])) {
+        const dateKey = new Date(contest.startTime).toISOString().split('T')[0]
+        if (!grouped[dateKey]) grouped[dateKey] = []
+        grouped[dateKey].push(contest)
+      }
+      setCalendarData(grouped)
     } catch (err) {
       console.error('Failed to load calendar', err)
     }
