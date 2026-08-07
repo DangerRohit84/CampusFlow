@@ -51,7 +51,11 @@ async function fetchCodeChef(): Promise<NormalizedContest[]> {
     const response = await fetch('https://www.codechef.com/api/contests/all', {
       headers: { 'User-Agent': 'CampusFlow/1.0' },
     });
-    if (!response.ok) throw new Error(`CodeChef API error: ${response.status}`);
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok || !contentType.includes('application/json')) {
+      console.warn('CodeChef API unavailable, skipping');
+      return [];
+    }
     const data = await response.json() as any;
 
     const contests: NormalizedContest[] = [];
