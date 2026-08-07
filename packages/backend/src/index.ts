@@ -16,6 +16,7 @@ import aiRoutes from './routes/ai'
 import taskRoutes from './routes/tasks'
 import timetableRoutes from './routes/timetable'
 import hackathonRoutes from './routes/hackathons'
+import contestRoutes from './routes/contests'
 import formRoutes from './routes/forms'
 import adminRoutes from './routes/admin'
 import departmentRoutes from './routes/departments'
@@ -93,6 +94,7 @@ app.use('/api/ai', aiRoutes)
 app.use('/api/tasks', taskRoutes)
 app.use('/api/timetable', timetableRoutes)
 app.use('/api/hackathons', hackathonRoutes)
+app.use('/api/contests', contestRoutes)
 app.use('/api/forms', formRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/departments', departmentRoutes)
