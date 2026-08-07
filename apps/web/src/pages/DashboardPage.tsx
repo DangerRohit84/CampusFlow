@@ -6,11 +6,14 @@ import {
   ChevronRight, Sparkles, Users, Target, Zap, Trophy,
   ClipboardList, GraduationCap, Shield, DoorOpen,
   ArrowUpRight, CheckCircle, AlertCircle, BarChart3, Plus, MessageSquare,
+  Briefcase, Code,
+  type LucideIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
-import { dashboardAPI } from '../lib/api'
+import StatCard from '../components/shared/StatCard'
+import { dashboardAPI, internshipAPI, codingContestAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
@@ -20,28 +23,8 @@ const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Go
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } }
 const item = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }
 
-// ─── Stat Card ───────────────────────────────────────────────────────────────
-function StatCard({ label, value, icon: Icon, color, bg, loading }: {
-  label: string; value: string | number; icon: any; color: string; bg: string; loading?: boolean
-}) {
-  return (
-    <Card hover className="relative overflow-hidden group">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-surface-500">{label}</p>
-          <p className="text-3xl font-bold text-surface-900 mt-1">{loading ? '—' : value}</p>
-        </div>
-        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform`}>
-          <Icon size={22} />
-        </div>
-      </div>
-      <div className={`absolute -bottom-8 -right-8 w-24 h-24 ${bg} rounded-full opacity-50 group-hover:opacity-80 transition-opacity`} />
-    </Card>
-  )
-}
-
 // ─── Quick Action Button ─────────────────────────────────────────────────────
-function QuickAction({ label, icon: Icon, onClick }: { label: string; icon: any; onClick: () => void }) {
+function QuickAction({ label, icon: Icon, onClick }: { label: string; icon: LucideIcon; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors group text-left">
       <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary-100 to-accent-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -70,6 +53,8 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
     { label: 'My Students', value: data?.totalStudents || 0, icon: Users, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
     { label: 'Active Forms', value: data?.activeForms || 0, icon: ClipboardList, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
     { label: 'Notifications', value: `${data?.unreadNotifications || 0} New`, icon: Bell, color: 'from-accent-400 to-accent-600', bg: 'bg-accent-50' },
+    { label: 'Posted Internships', value: data?.postedInternships || 0, icon: Briefcase, color: 'from-cyan-400 to-cyan-600', bg: 'bg-cyan-50' },
+    { label: 'Total Contests', value: data?.totalContests || 0, icon: Code, color: 'from-rose-400 to-rose-600', bg: 'bg-rose-50' },
   ]
 
   return (
@@ -82,7 +67,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
       </motion.div>
 
       {/* Stats */}
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {stats.map((stat) => (
           <StatCard key={stat.label} {...stat} loading={loading} />
         ))}
@@ -91,7 +76,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Today's Schedule */}
         <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" hover className="overflow-hidden">
             <div className="p-6 pb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
@@ -162,7 +147,7 @@ function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
             </div>
           </Card>
 
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-3">Recent Notifications</h3>
             <div className="space-y-3">
               {data?.recentNotifications?.slice(0, 4).map((n: any) => (
@@ -218,7 +203,7 @@ function CollegeAdminDashboard({ data, loading }: { data: any; loading: boolean 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Content Summary */}
         <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" hover className="overflow-hidden">
             <div className="p-6 pb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
@@ -292,7 +277,7 @@ function CollegeAdminDashboard({ data, loading }: { data: any; loading: boolean 
             </div>
           </Card>
 
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-3">College Stats</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50">
@@ -351,7 +336,7 @@ function SuperAdminDashboard({ data, loading }: { data: any; loading: boolean })
       <div className="grid lg:grid-cols-3 gap-6">
         {/* System Overview */}
         <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" hover className="overflow-hidden">
             <div className="p-6 pb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
@@ -427,15 +412,24 @@ function SuperAdminDashboard({ data, loading }: { data: any; loading: boolean })
               <Zap size={20} />
               <h3 className="font-bold">Quick Actions</h3>
             </div>
-            <div className="space-y-3">
-              <QuickAction label="Manage Colleges" icon={GraduationCap} onClick={() => navigate('/admin')} />
-              <QuickAction label="View All Users" icon={Users} onClick={() => navigate('/admin')} />
-              <QuickAction label="Register College" icon={Plus} onClick={() => navigate('/admin/register-college')} />
-              <QuickAction label="Manage Rooms" icon={DoorOpen} onClick={() => navigate('/rooms')} />
+            <p className="text-sm text-white/80 mb-4">Jump to what you need</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => navigate('/admin')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <GraduationCap size={16} className="inline mr-2" />Manage Colleges
+              </button>
+              <button onClick={() => navigate('/admin')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <Users size={16} className="inline mr-2" />View All Users
+              </button>
+              <button onClick={() => navigate('/admin/register-college')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <Plus size={16} className="inline mr-2" />Register College
+              </button>
+              <button onClick={() => navigate('/rooms')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
+                <DoorOpen size={16} className="inline mr-2" />Manage Rooms
+              </button>
             </div>
           </Card>
 
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-3">Recent Activity</h3>
             <div className="space-y-2">
               {!loading && data?.recentHackathons?.length > 0 ? (
@@ -469,6 +463,8 @@ function StudentDashboard({ data, loading }: { data: any; loading: boolean }) {
     { label: 'Attendance', value: `${data?.attendancePercent || 0}%`, icon: Target, color: 'from-primary-400 to-primary-600', bg: 'bg-primary-50' },
     { label: 'Assignments', value: `${data?.pendingAssignments || 0} Due`, icon: FileText, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
     { label: 'Notifications', value: `${data?.unreadNotifications || 0} New`, icon: Bell, color: 'from-accent-400 to-accent-600', bg: 'bg-accent-50' },
+    { label: 'Active Internships', value: data?.activeInternships || 0, icon: Briefcase, color: 'from-cyan-400 to-cyan-600', bg: 'bg-cyan-50' },
+    { label: 'My Registrations', value: data?.registeredInternships || 0, icon: Briefcase, color: 'from-violet-400 to-violet-600', bg: 'bg-violet-50' },
   ]
 
   return (
@@ -480,7 +476,7 @@ function StudentDashboard({ data, loading }: { data: any; loading: boolean }) {
         <p className="text-surface-500 mt-1">Here's your campus overview for today</p>
       </motion.div>
 
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {stats.map((stat) => (
           <StatCard key={stat.label} {...stat} loading={loading} />
         ))}
@@ -488,7 +484,7 @@ function StudentDashboard({ data, loading }: { data: any; loading: boolean }) {
 
       <div className="grid lg:grid-cols-3 gap-6">
         <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" hover className="overflow-hidden">
             <div className="p-6 pb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center"><Calendar className="w-5 h-5 text-primary-600" /></div>
@@ -537,7 +533,7 @@ function StudentDashboard({ data, loading }: { data: any; loading: boolean }) {
             </div>
           </Card>
 
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-4">Recent Notifications</h3>
             <div className="space-y-3">
               {data?.recentNotifications?.slice(0, 4).map((n: any) => (
@@ -570,6 +566,38 @@ export default function DashboardPage() {
   useEffect(() => {
     dashboardAPI.get().then(setData).catch(console.error).finally(() => setLoading(false))
   }, [])
+
+  // Fetch internship and contest counts for dashboard stats
+  useEffect(() => {
+    if (!user) return
+    const isStudent = user.role === 'STUDENT'
+    const isTeacher = user.role === 'TEACHER'
+
+    if (isStudent) {
+      internshipAPI.getAll().then((internships) => {
+        setData((prev: any) => ({
+          ...prev,
+          activeInternships: internships.filter((i: any) => i.computedStatus === 'ACTIVE').length,
+          registeredInternships: internships.filter((i: any) => i.registrations?.length > 0).length,
+        }))
+      }).catch(() => {})
+    }
+
+    if (isTeacher) {
+      internshipAPI.getAll().then((internships) => {
+        setData((prev: any) => ({
+          ...prev,
+          postedInternships: internships.filter((i: any) => i.creatorId === user.id).length,
+        }))
+      }).catch(() => {})
+      codingContestAPI.getAll().then((contests) => {
+        setData((prev: any) => ({
+          ...prev,
+          totalContests: contests.length,
+        }))
+      }).catch(() => {})
+    }
+  }, [user])
 
   const role = user?.role || 'STUDENT'
 

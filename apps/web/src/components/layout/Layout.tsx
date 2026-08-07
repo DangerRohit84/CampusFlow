@@ -4,13 +4,13 @@ import {
   LayoutDashboard, Calendar, MessageSquare, BookOpen,
   Bell, Settings, LogOut, Menu, X, GraduationCap,
   ChevronRight, Sparkles, Search, Award, Target, Clock, Trophy,
-  ClipboardList, Shield, DoorOpen, Briefcase
+  ClipboardList, Shield, DoorOpen, Briefcase, Code
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 import CommandPalette from '../CommandPalette'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI } from '../../lib/api'
 
 const navByRole: Record<string, any[]> = {
   STUDENT: [
@@ -18,6 +18,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
+    { path: '/contests', label: 'Contests', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -31,6 +32,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
+    { path: '/contests', label: 'Contests', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -41,6 +43,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
+    { path: '/contests', label: 'Contests', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -50,6 +53,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
+    { path: '/contests', label: 'Contests', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -64,7 +68,7 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [todayClasses, setTodayClasses] = useState<any[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0 })
+  const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
   const [notifications, setNotifications] = useState<any[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
 
@@ -84,7 +88,7 @@ export default function Layout() {
     timetableAPI.getToday().then(setTodayClasses).catch(() => {})
   }, [location.pathname])
 
-  // Fetch near-deadline counts for hackathons & forms
+  // Fetch near-deadline counts for hackathons, forms, internships & contests
   useEffect(() => {
     const isNear = (dateStr: string) => {
       if (!dateStr) return false
@@ -98,6 +102,14 @@ export default function Layout() {
     formAPI.getAll().then((data) => {
       const count = data.filter((f: any) => isNear(f.expiresAt)).length
       setNearDeadlineCount((prev) => ({ ...prev, forms: count }))
+    }).catch(() => {})
+    internshipAPI.getAll().then((data) => {
+      const count = data.filter((i: any) => i.status === 'ACTIVE' && i.deadline && isNear(i.deadline)).length
+      setNearDeadlineCount((prev) => ({ ...prev, internships: count }))
+    }).catch(() => {})
+    codingContestAPI.getAll().then((data) => {
+      const count = data.filter((c: any) => c.status === 'UPCOMING' && isNear(c.startTime)).length
+      setNearDeadlineCount((prev) => ({ ...prev, contests: count }))
     }).catch(() => {})
   }, [location.pathname])
 
@@ -143,7 +155,9 @@ export default function Layout() {
           const isActive = location.pathname === item.path
           const Icon = item.icon
           const nearCount = item.path === '/hackathons' ? nearDeadlineCount.hackathons
-            : item.path === '/forms' ? nearDeadlineCount.forms : 0
+            : item.path === '/forms' ? nearDeadlineCount.forms
+            : item.path === '/internships' ? nearDeadlineCount.internships
+            : item.path === '/contests' ? nearDeadlineCount.contests : 0
           return (
             <button key={item.path} onClick={() => navigate(item.path)} title={item.label}
               className={clsx('w-full flex items-center gap-3 rounded-xl font-medium transition-all duration-200 group relative',
