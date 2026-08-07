@@ -431,43 +431,7 @@ router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
       console.log('Codeforces fetch failed:', e)
     }
 
-    // Fetch from CodeChef upcoming contests
-    try {
-      const ccResp = await fetch('https://www.codechef.com/api/contests', {
-        signal: AbortSignal.timeout(10000),
-      })
-      const ccData = await ccResp.json() as any
-      if (ccData && ccData.present) {
-        for (const [key, c] of Object.entries(ccData.present).slice(0, 5)) {
-          const contest = c as any
-          contests.push({
-            title: contest.name || key,
-            platform: 'CODECHEF',
-            url: `https://www.codechef.com/${key}`,
-            startTime: contest.start_date || new Date().toISOString(),
-            duration: contest.duration ? Math.round(contest.duration / 60) : null,
-            contestType: contest.type || 'Rating',
-            status: 'ONGOING',
-          })
-        }
-      }
-      if (ccData && ccData.future) {
-        for (const [key, c] of Object.entries(ccData.future).slice(0, 5)) {
-          const contest = c as any
-          contests.push({
-            title: contest.name || key,
-            platform: 'CODECHEF',
-            url: `https://www.codechef.com/${key}`,
-            startTime: contest.start_date || new Date().toISOString(),
-            duration: contest.duration ? Math.round(contest.duration / 60) : null,
-            contestType: contest.type || 'Rating',
-            status: 'UPCOMING',
-          })
-        }
-      }
-    } catch (e) {
-      console.log('CodeChef fetch failed:', e)
-    }
+    // CodeChef API is deprecated/unreliable — skipped
 
     if (contests.length === 0) {
       res.json({ message: 'No contests found from external sources', contests: [] })
