@@ -93,6 +93,84 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Get contests for calendar view (filtered by date range)
+router.get('/calendar', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    const { start, end } = req.query
+
+    if (!start || !end) {
+      res.status(400).json({ error: 'start and end query params are required' })
+      return
+    }
+
+    let where: any = {}
+
+    // Filter by college based on role
+    if (user.role === 'SUPER_ADMIN') {
+      // Super admin sees all
+    } else if (user.collegeId) {
+      where.collegeId = user.collegeId
+    }
+
+    // Filter by date range
+    where.startTime = {
+      gte: new Date(start as string),
+      lte: new Date(end as string),
+    }
+
+    const contests = await prisma.codingContest.findMany({
+      where,
+      include: {
+        creator: { select: { name: true, email: true } },
+      },
+      orderBy: { startTime: 'asc' },
+    })
+
+    // Add registrations count (number of solutions as a proxy)
+    const contestsWithCounts = contests.map((contest) => {
+      let solutionsCount = 0
+      try {
+        const solutions = JSON.parse(contest.solutions || '[]')
+        solutionsCount = solutions.length
+      } catch {
+        // ignore
+      }
+      return {
+        ...contest,
+        solutionsCount,
+      }
+    })
+
+    res.json(contestsWithCounts)
+  } catch (error) {
+    console.error('Get calendar contests error:', error)
+    res.status(500).json({ error: 'Failed to fetch calendar contests' })
+  }
+})
+
+// Get contests by date (stub - returns empty for now)
+router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
+  try {
+    const _user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!_user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    // Stub: return empty array
+    res.json([])
+  } catch (error) {
+    console.error('Get contests by date error:', error)
+    res.status(500).json({ error: 'Failed to fetch contests by date' })
+  }
+})
+
 // Get single coding contest
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
@@ -155,6 +233,44 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Update contest error:', error)
     res.status(500).json({ error: 'Failed to update contest' })
+  }
+})
+
+// Bulk replace solutions for a contest
+router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
+  try {
+    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    if (!contest) {
+      res.status(404).json({ error: 'Contest not found' })
+      return
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const isOwner = contest.creatorId === req.userId
+    const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isTeacher = user?.role === 'TEACHER'
+
+    if (!isOwner && !isAdmin && !isTeacher) {
+      res.status(403).json({ error: 'Only teachers can update solutions' })
+      return
+    }
+
+    const { solutions } = req.body
+
+    if (!Array.isArray(solutions)) {
+      res.status(400).json({ error: 'solutions must be an array' })
+      return
+    }
+
+    const updated = await prisma.codingContest.update({
+      where: { id: req.params.id },
+      data: { solutions: JSON.stringify(solutions) },
+    })
+
+    res.json(updated)
+  } catch (error) {
+    console.error('Bulk replace solutions error:', error)
+    res.status(500).json({ error: 'Failed to replace solutions' })
   }
 })
 
@@ -282,7 +398,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
 })
 
 // Auto-fetch upcoming contests from competitive programming platforms
-router.post('/fetch-auto', async (req: AuthRequest, res: Response) => {
+router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
