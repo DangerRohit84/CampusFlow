@@ -2,8 +2,10 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import { createServer } from 'http'
+import cron from 'node-cron'
 import { config } from './config'
 import { initSocket } from './services/socket'
+import { fetchAndStoreContests } from './services/contestFetcher'
 import { errorHandler } from './middleware/errorHandler'
 import authRoutes from './routes/auth'
 import scheduleRoutes from './routes/schedules'
@@ -126,5 +128,18 @@ httpServer.listen(PORT, () => {
   ╚════════════════════════════════════════════════╝
   `)
 })
+
+// Schedule contest fetch every 6 hours
+cron.schedule('0 */6 * * *', async () => {
+  console.log('[Cron] Running contest fetch...')
+  try {
+    await fetchAndStoreContests()
+  } catch (error) {
+    console.error('[Cron] Contest fetch failed:', error)
+  }
+})
+
+// Initial fetch on server start
+fetchAndStoreContests().catch(console.error)
 
 export { app, httpServer }
