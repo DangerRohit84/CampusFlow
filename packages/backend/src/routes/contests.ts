@@ -120,8 +120,8 @@ router.get('/calendar', async (req: AuthRequest, res: Response) => {
 
     // Filter by date range
     where.startTime = {
-      gte: new Date(start as string),
-      lte: new Date(end as string),
+      gte: start as string,
+      lte: end as string,
     }
 
     const contests = await prisma.codingContest.findMany({

@@ -12,22 +12,29 @@ interface NormalizedContest {
 // Fetch from LeetCode
 async function fetchLeetCode(): Promise<NormalizedContest[]> {
   try {
-    const response = await fetch('https://leetcode.com/api/contests/', {
-      headers: { 'User-Agent': 'CampusFlow/1.0' },
+    const response = await fetch('https://leetcode.com/graphql/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'CampusFlow/1.0'
+      },
+      body: JSON.stringify({
+        query: `query { brightTitle allContests { title titleSlug startTime duration } }`,
+      }),
     });
     if (!response.ok) throw new Error(`LeetCode API error: ${response.status}`);
-    const data = await response.json();
+    const data = await response.json() as any;
 
     const contests: NormalizedContest[] = [];
-    const allContests = [...(data.upcoming || []), ...(data.recent || [])];
+    const allContests = data?.data?.allContests || [];
 
     for (const c of allContests.slice(0, 20)) {
       contests.push({
         title: c.title,
         platform: 'LEETCODE',
-        url: `https://leetcode.com/contest/${c.title_slug}/`,
-        startTime: new Date(c.start_time * 1000).toISOString(),
-        duration: c.duration ? c.duration / 60 : null, // seconds to minutes
+        url: `https://leetcode.com/contest/${c.titleSlug}/`,
+        startTime: new Date(c.startTime * 1000).toISOString(),
+        duration: c.duration ? c.duration / 60 : null,
         contestType: c.title?.includes('Weekly') ? 'WEEKLY' : c.title?.includes('Biweekly') ? 'BIWEEKLY' : 'OTHER',
       });
     }
@@ -41,14 +48,23 @@ async function fetchLeetCode(): Promise<NormalizedContest[]> {
 // Fetch from CodeChef
 async function fetchCodeChef(): Promise<NormalizedContest[]> {
   try {
-    const response = await fetch('https://www.codechef.com/api/contests', {
+    const response = await fetch('https://www.codechef.com/api/contests/all', {
       headers: { 'User-Agent': 'CampusFlow/1.0' },
     });
     if (!response.ok) throw new Error(`CodeChef API error: ${response.status}`);
-    const data = await response.json();
+    const data = await response.json() as any;
 
     const contests: NormalizedContest[] = [];
-    const allContests = [...(data.present || []), ...(data.future || [])];
+    // Handle both old structure (present/future arrays) and potential new structure
+    let allContests: any[] = [];
+    if (data.present && data.future) {
+      allContests = [...data.present, ...data.future];
+    } else if (Array.isArray(data)) {
+      allContests = data;
+    } else {
+      console.warn('CodeChef API returned unexpected structure:', Object.keys(data));
+      return [];
+    }
 
     for (const c of allContests.slice(0, 20)) {
       contests.push({
@@ -74,7 +90,7 @@ async function fetchCodeforces(): Promise<NormalizedContest[]> {
       headers: { 'User-Agent': 'CampusFlow/1.0' },
     });
     if (!response.ok) throw new Error(`Codeforces API error: ${response.status}`);
-    const data = await response.json();
+    const data = await response.json() as any;
 
     if (data.status !== 'OK') throw new Error('Codeforces API returned error');
 
@@ -110,7 +126,7 @@ export async function fetchYouTubeSolutions(contestTitle: string, platform: stri
     );
     if (!response.ok) return [];
 
-    const data = await response.json();
+    const data = await response.json() as any;
     return (data.items || []).map((item: any) => ({
       title: item.snippet.title,
       url: `https://youtube.com/watch?v=${item.id.videoId}`,
