@@ -16,7 +16,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     let internships = await prisma.internship.findMany({
-      where: { collegeId: user.collegeId! },
+      where: { OR: [{ collegeId: user.collegeId! }, { collegeId: null }] },
       include: { registrations: { where: { userId: req.userId } } },
       orderBy: { createdAt: 'desc' },
     })

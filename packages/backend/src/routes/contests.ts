@@ -62,15 +62,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (user.role === 'SUPER_ADMIN') {
       // Super admin sees all
     } else if (user.role === 'COLLEGE_ADMIN') {
-      where.collegeId = user.collegeId
+      where.OR = [{ collegeId: user.collegeId }, { collegeId: null }]
     } else if (user.role === 'TEACHER') {
       where.OR = [
         { creatorId: req.userId },
         { collegeId: user.collegeId },
+        { collegeId: null },
       ]
     } else {
-      // Students see contests from their college
-      where.collegeId = user.collegeId
+      // Students see contests from their college or global (null collegeId)
+      where.OR = [{ collegeId: user.collegeId }, { collegeId: null }]
     }
 
     if (status && typeof status === 'string') {
