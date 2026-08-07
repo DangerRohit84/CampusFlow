@@ -45,46 +45,9 @@ async function fetchLeetCode(): Promise<NormalizedContest[]> {
   }
 }
 
-// Fetch from CodeChef
+// CodeChef API is deprecated/unreliable — skipping
 async function fetchCodeChef(): Promise<NormalizedContest[]> {
-  try {
-    const response = await fetch('https://www.codechef.com/api/contests/all', {
-      headers: { 'User-Agent': 'CampusFlow/1.0' },
-    });
-    const contentType = response.headers.get('content-type') || '';
-    if (!response.ok || !contentType.includes('application/json')) {
-      console.warn('CodeChef API unavailable, skipping');
-      return [];
-    }
-    const data = await response.json() as any;
-
-    const contests: NormalizedContest[] = [];
-    // Handle both old structure (present/future arrays) and potential new structure
-    let allContests: any[] = [];
-    if (data.present && data.future) {
-      allContests = [...data.present, ...data.future];
-    } else if (Array.isArray(data)) {
-      allContests = data;
-    } else {
-      console.warn('CodeChef API returned unexpected structure:', Object.keys(data));
-      return [];
-    }
-
-    for (const c of allContests.slice(0, 20)) {
-      contests.push({
-        title: c.name,
-        platform: 'CODECHEF',
-        url: `https://www.codechef.com/contests/${c.code}`,
-        startTime: new Date(c.start_time).toISOString(),
-        duration: c.duration ? parseInt(c.duration) : null,
-        contestType: c.name?.includes('Long Challenge') ? 'WEEKLY' : 'OTHER',
-      });
-    }
-    return contests;
-  } catch (error) {
-    console.error('CodeChef fetch error:', error);
-    return [];
-  }
+  return [];
 }
 
 // Fetch from Codeforces
@@ -146,13 +109,12 @@ export async function fetchYouTubeSolutions(contestTitle: string, platform: stri
 export async function fetchAndStoreContests(): Promise<{ fetched: number; updated: number }> {
   console.log('[ContestFetcher] Starting fetch...');
 
-  const [leetcode, codechef, codeforces] = await Promise.all([
+  const [leetcode, codeforces] = await Promise.all([
     fetchLeetCode(),
-    fetchCodeChef(),
     fetchCodeforces(),
   ]);
 
-  const allContests = [...leetcode, ...codechef, ...codeforces];
+  const allContests = [...leetcode, ...codeforces];
   let fetched = 0;
   let updated = 0;
 
