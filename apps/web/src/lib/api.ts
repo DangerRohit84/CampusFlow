@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { io, Socket } from 'socket.io-client'
 
-const API_URL = 'http://localhost:4000/api'
-const WS_URL = 'http://localhost:4000'
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+const API_URL = `${API_BASE}/api`
+const WS_URL = API_BASE
 
 const api = axios.create({
   baseURL: API_URL,
@@ -173,6 +174,7 @@ export const hackathonAPI = {
   fetchDetails: (url: string) => api.post('/hackathons/fetch-details', { url }).then((r) => r.data),
   register: (id: string, data: any) => api.post(`/hackathons/${id}/register`, data).then((r) => r.data),
   updateRound: (id: string, regId: string, data: any) => api.put(`/hackathons/${id}/registrations/${regId}/round`, data).then((r) => r.data),
+  submitResult: (id: string, regId: string, data: any) => api.put(`/hackathons/${id}/registrations/${regId}/result`, data).then((r) => r.data),
   addRound: (id: string, data: any) => api.post(`/hackathons/${id}/rounds`, data).then((r) => r.data),
   updateRoundDetails: (hackathonId: string, roundId: string, data: any) =>
     api.put(`/hackathons/${hackathonId}/rounds/${roundId}`, data).then((r) => r.data),
@@ -198,6 +200,42 @@ export const hackathonAPI = {
     a.click()
     window.URL.revokeObjectURL(url)
   },
+}
+
+// Internships
+export const internshipAPI = {
+  getAll: () => api.get('/internships').then((r) => r.data),
+  getOne: (id: string) => api.get(`/internships/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/internships', data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/internships/${id}`).then((r) => r.data),
+  register: (id: string) => api.post(`/internships/${id}/register`).then((r) => r.data),
+  report: (id: string, status: string) =>
+    api.put(`/internships/${id}/report`, { status }).then((r) => r.data),
+  getRegistrations: (id: string) => api.get(`/internships/${id}/registrations`).then((r) => r.data),
+  updateRegistration: (id: string, regId: string, status: string) =>
+    api.put(`/internships/${id}/registrations/${regId}`, { status }).then((r) => r.data),
+  exportOne: async (id: string) => {
+    const response = await api.get(`/internships/export/${id}`, { responseType: 'blob' })
+    return response.data
+  },
+  exportAll: async () => {
+    const response = await api.get('/internships/export-all', { responseType: 'blob' })
+    return response.data
+  },
+}
+
+// Coding Contests
+export const codingContestAPI = {
+  getAll: (params?: { platform?: string; status?: string; startDate?: string; endDate?: string }) =>
+    api.get('/contests', { params }).then((r) => r.data),
+  getByDate: (date: string) => api.get(`/contests/by-date/${date}`).then((r) => r.data),
+  getCalendar: (start: string, end: string) =>
+    api.get('/contests/calendar', { params: { start, end } }).then((r) => r.data),
+  create: (data: any) => api.post('/contests', data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/contests/${id}`).then((r) => r.data),
+  updateSolutions: (id: string, solutions: any[]) =>
+    api.put(`/contests/${id}/solutions`, { solutions }).then((r) => r.data),
+  fetchNow: () => api.post('/contests/fetch-now').then((r) => r.data),
 }
 
 // Forms
