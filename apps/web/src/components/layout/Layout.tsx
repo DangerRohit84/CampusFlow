@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Calendar, MessageSquare, BookOpen,
   Bell, Settings, LogOut, Menu, X, GraduationCap,
   ChevronRight, Sparkles, Search, Award, Target, Clock, Trophy,
-  ClipboardList, Shield, DoorOpen
+  ClipboardList, Shield, DoorOpen, Briefcase
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
@@ -17,6 +17,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+    { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -28,6 +29,8 @@ const navByRole: Record<string, any[]> = {
   TEACHER: [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/schedule', label: 'Timetable', icon: Calendar },
+    { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+    { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -37,6 +40,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+    { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -45,6 +49,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin', label: 'Admin Panel', icon: Shield },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+    { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },

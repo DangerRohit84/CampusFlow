@@ -16,6 +16,7 @@ import GradesPage from './pages/GradesPage'
 import AttendancePage from './pages/AttendancePage'
 import HackathonsPage from './pages/HackathonsPage'
 import HackathonDetailPage from './pages/HackathonDetailPage'
+import InternshipsPage from './pages/InternshipsPage'
 import FormsPage from './pages/FormsPage'
 import FormDetailPage from './pages/FormDetailPage'
 import AdminPage from './pages/AdminPage'
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="hackathons" element={<HackathonsPage />} />
           <Route path="hackathons/:id" element={<HackathonDetailPage />} />
+          <Route path="internships" element={<InternshipsPage />} />
           <Route path="forms" element={<FormsPage />} />
           <Route path="forms/:id" element={<FormDetailPage />} />
           <Route path="rooms" element={<RoomsRoute />} />
