@@ -75,15 +75,13 @@ export default function CodingContestsPage() {
 
   const loadCalendar = async () => {
     try {
-      const start = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-        .toISOString().split('T')[0]
-      const end = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
-        .toISOString().split('T')[0]
+      const start = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1))
+      const end = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0))
       const data = await codingContestAPI.getCalendar(start, end)
       // Group flat array by date string
       const grouped: Record<string, any[]> = {}
       for (const contest of (Array.isArray(data) ? data : [])) {
-        const dateKey = new Date(contest.startTime).toISOString().split('T')[0]
+        const dateKey = toLocalDateStr(new Date(contest.startTime))
         if (!grouped[dateKey]) grouped[dateKey] = []
         grouped[dateKey].push(contest)
       }
@@ -91,6 +89,14 @@ export default function CodingContestsPage() {
     } catch (err) {
       console.error('Failed to load calendar', err)
     }
+  }
+
+  // Helper: local date string YYYY-MM-DD (avoids UTC shift from toISOString)
+  const toLocalDateStr = (d: Date) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
 
   const getContestStatus = (c: any): ContestStatus => {
@@ -123,7 +129,7 @@ export default function CodingContestsPage() {
   const displayContests = useMemo(() => {
     if (selectedDate) {
       return filteredContests.filter((c) => {
-        const contestDate = new Date(c.startTime).toISOString().split('T')[0]
+        const contestDate = toLocalDateStr(new Date(c.startTime))
         return contestDate === selectedDate
       })
     }
@@ -233,8 +239,7 @@ export default function CodingContestsPage() {
   }
 
   const handleDateClick = (day: number) => {
-    const dateStr = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-      .toISOString().split('T')[0]
+    const dateStr = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))
     setSelectedDate(selectedDate === dateStr ? null : dateStr)
   }
 
@@ -248,8 +253,7 @@ export default function CodingContestsPage() {
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d)
-        .toISOString().split('T')[0]
+      const dateStr = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d))
       const count = calendarData[dateStr]?.length || 0
       days.push({ day: d, dateStr, hasContests: count > 0, count })
     }
@@ -527,7 +531,7 @@ export default function CodingContestsPage() {
                   return <div key={`empty-${idx}`} className="h-8" />
                 }
 
-                const isToday = new Date().toISOString().split('T')[0] === item.dateStr
+                const isToday = toLocalDateStr(new Date()) === item.dateStr
                 const isSelected = selectedDate === item.dateStr
 
                 return (
