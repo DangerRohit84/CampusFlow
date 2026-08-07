@@ -17,6 +17,8 @@ import AttendancePage from './pages/AttendancePage'
 import HackathonsPage from './pages/HackathonsPage'
 import HackathonDetailPage from './pages/HackathonDetailPage'
 import InternshipsPage from './pages/InternshipsPage'
+import CodingContestsPage from './pages/CodingContestsPage'
+import InternshipDetailPage from './pages/InternshipDetailPage'
 import FormsPage from './pages/FormsPage'
 import FormDetailPage from './pages/FormDetailPage'
 import AdminPage from './pages/AdminPage'
@@ -81,6 +83,8 @@ export default function App() {
           <Route path="hackathons" element={<HackathonsPage />} />
           <Route path="hackathons/:id" element={<HackathonDetailPage />} />
           <Route path="internships" element={<InternshipsPage />} />
+          <Route path="internships/:id" element={<InternshipDetailPage />} />
+          <Route path="contests" element={<CodingContestsPage />} />
           <Route path="forms" element={<FormsPage />} />
           <Route path="forms/:id" element={<FormDetailPage />} />
           <Route path="rooms" element={<RoomsRoute />} />
