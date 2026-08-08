@@ -222,6 +222,7 @@ export const internshipAPI = {
     const response = await api.get('/internships/export-all', { responseType: 'blob' })
     return response.data
   },
+  fetchNow: () => api.post('/internships/fetch-now').then((r) => r.data),
 }
 
 // Coding Contests

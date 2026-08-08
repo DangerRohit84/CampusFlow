@@ -2,9 +2,14 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
+import Groq from 'groq-sdk'
+import config from '../config'
 
 const router = Router()
 router.use(authenticate)
+
+const hasAI = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
+const groq = hasAI ? new Groq({ apiKey: config.groqApiKey }) : null
 
 // GET / - List internships (filtered by eligibility for students)
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -335,6 +340,94 @@ router.get('/export-all', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Error exporting internships:', error)
     res.status(500).json({ error: 'Failed to export' })
+  }
+})
+
+// POST /fetch-now - AI fetch current internship opportunities
+router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Only teachers can auto-fetch internships' })
+      return
+    }
+
+    if (!groq) {
+      res.status(503).json({ error: 'AI service not configured' })
+      return
+    }
+
+    const prompt = `Find 10 current internship opportunities for CS/engineering students. Return ONLY a JSON array (no markdown, no explanation) with objects having these exact fields:
+- title (string): job title
+- company (string): company name
+- role (string): specific role
+- url (string): application URL (use https://internshala.com or https://www.linkedin.com/jobs as base if real URL unknown)
+- stipend (string): stipend like "₹15,000/month" or "Unpaid"
+- duration (string): like "3 months", "6 months"
+- mode (string): "REMOTE", "ONSITE", or "HYBRID"
+- deadline (string): deadline date in YYYY-MM-DD format or null
+
+Focus on: software engineering, data science, web development, AI/ML, product management internships. Make company names realistic. Return ONLY the JSON array.`
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 2000,
+    })
+
+    const responseText = completion.choices[0]?.message?.content || '[]'
+    
+    // Extract JSON from response
+    let internships: any[]
+    try {
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/)
+      internships = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText)
+    } catch {
+      res.status(500).json({ error: 'Failed to parse AI response' })
+      return
+    }
+
+    // Save fetched internships
+    const saved = []
+    for (const i of internships.slice(0, 10)) {
+      if (!i.title || !i.company) continue
+
+      // Check for duplicates
+      const existing = await prisma.internship.findFirst({
+        where: { title: i.title, company: i.company, collegeId: user.collegeId },
+      })
+      if (existing) continue
+
+      const internship = await prisma.internship.create({
+        data: {
+          title: i.title,
+          company: i.company,
+          role: i.role || '',
+          description: `Auto-fetched internship at ${i.company}`,
+          url: i.url || '',
+          stipend: i.stipend || null,
+          duration: i.duration || null,
+          mode: i.mode || 'REMOTE',
+          startDate: null,
+          deadline: i.deadline || null,
+          targetDepartments: '[]',
+          targetYears: '[]',
+          eligibilityEnabled: false,
+          creatorId: req.userId!,
+          collegeId: user.collegeId,
+        },
+      })
+      saved.push(internship)
+    }
+
+    res.json({
+      message: `Fetched ${saved.length} new internships (${internships.length - saved.length} duplicates skipped)`,
+      internships: saved,
+    })
+  } catch (error) {
+    console.error('AI fetch internships error:', error)
+    res.status(500).json({ error: 'Failed to fetch internships' })
   }
 })
 

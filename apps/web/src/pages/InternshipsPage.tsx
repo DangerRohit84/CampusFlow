@@ -49,8 +49,14 @@ export default function InternshipsPage() {
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   useEffect(() => {
-    loadInternships()
-    departmentAPI.getAll().then(setDepartments).catch(() => {})
+    const init = async () => {
+      if (isTeacher) {
+        try { await internshipAPI.fetchNow() } catch {}
+      }
+      await loadInternships()
+      departmentAPI.getAll().then(setDepartments).catch(() => {})
+    }
+    init()
   }, [])
 
   const loadInternships = async () => {
