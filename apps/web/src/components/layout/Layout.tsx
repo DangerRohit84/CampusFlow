@@ -19,7 +19,6 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
-    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -34,7 +33,6 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
-    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -46,7 +44,6 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
-    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -57,7 +54,6 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
-    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -274,7 +270,7 @@ export default function Layout() {
             <span className="text-sm font-medium">Add your coding profiles to track contest participation!</span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => navigate('/coding-profile')} className="px-3 py-1 bg-white/20 rounded-lg text-sm font-medium hover:bg-white/30">
+            <button onClick={() => navigate('/settings')} className="px-3 py-1 bg-white/20 rounded-lg text-sm font-medium hover:bg-white/30">
               Add Now
             </button>
             <button onClick={() => setShowProfileNudge(false)} className="px-3 py-1 text-white/70 hover:text-white text-sm">
