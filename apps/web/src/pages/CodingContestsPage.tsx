@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuthStore } from '../store/authStore'
-import { codingContestAPI } from '../lib/api'
+import { codingContestAPI, codingProfileAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Trophy, Calendar, Clock, ExternalLink,
@@ -41,6 +41,7 @@ export default function CodingContestsPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [expandedContest, setExpandedContest] = useState<string | null>(null)
   const [solutions, setSolutions] = useState<Record<string, any[]>>({})
+  const [myParticipations, setMyParticipations] = useState<any[]>([])
 
   const createModal = useModal()
 
@@ -63,6 +64,9 @@ export default function CodingContestsPage() {
       }
       await loadContests()
       await loadCalendar()
+      if (user?.role === 'STUDENT') {
+        codingProfileAPI.getParticipations().then(setMyParticipations).catch(() => {})
+      }
     }
     init()
   }, [currentMonth])
@@ -125,6 +129,7 @@ export default function CodingContestsPage() {
       { key: 'ENDED', label: 'Ended' },
     ],
     filterFn: (c, tab) => tab === 'ALL' || getContestStatus(c) === tab,
+    defaultTab: 'UPCOMING',
   })
 
   const tabCounts = useMemo(() => ({
@@ -386,6 +391,12 @@ export default function CodingContestsPage() {
                         </div>
 
                         <h3 className="font-bold text-surface-900 mb-1 line-clamp-1">{c.title}</h3>
+
+                        {myParticipations.some((p) => p.platform.toLowerCase() === c.platform?.toLowerCase()) && (
+                          <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold flex items-center gap-1 mt-1">
+                            <CheckCircle2 size={10} /> Participated
+                          </span>
+                        )}
 
                         <div className="flex items-center gap-4 text-xs text-surface-500">
                           <span className="flex items-center gap-1">
