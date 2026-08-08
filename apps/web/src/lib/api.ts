@@ -346,4 +346,17 @@ export const userAPI = {
   getIntegrations: () => api.get('/user/integrations').then((r) => r.data),
 }
 
+// Coding Profile
+export const codingProfileAPI = {
+  get: () => api.get('/coding-profile').then((r) => r.data),
+  update: (data: any) => api.put('/coding-profile', data).then((r) => r.data),
+  sync: () => api.post('/coding-profile/sync').then((r) => r.data),
+  getParticipations: () => api.get('/coding-profile/participations').then((r) => r.data),
+  getLeaderboard: (params?: { platform?: string; departmentId?: string; year?: string }) =>
+    api.get('/coding-profile/leaderboard', { params }).then((r) => r.data),
+  getContestParticipants: (contestId: string) =>
+    api.get(`/coding-profile/contest/${contestId}/participants`).then((r) => r.data),
+  syncAll: () => api.post('/coding-profile/sync-all').then((r) => r.data),
+}
+
 export default api
