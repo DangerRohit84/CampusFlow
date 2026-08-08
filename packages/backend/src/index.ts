@@ -6,6 +6,7 @@ import cron from 'node-cron'
 import { config } from './config'
 import { initSocket } from './services/socket'
 import { fetchAndStoreContests } from './services/contestFetcher'
+import { syncAllUsers } from './services/syncEngine'
 import { errorHandler } from './middleware/errorHandler'
 import authRoutes from './routes/auth'
 import scheduleRoutes from './routes/schedules'
@@ -140,6 +141,17 @@ cron.schedule('0 */6 * * *', async () => {
     console.error('[Cron] Contest fetch failed:', error)
   }
 })
+
+// Cron: sync contest participation every 6 hours
+setInterval(async () => {
+  try {
+    console.log('[CRON] Starting contest participation sync...')
+    const result = await syncAllUsers()
+    console.log(`[CRON] Synced ${result.totalSynced} records from ${result.totalUsers} users`)
+  } catch (err) {
+    console.error('[CRON] Sync failed:', err)
+  }
+}, 6 * 60 * 60 * 1000) // every 6 hours
 
 // Initial fetch on server start
 fetchAndStoreContests().catch(console.error)
