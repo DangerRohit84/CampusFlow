@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Briefcase, Calendar, Users, Download,
   Trash2, Loader2, ChevronRight,
-  Clock, CheckCircle2, Filter, ExternalLink, Building2
+  Clock, CheckCircle2, Filter, ExternalLink, Building2, Sparkles
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -42,6 +42,7 @@ export default function InternshipsPage() {
   const [targetDepartments, setTargetDepartments] = useState<string[]>([])
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
+  const [fetching, setFetching] = useState(false)
 
   const createModal = useModal()
   const eligibilityPopup = useModal()
@@ -49,14 +50,8 @@ export default function InternshipsPage() {
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   useEffect(() => {
-    const init = async () => {
-      if (isTeacher) {
-        try { await internshipAPI.fetchNow() } catch {}
-      }
-      await loadInternships()
-      departmentAPI.getAll().then(setDepartments).catch(() => {})
-    }
-    init()
+    loadInternships()
+    departmentAPI.getAll().then(setDepartments).catch(() => {})
   }, [])
 
   const loadInternships = async () => {
@@ -123,6 +118,32 @@ export default function InternshipsPage() {
     if (!dateStr) return false
     const diff = new Date(dateStr).getTime() - Date.now()
     return diff > 0 && diff <= 3 * 24 * 60 * 60 * 1000
+  }
+
+  const handleFetchDetails = async () => {
+    if (!form.url) {
+      toast.error('Enter a URL first')
+      return
+    }
+    setFetching(true)
+    try {
+      const details = await internshipAPI.fetchDetails(form.url)
+      if (details) {
+        if (details.title) setForm((f) => ({ ...f, title: details.title }))
+        if (details.company) setForm((f) => ({ ...f, company: details.company }))
+        if (details.role) setForm((f) => ({ ...f, role: details.role }))
+        if (details.description) setForm((f) => ({ ...f, description: details.description }))
+        if (details.stipend) setForm((f) => ({ ...f, stipend: details.stipend }))
+        if (details.duration) setForm((f) => ({ ...f, duration: details.duration }))
+        if (details.mode) setForm((f) => ({ ...f, mode: details.mode }))
+        if (details.deadline) setForm((f) => ({ ...f, deadline: details.deadline }))
+        toast.success('Details filled by AI!')
+      }
+    } catch {
+      toast.error('Failed to fetch details')
+    } finally {
+      setFetching(false)
+    }
   }
 
   const handleCreate = async () => {
@@ -354,6 +375,26 @@ export default function InternshipsPage() {
               <h2 className="text-xl font-bold text-surface-900 mb-4">Post Internship</h2>
 
               <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-surface-700 mb-1 block">Quick Fill from URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={form.url}
+                      onChange={(e) => setForm({ ...form, url: e.target.value })}
+                      placeholder="Paste internship link..."
+                      className="flex-1 px-3 py-2 bg-white border border-surface-200 rounded-lg text-sm"
+                    />
+                    <button
+                      onClick={handleFetchDetails}
+                      disabled={fetching}
+                      className="px-3 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {fetching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      AI Fetch
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <label className="text-sm font-medium text-surface-700 mb-1 block">Title *</label>
                   <input

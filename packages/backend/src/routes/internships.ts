@@ -343,12 +343,12 @@ router.get('/export-all', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /fetch-now - AI fetch current internship opportunities
-router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
+// POST /fetch-details - AI extract internship details from URL
+router.post('/fetch-details', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-      res.status(403).json({ error: 'Only teachers can auto-fetch internships' })
+    const { url } = req.body
+    if (!url) {
+      res.status(400).json({ error: 'URL is required' })
       return
     }
 
@@ -357,77 +357,72 @@ router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const prompt = `Find 10 current internship opportunities for CS/engineering students. Return ONLY a JSON array (no markdown, no explanation) with objects having these exact fields:
-- title (string): job title
-- company (string): company name
-- role (string): specific role
-- url (string): application URL (use https://internshala.com or https://www.linkedin.com/jobs as base if real URL unknown)
-- stipend (string): stipend like "₹15,000/month" or "Unpaid"
-- duration (string): like "3 months", "6 months"
-- mode (string): "REMOTE", "ONSITE", or "HYBRID"
-- deadline (string): deadline date in YYYY-MM-DD format or null
+    // Fetch page content
+    let pageContent = ''
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      })
+      const html = await response.text()
+      clearTimeout(timeout)
+      pageContent = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 8000)
+    } catch {
+      console.log('Could not fetch URL content, sending URL only to AI')
+    }
 
-Focus on: software engineering, data science, web development, AI/ML, product management internships. Make company names realistic. Return ONLY the JSON array.`
+    const contentSection = pageContent.length > 300
+      ? `Page content:\n${pageContent}`
+      : `Page content: (SPA/JavaScript-rendered page - content not available via fetch)`
+
+    const prompt = `Extract internship details from the following sources. URL: ${url}
+
+${contentSection}
+
+Return ONLY a valid JSON object with these fields:
+{
+  "title": "internship title",
+  "company": "company name",
+  "role": "specific role/designation",
+  "description": "brief description (2-3 sentences)",
+  "stipend": "stipend like ₹15,000/month or Unpaid",
+  "duration": "like 3 months, 6 months",
+  "mode": "REMOTE, ONSITE, or HYBRID",
+  "deadline": "application deadline YYYY-MM-DD or null",
+  "url": "application URL (the original URL provided)"
+}
+
+CRITICAL RULES:
+1. NEVER fabricate information not present in the content.
+2. NEVER make up dates unless explicitly found. Set to null if not found.
+3. Return ONLY the JSON object, no other text:`
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 2000,
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      max_tokens: 1000,
     })
 
-    const responseText = completion.choices[0]?.message?.content || '[]'
-    
-    // Extract JSON from response
-    let internships: any[]
-    try {
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/)
-      internships = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText)
-    } catch {
-      res.status(500).json({ error: 'Failed to parse AI response' })
-      return
+    const responseText = completion.choices[0]?.message?.content || '{}'
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const details = JSON.parse(jsonMatch[0])
+      res.json({ details })
+    } else {
+      res.json({ message: 'Could not extract details. Please fill manually.', details: null })
     }
-
-    // Save fetched internships
-    const saved = []
-    for (const i of internships.slice(0, 10)) {
-      if (!i.title || !i.company) continue
-
-      // Check for duplicates
-      const existing = await prisma.internship.findFirst({
-        where: { title: i.title, company: i.company, collegeId: user.collegeId },
-      })
-      if (existing) continue
-
-      const internship = await prisma.internship.create({
-        data: {
-          title: i.title,
-          company: i.company,
-          role: i.role || '',
-          description: `Auto-fetched internship at ${i.company}`,
-          url: i.url || '',
-          stipend: i.stipend || null,
-          duration: i.duration || null,
-          mode: i.mode || 'REMOTE',
-          startDate: null,
-          deadline: i.deadline || null,
-          targetDepartments: '[]',
-          targetYears: '[]',
-          eligibilityEnabled: false,
-          creatorId: req.userId!,
-          collegeId: user.collegeId,
-        },
-      })
-      saved.push(internship)
-    }
-
-    res.json({
-      message: `Fetched ${saved.length} new internships (${internships.length - saved.length} duplicates skipped)`,
-      internships: saved,
-    })
   } catch (error) {
-    console.error('AI fetch internships error:', error)
-    res.status(500).json({ error: 'Failed to fetch internships' })
+    console.error('AI fetch internship details error:', error)
+    res.status(500).json({ error: 'Failed to fetch details' })
   }
 })
 
