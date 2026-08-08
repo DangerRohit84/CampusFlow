@@ -42,6 +42,8 @@ export default function CodingContestsPage() {
   const [expandedContest, setExpandedContest] = useState<string | null>(null)
   const [solutions, setSolutions] = useState<Record<string, any[]>>({})
   const [myParticipations, setMyParticipations] = useState<any[]>([])
+  const [participants, setParticipants] = useState<any[]>([])
+  const [showParticipants, setShowParticipants] = useState(false)
 
   const createModal = useModal()
 
@@ -101,6 +103,12 @@ export default function CodingContestsPage() {
     } catch (err) {
       console.error('Failed to load calendar', err)
     }
+  }
+
+  const loadParticipants = async (contestId: string) => {
+    const data = await codingProfileAPI.getContestParticipants(contestId)
+    setParticipants(data)
+    setShowParticipants(true)
   }
 
   // Helper: local date string YYYY-MM-DD (avoids UTC shift from toISOString)
@@ -461,6 +469,18 @@ export default function CodingContestsPage() {
                             </AnimatePresence>
                           </div>
                         )}
+
+                        {/* Participants Section (Teacher only) */}
+                        {isTeacher && (
+                          <div className="mt-3">
+                            <button
+                              onClick={() => loadParticipants(c.id)}
+                              className="flex items-center gap-1.5 text-xs font-medium text-surface-600 hover:text-surface-800"
+                            >
+                              View Participants ({participants.length})
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 ml-3">
@@ -486,6 +506,28 @@ export default function CodingContestsPage() {
                   </motion.div>
                 )
               })}
+            </div>
+          )}
+
+          {/* Participants Display (Teacher only) */}
+          {isTeacher && showParticipants && (
+            <div className="mt-4 bg-white rounded-2xl border border-surface-100 p-6">
+              <h3 className="font-bold text-surface-900 mb-2">Participants</h3>
+              <div className="space-y-2">
+                {participants.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-surface-900">{p.user.name}</span>
+                      <span className="text-xs text-surface-400">{p.user.department?.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm">
+                      {p.rank && <span>#{p.rank}</span>}
+                      {p.rating && <span className="font-medium text-primary-600">{p.rating}</span>}
+                      {p.problemsSolved && <span className="text-surface-500">{p.problemsSolved} problems</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
