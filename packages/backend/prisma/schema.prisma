@@ -48,6 +48,40 @@ model User {
   internships         Internship[]
   internshipRegistrations InternshipRegistration[]
   codingContests      CodingContest[]
+  codingProfile         CodingProfile?
+  contestParticipations ContestParticipation[]
+}
+
+model CodingProfile {
+  id               String    @id @default(uuid())
+  userId           String    @unique
+  leetcodeHandle   String?
+  codeforcesHandle String?
+  codechefHandle   String?
+  hackerrankHandle String?
+  gfgHandle        String?
+  lastSyncedAt     DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ContestParticipation {
+  id             String    @id @default(uuid())
+  userId         String
+  contestId      String?
+  platform       String
+  contestName    String
+  contestUrl     String?
+  rank           Int?
+  score          Int?
+  rating         Int?
+  ratingChange   Int?
+  problemsSolved Int?
+  totalProblems  Int?
+  participatedAt DateTime?
+  syncedAt       DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform, contestName])
 }
 
 model Schedule {
