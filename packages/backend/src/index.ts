@@ -24,6 +24,7 @@ import adminRoutes from './routes/admin'
 import departmentRoutes from './routes/departments'
 import roomsRouter from './routes/rooms'
 import internshipsRouter from './routes/internships'
+import codingProfileRoutes from './routes/codingProfile'
 import prisma from './config/db'
 
 const app = express()
@@ -103,6 +104,7 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/departments', departmentRoutes)
 app.use('/api/rooms', roomsRouter)
 app.use('/api/internships', internshipsRouter)
+app.use('/api/coding-profile', codingProfileRoutes)
 
 // 404 handler
 app.use('/api/*', (req, res) => {
