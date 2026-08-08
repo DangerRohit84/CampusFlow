@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 import CommandPalette from '../CommandPalette'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, codingProfileAPI } from '../../lib/api'
 
 const navByRole: Record<string, any[]> = {
   STUDENT: [
@@ -19,6 +19,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -33,6 +34,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -44,6 +46,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -54,6 +57,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
@@ -71,6 +75,7 @@ export default function Layout() {
   const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
   const [notifications, setNotifications] = useState<any[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showProfileNudge, setShowProfileNudge] = useState(false)
 
   // Load today's classes
   useEffect(() => {
@@ -108,7 +113,13 @@ export default function Layout() {
       setNearDeadlineCount((prev) => ({ ...prev, internships: count }))
     }).catch(() => {})
     codingContestAPI.getAll().then((data) => {
-      const count = data.filter((c: any) => c.status === 'UPCOMING' && isNear(c.startTime)).length
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+      const count = data.filter((c: any) => {
+        if (!c.startTime) return false
+        const contestDate = c.startTime.substring(0, 10)
+        return contestDate === todayStr
+      }).length
       setNearDeadlineCount((prev) => ({ ...prev, contests: count }))
     }).catch(() => {})
   }, [location.pathname])
@@ -121,6 +132,17 @@ export default function Layout() {
       roomAPI.getNotifications().then(setNotifications).catch(() => {})
     }
   }, [user?.role, location.pathname])
+
+  // Check if student has coding profiles for nudge banner
+  useEffect(() => {
+    if (user?.role === 'STUDENT') {
+      codingProfileAPI.get().then((profile) => {
+        const hasAny = profile?.leetcodeHandle || profile?.codeforcesHandle || 
+                       profile?.codechefHandle || profile?.hackerrankHandle || profile?.gfgHandle
+        if (!hasAny) setShowProfileNudge(true)
+      }).catch(() => {})
+    }
+  }, [user])
 
   const unreadCount = notifications.filter(n => !n.isRead).length
 
@@ -243,6 +265,24 @@ export default function Layout() {
       <aside className={clsx('hidden lg:flex flex-col border-r border-surface-100 bg-white transition-all duration-300 overflow-hidden', sidebarOpen ? 'w-64' : 'w-[72px]')}>
         <SidebarContent />
       </aside>
+
+      {/* Coding Profile Nudge Banner */}
+      {showProfileNudge && (
+        <div className="bg-gradient-to-r from-primary-500 to-accent-500 text-white px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Code size={16} />
+            <span className="text-sm font-medium">Add your coding profiles to track contest participation!</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate('/coding-profile')} className="px-3 py-1 bg-white/20 rounded-lg text-sm font-medium hover:bg-white/30">
+              Add Now
+            </button>
+            <button onClick={() => setShowProfileNudge(false)} className="px-3 py-1 text-white/70 hover:text-white text-sm">
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
