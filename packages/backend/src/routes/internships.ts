@@ -3,7 +3,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
 import Groq from 'groq-sdk'
-import config from '../config'
+import { config } from '../config'
 
 const router = Router()
 router.use(authenticate)
