@@ -44,6 +44,8 @@ export default function CodingContestsPage() {
   const [myParticipations, setMyParticipations] = useState<any[]>([])
   const [participants, setParticipants] = useState<any[]>([])
   const [showParticipants, setShowParticipants] = useState(false)
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
 
   const createModal = useModal()
 
@@ -109,6 +111,12 @@ export default function CodingContestsPage() {
     const data = await codingProfileAPI.getContestParticipants(contestId)
     setParticipants(data)
     setShowParticipants(true)
+  }
+
+  const loadLeaderboard = async () => {
+    const data = await codingProfileAPI.getLeaderboard()
+    setLeaderboard(data)
+    setShowLeaderboard(true)
   }
 
   // Helper: local date string YYYY-MM-DD (avoids UTC shift from toISOString)
@@ -285,12 +293,20 @@ export default function CodingContestsPage() {
         action={
           <div className="flex items-center gap-3">
             {isTeacher && (
-              <button
-                onClick={createModal.open}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
-              >
-                <Plus size={16} /> Add Contest
-              </button>
+              <>
+                <button
+                  onClick={loadLeaderboard}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                >
+                  <Trophy size={16} /> Leaderboard
+                </button>
+                <button
+                  onClick={createModal.open}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                >
+                  <Plus size={16} /> Add Contest
+                </button>
+              </>
             )}
           </div>
         }
@@ -524,6 +540,47 @@ export default function CodingContestsPage() {
                       {p.rank && <span>#{p.rank}</span>}
                       {p.rating && <span className="font-medium text-primary-600">{p.rating}</span>}
                       {p.problemsSolved && <span className="text-surface-500">{p.problemsSolved} problems</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Leaderboard Display (Teacher only) */}
+          {isTeacher && showLeaderboard && (
+            <div className="bg-white rounded-2xl border border-surface-100 p-6 mt-4">
+              <h2 className="font-bold text-surface-900 mb-4">Contest Leaderboard</h2>
+              <div className="space-y-2">
+                {leaderboard.map((entry, idx) => (
+                  <div key={entry.userId} className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                        idx === 0 ? 'bg-yellow-100 text-yellow-700' :
+                        idx === 1 ? 'bg-gray-100 text-gray-700' :
+                        idx === 2 ? 'bg-orange-100 text-orange-700' :
+                        'bg-surface-100 text-surface-600'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <p className="font-medium text-surface-900">{entry.name}</p>
+                        <p className="text-xs text-surface-400">{entry.department}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6 text-sm">
+                      <div className="text-center">
+                        <p className="font-bold text-surface-900">{entry.totalContests}</p>
+                        <p className="text-xs text-surface-400">Contests</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="font-bold text-primary-600">{entry.bestRating}</p>
+                        <p className="text-xs text-surface-400">Best Rating</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="font-bold text-surface-900">{entry.totalProblems}</p>
+                        <p className="text-xs text-surface-400">Problems</p>
+                      </div>
                     </div>
                   </div>
                 ))}
