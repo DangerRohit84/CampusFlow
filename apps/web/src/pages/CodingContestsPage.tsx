@@ -67,10 +67,11 @@ export default function CodingContestsPage() {
     init()
   }, [currentMonth])
 
-  const loadContests = async () => {
+  const loadContests = async (platform?: string) => {
     try {
       const params: any = {}
-      if (platformFilter !== 'ALL') params.platform = platformFilter
+      const plat = platform || platformFilter
+      if (plat !== 'ALL') params.platform = plat
       const data = await codingContestAPI.getAll(params)
       setContests(data)
     } catch (err) {
@@ -293,7 +294,8 @@ export default function CodingContestsPage() {
               onClick={() => {
                 setPlatformFilter(p)
                 setSelectedDate(null)
-                loadContests()
+                setActiveTab('ALL')
+                loadContests(p)
               }}
               className={clsx(
                 'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all',
@@ -316,7 +318,6 @@ export default function CodingContestsPage() {
       {/* Status Tabs */}
       <FilterTabs
         tabs={[
-          { key: 'ALL', label: 'All', icon: Filter, count: tabCounts.ALL },
           { key: 'UPCOMING', label: 'Upcoming', icon: Clock, count: tabCounts.UPCOMING },
           { key: 'ONGOING', label: 'Ongoing', icon: Play, count: tabCounts.ONGOING },
           { key: 'ENDED', label: 'Ended', icon: CheckCircle2, count: tabCounts.ENDED },

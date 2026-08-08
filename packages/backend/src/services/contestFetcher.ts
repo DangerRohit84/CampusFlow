@@ -45,9 +45,32 @@ async function fetchLeetCode(): Promise<NormalizedContest[]> {
   }
 }
 
-// CodeChef API is deprecated/unreliable — skipping
+// Fetch from CodeChef via Contest Hive API
 async function fetchCodeChef(): Promise<NormalizedContest[]> {
-  return [];
+  try {
+    const response = await fetch('https://contest-hive.vercel.app/api/codechef', {
+      headers: { 'User-Agent': 'CampusFlow/1.0' },
+    });
+    if (!response.ok) throw new Error(`CodeChef API error: ${response.status}`);
+    const data = await response.json() as any;
+    if (!data.ok) throw new Error('CodeChef API returned error');
+
+    const contests: NormalizedContest[] = [];
+    for (const c of data.data || []) {
+      contests.push({
+        title: c.title,
+        platform: 'CODECHEF',
+        url: c.url,
+        startTime: c.startTime,
+        duration: c.duration ? c.duration / 60 : null,
+        contestType: c.title?.includes('Starters') ? 'WEEKLY' : c.title?.includes('Long') ? 'OTHER' : 'OTHER',
+      });
+    }
+    return contests;
+  } catch (error) {
+    console.error('CodeChef fetch error:', error);
+    return [];
+  }
 }
 
 // Fetch from Codeforces
@@ -109,12 +132,13 @@ export async function fetchYouTubeSolutions(contestTitle: string, platform: stri
 export async function fetchAndStoreContests(): Promise<{ fetched: number; updated: number }> {
   console.log('[ContestFetcher] Starting fetch...');
 
-  const [leetcode, codeforces] = await Promise.all([
+  const [leetcode, codeforces, codechef] = await Promise.all([
     fetchLeetCode(),
     fetchCodeforces(),
+    fetchCodeChef(),
   ]);
 
-  const allContests = [...leetcode, ...codeforces];
+  const allContests = [...leetcode, ...codeforces, ...codechef];
   let fetched = 0;
   let updated = 0;
 
