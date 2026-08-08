@@ -6,7 +6,7 @@ import {
   Plus, Trophy, Calendar, Clock, ExternalLink,
   Trash2, Loader2, ChevronLeft, ChevronRight,
   Play, CheckCircle2, Filter, Youtube, Code2,
-  ChevronDown, ChevronUp, RefreshCw
+  ChevronDown, ChevronUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -56,8 +56,15 @@ export default function CodingContestsPage() {
   })
 
   useEffect(() => {
-    loadContests()
-    loadCalendar()
+    const init = async () => {
+      // Auto-fetch from platforms first, then load
+      if (isTeacher) {
+        try { await codingContestAPI.fetchNow() } catch {}
+      }
+      await loadContests()
+      await loadCalendar()
+    }
+    init()
   }, [currentMonth])
 
   const loadContests = async () => {
@@ -168,20 +175,6 @@ export default function CodingContestsPage() {
     }
   }
 
-  const handleFetchNow = async () => {
-    try {
-      toast.loading('Fetching contests from platforms...')
-      await codingContestAPI.fetchNow()
-      toast.dismiss()
-      toast.success('Contests fetched!')
-      loadContests()
-      loadCalendar()
-    } catch (err) {
-      toast.dismiss()
-      toast.error('Failed to fetch contests')
-    }
-  }
-
   const toggleSolutions = (contestId: string) => {
     if (expandedContest === contestId) {
       setExpandedContest(null)
@@ -278,20 +271,12 @@ export default function CodingContestsPage() {
         action={
           <div className="flex items-center gap-3">
             {isTeacher && (
-              <>
-                <button
-                  onClick={handleFetchNow}
-                  className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all text-sm font-medium"
-                >
-                  <RefreshCw size={16} /> Fetch Now
-                </button>
-                <button
-                  onClick={createModal.open}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
-                >
-                  <Plus size={16} /> Add Contest
-                </button>
-              </>
+              <button
+                onClick={createModal.open}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+              >
+                <Plus size={16} /> Add Contest
+              </button>
             )}
           </div>
         }
