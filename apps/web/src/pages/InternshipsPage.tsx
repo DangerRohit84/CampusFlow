@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { internshipAPI, departmentAPI } from '../lib/api'
+import { internshipAPI, departmentAPI, opportunityAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Briefcase, Calendar, Users, Download,
@@ -56,8 +56,18 @@ export default function InternshipsPage() {
 
   const loadInternships = async () => {
     try {
-      const data = await internshipAPI.getAll()
-      setInternships(data)
+      if (!user?.collegeId && (user?.departmentName || user?.departmentId)) {
+        // Normal user without college — fetch from opportunities filtered by department
+        const data = await opportunityAPI.getForMe('INTERNSHIP')
+        setInternships(data.map((o: any) => ({
+          ...o,
+          company: o.company || o.source,
+          role: o.role || '',
+        })))
+      } else {
+        const data = await internshipAPI.getAll()
+        setInternships(data)
+      }
     } catch (err) {
       console.error('Failed to load internships', err)
     } finally {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { hackathonAPI, departmentAPI } from '../lib/api'
+import { hackathonAPI, departmentAPI, opportunityAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Trophy, Calendar, Users, Download,
@@ -10,16 +10,21 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
+import FilterTabs from '../components/shared/FilterTabs'
+import EmptyState from '../components/shared/EmptyState'
+import PageHeader from '../components/shared/PageHeader'
+import EligibilityPopup from '../components/shared/EligibilityPopup'
+import { useFilteredItems } from '../hooks/useFilteredItems'
+import { useModal } from '../hooks/useModal'
+import type { Department } from '../types/api'
 
-type FilterTab = 'all' | 'upcoming' | 'ongoing' | 'completed'
+type HackathonStatus = 'upcoming' | 'ongoing' | 'completed'
 
 export default function HackathonsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const [hackathons, setHackathons] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<FilterTab>('all')
-  const [showCreate, setShowCreate] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [form, setForm] = useState({
     title: '',
@@ -41,12 +46,14 @@ export default function HackathonsPage() {
     bootcamps: '',
     highlights: '',
   })
-  const [aiRounds, setAiRounds] = useState<any[]>([])
-  const [departments, setDepartments] = useState<any[]>([])
+  const [aiRounds, setAiRounds] = useState<Array<{roundNumber: number; title: string; description: string; date: string; resultDate: string}>>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [targetDepartments, setTargetDepartments] = useState<string[]>([])
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
-  const [showEligibilityPopup, setShowEligibilityPopup] = useState(false)
+
+  const createModal = useModal()
+  const eligibilityPopup = useModal()
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -57,8 +64,18 @@ export default function HackathonsPage() {
 
   const loadHackathons = async () => {
     try {
-      const data = await hackathonAPI.getAll()
-      setHackathons(data)
+      if (!user?.collegeId && (user?.departmentName || user?.departmentId)) {
+        // Normal user without college — fetch from opportunities filtered by department
+        const data = await opportunityAPI.getForMe('HACKATHON')
+        setHackathons(data.map((o: any) => ({
+          ...o,
+          name: o.title,
+          source: 'external',
+        })))
+      } else {
+        const data = await hackathonAPI.getAll()
+        setHackathons(data)
+      }
     } catch (err) {
       console.error('Failed to load hackathons', err)
     } finally {
@@ -66,25 +83,46 @@ export default function HackathonsPage() {
     }
   }
 
-  const getHackathonStatus = (h: any): 'upcoming' | 'ongoing' | 'completed' => {
+  const getHackathonStatus = (h: any): HackathonStatus => {
     const now = new Date()
+    const startDate = h.startDate ? new Date(h.startDate) : null
+    const endDate = h.endDate ? new Date(h.endDate) : null
     const deadline = h.deadline ? new Date(h.deadline) : null
-    const regEnd = h.endDate ? new Date(h.endDate) : null
 
     if (h.status === 'ENDED') return 'completed'
 
-    // Registration still open → upcoming
-    if (deadline && now < deadline) return 'upcoming'
-    if (!deadline && regEnd && now < regEnd) return 'upcoming'
+    // Has event dates → use them
+    if (startDate && endDate) {
+      if (now < startDate) return 'upcoming'
+      if (now > endDate) return 'completed'
+      return 'ongoing'
+    }
 
-    // Registration closed → ongoing (event in progress)
-    return 'ongoing'
+    // Has only startDate → use it for start, no auto-complete
+    if (startDate) {
+      if (now < startDate) return 'upcoming'
+      return 'ongoing'
+    }
+
+    // No event dates → fallback to registration deadline
+    if (deadline) {
+      if (now < deadline) return 'upcoming'
+      return 'ongoing'
+    }
+
+    return 'upcoming'
   }
 
-  const filteredHackathons = useMemo(() => {
-    if (activeTab === 'all') return hackathons
-    return hackathons.filter((h) => getHackathonStatus(h) === activeTab)
-  }, [hackathons, activeTab])
+  const { activeTab, setActiveTab, filteredItems: filteredHackathons } = useFilteredItems<any>({
+    items: hackathons,
+    tabs: [
+      { key: 'all', label: 'All' },
+      { key: 'upcoming', label: 'Upcoming' },
+      { key: 'ongoing', label: 'Ongoing' },
+      { key: 'completed', label: 'Completed' },
+    ],
+    filterFn: (h, tab) => tab === 'all' || getHackathonStatus(h) === tab,
+  })
 
   const tabCounts = useMemo(() => ({
     all: hackathons.length,
@@ -165,8 +203,8 @@ export default function HackathonsPage() {
       toast.error('Title is required')
       return
     }
-    setShowCreate(false)
-    setShowEligibilityPopup(true)
+    createModal.close()
+    eligibilityPopup.open()
   }
 
   const handleConfirmCreate = async (withEligibility: boolean) => {
@@ -180,8 +218,8 @@ export default function HackathonsPage() {
         eligibilityEnabled: withEligibility && (targetDepartments.length > 0 || targetYears.length > 0),
       })
       toast.success('Hackathon created!')
-      setShowEligibilityPopup(false)
-      setShowCreate(false)
+      eligibilityPopup.close()
+      createModal.close()
       setForm({ title: '', description: '', url: '', organizer: '', registrationUrl: '', startDate: '', endDate: '', deadline: '', teamSize: '', themes: '', location: '', mode: 'OFFLINE', eligibility: '', prizePool: '', duration: '', schedule: '', bootcamps: '', highlights: '' })
       setAiRounds([])
       setTargetDepartments([])
@@ -214,68 +252,48 @@ export default function HackathonsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-surface-900">Hackathons</h1>
-          <p className="text-surface-500 text-sm mt-1">Discover and track hackathons</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => hackathonAPI.exportAll()}
-            className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all text-sm font-medium"
-          >
-            <Download size={16} /> Export All
-          </button>
-          {isTeacher && (
+      <PageHeader
+        title="Hackathons"
+        subtitle="Discover and track hackathons"
+        action={
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+              onClick={() => hackathonAPI.exportAll()}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all text-sm font-medium"
             >
-              <Plus size={16} /> Create Hackathon
+              <Download size={16} /> Export All
             </button>
-          )}
-        </div>
-      </div>
+            {isTeacher && (
+              <button
+                onClick={createModal.open}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+              >
+                <Plus size={16} /> Create Hackathon
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {([
-          { key: 'all', label: 'All', icon: Filter },
-          { key: 'upcoming', label: 'Upcoming', icon: Clock },
-          { key: 'ongoing', label: 'Ongoing', icon: Zap },
-          { key: 'completed', label: 'Completed', icon: CheckCircle2 },
-        ] as const).map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={clsx(
-              'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              activeTab === key
-                ? 'bg-primary-500 text-white shadow-md'
-                : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-            )}
-          >
-            <Icon size={14} />
-            {label}
-            <span className={clsx(
-              'ml-1 px-1.5 py-0.5 rounded-full text-xs',
-              activeTab === key ? 'bg-white/20' : 'bg-surface-200'
-            )}>
-              {tabCounts[key]}
-            </span>
-          </button>
-        ))}
-      </div>
+      <FilterTabs
+        tabs={[
+          { key: 'all', label: 'All', icon: Filter, count: tabCounts.all },
+          { key: 'upcoming', label: 'Upcoming', icon: Clock, count: tabCounts.upcoming },
+          { key: 'ongoing', label: 'Ongoing', icon: Zap, count: tabCounts.ongoing },
+          { key: 'completed', label: 'Completed', icon: CheckCircle2, count: tabCounts.completed },
+        ]}
+        activeTab={activeTab}
+        onTabChange={(key) => setActiveTab(key as any)}
+      />
 
       {/* Hackathon Grid */}
       {filteredHackathons.length === 0 ? (
-        <div className="text-center py-16">
-          <Trophy className="w-16 h-16 text-surface-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-surface-700">No hackathons</h3>
-          <p className="text-surface-400 mt-1">
-            {isTeacher ? 'Create your first hackathon to get started' : 'No hackathons available yet'}
-          </p>
-        </div>
+        <EmptyState
+          icon={Trophy}
+          title="No hackathons"
+          description={isTeacher ? 'Create your first hackathon to get started' : 'No hackathons available yet'}
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredHackathons.map((h) => {
@@ -345,13 +363,13 @@ export default function HackathonsPage() {
 
       {/* Create Modal */}
       <AnimatePresence>
-        {showCreate && (
+        {createModal.isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowCreate(false)}
+            onClick={createModal.close}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -585,7 +603,7 @@ export default function HackathonsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={() => setShowCreate(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg">
@@ -598,101 +616,19 @@ export default function HackathonsPage() {
       </AnimatePresence>
 
       {/* Eligibility Popup */}
-      <AnimatePresence>
-        {showEligibilityPopup && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-            onClick={() => { setShowEligibilityPopup(false); setShowCreate(true); setTargetDepartments([]); setTargetYears([]) }}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
-            >
-              <h2 className="text-lg font-bold text-surface-900 mb-1">Who can register?</h2>
-              <p className="text-sm text-surface-500 mb-5">Select departments and years, or skip to allow everyone.</p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Departments</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {departments.map(d => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => setTargetDepartments(prev =>
-                          prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]
-                        )}
-                        className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
-                          targetDepartments.includes(d.id)
-                            ? 'bg-primary-100 border-primary-300 text-primary-700'
-                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                        )}
-                      >
-                        {d.name}
-                      </button>
-                    ))}
-                    {departments.length === 0 && (
-                      <p className="text-xs text-surface-400">No departments created yet.</p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-surface-600 mb-2 block">Years</label>
-                  <div className="flex gap-2">
-                    {[1, 2, 3, 4].map(y => (
-                      <button
-                        key={y}
-                        type="button"
-                        onClick={() => setTargetYears(prev =>
-                          prev.includes(y) ? prev.filter(n => n !== y) : [...prev, y]
-                        )}
-                        className={clsx('w-12 h-9 rounded-lg text-sm font-bold border transition-all',
-                          targetYears.includes(y)
-                            ? 'bg-primary-100 border-primary-300 text-primary-700'
-                            : 'bg-white border-surface-200 text-surface-600 hover:border-primary-200'
-                        )}
-                      >
-                        {y}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {(targetDepartments.length > 0 || targetYears.length > 0) && (
-                  <div className="flex items-center gap-2 p-2.5 bg-primary-50 rounded-xl text-xs text-primary-700 font-medium">
-                    <CheckCircle2 size={14} />
-                    {targetDepartments.length > 0 && <span>{targetDepartments.length} dept{targetDepartments.length > 1 ? 's' : ''}</span>}
-                    {targetDepartments.length > 0 && targetYears.length > 0 && <span>·</span>}
-                    {targetYears.length > 0 && <span>Year {targetYears.sort().join(', ')}</span>}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => handleConfirmCreate(false)}
-                  className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 text-sm"
-                >
-                  Skip — Everyone
-                </button>
-                <button
-                  onClick={() => handleConfirmCreate(true)}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg text-sm"
-                >
-                  Confirm
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <EligibilityPopup
+        show={eligibilityPopup.isOpen}
+        title="Who can register?"
+        subtitle="Select departments and years, or skip to allow everyone."
+        departments={departments}
+        targetDepartments={targetDepartments}
+        setTargetDepartments={setTargetDepartments}
+        targetYears={targetYears}
+        setTargetYears={setTargetYears}
+        onSkip={() => handleConfirmCreate(false)}
+        onConfirm={() => handleConfirmCreate(true)}
+        onCancel={() => { eligibilityPopup.close(); createModal.open(); setTargetDepartments([]); setTargetYears([]) }}
+      />
     </div>
   )
 }

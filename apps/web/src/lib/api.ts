@@ -68,7 +68,7 @@ export function onScheduleUpdate(callback: (schedule: any) => void) {
 export const authAPI = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }).then((r) => r.data),
-  register: (data: { email: string; name: string; password: string; departmentId?: string; role?: string; collegeId?: string; empNumber?: string; studentId?: string; incomingYear?: number }) =>
+  register: (data: { email: string; name: string; password: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) =>
     api.post('/auth/register', data).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
 }
@@ -357,6 +357,23 @@ export const codingProfileAPI = {
   getContestParticipants: (contestId: string) =>
     api.get(`/coding-profile/contest/${contestId}/participants`).then((r) => r.data),
   syncAll: () => api.post('/coding-profile/sync-all').then((r) => r.data),
+}
+
+
+
+// Opportunities
+export const opportunityAPI = {
+  getAll: (params?: { type?: string; status?: string; source?: string }) =>
+    api.get('/opportunities', { params }).then((r) => r.data),
+  getForMe: (type?: string) =>
+    api.get('/opportunities/for-me', { params: type ? { type } : {} }).then((r) => r.data),
+  getPending: () => api.get('/opportunities/pending').then((r) => r.data),
+  approve: (id: string) => api.put(`/opportunities/${id}/approve`).then((r) => r.data),
+  reject: (id: string) => api.put(`/opportunities/${id}/reject`).then((r) => r.data),
+  assign: (id: string, teacherId: string) =>
+    api.put(`/opportunities/${id}/assign`, { teacherId }).then((r) => r.data),
+  fetchNow: () => api.post('/opportunities/fetch-now').then((r) => r.data),
+  delete: (id: string) => api.delete(`/opportunities/${id}`).then((r) => r.data),
 }
 
 export default api

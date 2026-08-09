@@ -13,6 +13,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   password: z.string().min(6),
   departmentId: z.string().optional(),
+  department: z.string().optional(),
   role: z.string().optional(),
   collegeId: z.string().optional(),
   college: z.string().optional(),
@@ -44,6 +45,7 @@ router.post('/register', async (req: Request, res: Response) => {
         name: body.name,
         passwordHash,
         departmentId: body.departmentId || undefined,
+        departmentName: body.department || undefined,
         role: body.role as any || 'STUDENT',
         collegeId: body.collegeId,
         collegeName: body.college,
@@ -54,7 +56,7 @@ router.post('/register', async (req: Request, res: Response) => {
       },
     })
 
-    const token = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn })
+    const token = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as any })
 
     res.status(201).json({
       user: {
@@ -63,8 +65,11 @@ router.post('/register', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
+        departmentName: user.departmentName,
         incomingYear: user.incomingYear,
         outgoingYear: user.outgoingYear,
+        collegeId: user.collegeId,
+        collegeName: user.collegeName,
       },
       token,
     })
@@ -95,7 +100,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    const token = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn })
+    const token = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as any })
 
     const userWithCollege = await prisma.user.findUnique({
       where: { id: user.id },
@@ -109,12 +114,14 @@ router.post('/login', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
+        departmentName: user.departmentName,
         department: userWithCollege?.department,
         incomingYear: user.incomingYear,
         outgoingYear: user.outgoingYear,
         studentId: user.studentId,
         empNumber: user.empNumber,
         college: userWithCollege?.college,
+        collegeId: user.collegeId,
       },
       token,
     })

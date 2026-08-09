@@ -6,6 +6,7 @@ import cron from 'node-cron'
 import { config } from './config'
 import { initSocket } from './services/socket'
 import { fetchAndStoreContests } from './services/contestFetcher'
+import { fetchAndStoreOpportunities } from './services/opportunityAgent'
 import { syncAllUsers } from './services/syncEngine'
 import { errorHandler } from './middleware/errorHandler'
 import authRoutes from './routes/auth'
@@ -26,6 +27,7 @@ import departmentRoutes from './routes/departments'
 import roomsRouter from './routes/rooms'
 import internshipsRouter from './routes/internships'
 import codingProfileRoutes from './routes/codingProfile'
+import opportunityRoutes from './routes/opportunities'
 import prisma from './config/db'
 
 const app = express()
@@ -36,7 +38,8 @@ initSocket(httpServer)
 
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: false }))
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }))
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',')
+app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
 
 // Health check
@@ -106,6 +109,7 @@ app.use('/api/departments', departmentRoutes)
 app.use('/api/rooms', roomsRouter)
 app.use('/api/internships', internshipsRouter)
 app.use('/api/coding-profile', codingProfileRoutes)
+app.use('/api/opportunities', opportunityRoutes)
 
 // 404 handler
 app.use('/api/*', (req, res) => {
@@ -142,6 +146,17 @@ cron.schedule('0 */6 * * *', async () => {
   }
 })
 
+// Schedule opportunity (hackathon + internship) fetch every 12 hours
+cron.schedule('0 */12 * * *', async () => {
+  console.log('[Cron] Running opportunity fetch (hackathons + internships)...')
+  try {
+    const result = await fetchAndStoreOpportunities()
+    console.log(`[Cron] Opportunity fetch done: ${result.fetched} fetched, ${result.skipped} skipped`)
+  } catch (error) {
+    console.error('[Cron] Opportunity fetch failed:', error)
+  }
+})
+
 // Cron: sync contest participation every 6 hours
 setInterval(async () => {
   try {
@@ -155,5 +170,10 @@ setInterval(async () => {
 
 // Initial fetch on server start
 fetchAndStoreContests().catch(console.error)
+fetchAndStoreOpportunities().then(r => {
+  console.log(`[Startup] Opportunity fetch: ${r.fetched} fetched, ${r.skipped} skipped`)
+}).catch(err => {
+  console.error('[Startup] Opportunity fetch failed:', err)
+})
 
 export { app, httpServer }

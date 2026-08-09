@@ -8,22 +8,23 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  name         String
-  passwordHash String
-  role         String    @default("STUDENT")
-  collegeId    String?
-  collegeName  String?
-  studentId    String?   @unique
-  empNumber    String?   @unique
-  departmentId String?
-  incomingYear Int?
-  outgoingYear Int?
-  avatar       String?
-  preferences  String?   @default("{}")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  role           String    @default("STUDENT")
+  collegeId      String?
+  collegeName    String?
+  studentId      String?   @unique
+  empNumber      String?   @unique
+  departmentId   String?
+  departmentName String?
+  incomingYear   Int?
+  outgoingYear   Int?
+  avatar         String?
+  preferences    String?   @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   schedules      Schedule[]
   notifications  Notification[]
@@ -313,6 +314,7 @@ model Hackathon {
   targetYears        String?  @default("[]")
   eligibilityEnabled Boolean  @default(false)
   status          String   @default("DRAFT")
+  source          String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -358,6 +360,37 @@ model HackathonRound {
   @@unique([hackathonId, roundNumber])
 }
 
+model Opportunity {
+  id              String   @id @default(uuid())
+  type            String   // HACKATHON | INTERNSHIP
+  title           String
+  description     String?
+  url             String
+  source          String   // devfolio | devpost | internshala | hackerrank | manual
+  organizer       String?
+  deadline        String?
+  startDate       String?
+  duration        String?
+  location        String?
+  mode            String?  // ONLINE | OFFLINE | HYBRID
+  prizePool       String?
+  stipend         String?
+  company         String?
+  role            String?
+  status          String   @default("PENDING")  // PENDING | APPROVED | REJECTED
+  approvedBy      String?
+  assignedTo      String?
+  collegeId       String?
+  isAutoFetched   Boolean  @default(false)
+  fetchedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([collegeId])
+}
+
 model Internship {
   id                 String   @id @default(uuid())
   creatorId          String
@@ -376,6 +409,7 @@ model Internship {
   targetYears        String   @default("[]")
   eligibilityEnabled Boolean  @default(false)
   status             String   @default("ACTIVE")
+  source             String?
   createdAt          DateTime @default(now())
   creator            User     @relation(fields: [creatorId], references: [id])
   college            College  @relation(fields: [collegeId], references: [id])

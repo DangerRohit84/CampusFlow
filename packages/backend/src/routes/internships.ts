@@ -20,8 +20,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    if (!user.collegeId) {
+      res.json([])
+      return
+    }
+
     let internships = await prisma.internship.findMany({
-      where: { collegeId: user.collegeId! },
+      where: {
+        collegeId: user.collegeId,
+      },
       include: { registrations: { where: { userId: req.userId } } },
       orderBy: { createdAt: 'desc' },
     })
@@ -58,7 +65,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const internship = await prisma.internship.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         registrations: { include: { user: { select: { id: true, name: true, email: true, studentId: true } } } },
         creator: { select: { id: true, name: true, email: true } },
@@ -102,7 +109,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         targetYears: JSON.stringify(targetYears || []),
         eligibilityEnabled: eligibilityEnabled || false,
         creatorId: req.userId!,
-        collegeId: user.collegeId,
+        collegeId: user.collegeId!,
       },
     })
 
@@ -116,7 +123,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // DELETE /:id - Delete internship (creator or admin only)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const internship = await prisma.internship.findUnique({ where: { id: req.params.id } })
+    const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string } })
     if (!internship) {
       res.status(404).json({ error: 'Internship not found' })
       return
@@ -128,7 +135,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
         return
       }
     }
-    await prisma.internship.delete({ where: { id: req.params.id } })
+    await prisma.internship.delete({ where: { id: req.params.id as string } })
     res.json({ success: true })
   } catch (error) {
     console.error('Error deleting internship:', error)
@@ -146,7 +153,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
     }
 
     const existing = await prisma.internshipRegistration.findUnique({
-      where: { internshipId_userId: { internshipId: req.params.id, userId: req.userId! } },
+      where: { internshipId_userId: { internshipId: req.params.id as string, userId: req.userId! } },
     })
     if (existing) {
       res.status(400).json({ error: 'Already registered' })
@@ -154,7 +161,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
     }
 
     const registration = await prisma.internshipRegistration.create({
-      data: { internshipId: req.params.id, userId: req.userId!, status: 'REGISTERED' },
+      data: { internshipId: req.params.id as string, userId: req.userId!, status: 'REGISTERED' },
     })
 
     res.status(201).json(registration)
@@ -174,7 +181,7 @@ router.put('/:id/report', async (req: AuthRequest, res: Response) => {
     }
 
     const registration = await prisma.internshipRegistration.findUnique({
-      where: { internshipId_userId: { internshipId: req.params.id, userId: req.userId! } },
+      where: { internshipId_userId: { internshipId: req.params.id as string, userId: req.userId! } },
     })
     if (!registration) {
       res.status(404).json({ error: 'Not registered' })
@@ -203,7 +210,7 @@ router.get('/:id/registrations', async (req: AuthRequest, res: Response) => {
     }
 
     const registrations = await prisma.internshipRegistration.findMany({
-      where: { internshipId: req.params.id },
+      where: { internshipId: req.params.id as string },
       include: { user: { select: { id: true, name: true, email: true, studentId: true, departmentId: true } } },
     })
 
@@ -225,7 +232,7 @@ router.put('/:id/registrations/:regId', async (req: AuthRequest, res: Response) 
 
     const { status } = req.body
     const updated = await prisma.internshipRegistration.update({
-      where: { id: req.params.regId },
+      where: { id: req.params.regId as string },
       data: { status },
     })
 
@@ -245,14 +252,14 @@ router.get('/export/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const internship = await prisma.internship.findUnique({ where: { id: req.params.id } })
+    const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string } })
     if (!internship) {
       res.status(404).json({ error: 'Internship not found' })
       return
     }
 
     const registrations = await prisma.internshipRegistration.findMany({
-      where: { internshipId: req.params.id },
+      where: { internshipId: req.params.id as string },
       include: { user: { select: { name: true, email: true, studentId: true } } },
     })
 
@@ -423,6 +430,62 @@ CRITICAL RULES:
   } catch (error) {
     console.error('AI fetch internship details error:', error)
     res.status(500).json({ error: 'Failed to fetch details' })
+  }
+})
+
+// POST /fetch-external - Trigger auto-fetch of internships from external sources
+router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'COLLEGE_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const { fetchFromAllSources } = await import('../services/opportunityAgent')
+    const allOpps = await fetchFromAllSources()
+    const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
+
+    let fetched = 0
+    let skipped = 0
+
+    for (const opp of internships) {
+      if (!opp.url || !opp.title) { skipped++; continue }
+      try {
+        const existing = await prisma.internship.findFirst({
+          where: { title: opp.title, source: opp.source },
+        })
+        if (existing) { skipped++; continue }
+
+        await prisma.internship.create({
+          data: {
+            title: opp.title,
+            description: opp.description || 'No description available',
+            company: opp.company || opp.organizer || 'Unknown',
+            role: opp.role || opp.title,
+            url: opp.url,
+            stipend: opp.stipend || null,
+            duration: opp.duration || null,
+            mode: opp.mode || 'REMOTE',
+            deadline: opp.deadline || null,
+            startDate: opp.startDate || null,
+            status: 'ACTIVE',
+            source: opp.source,
+            creatorId: user.id,
+            collegeId: user.collegeId || '',
+          },
+        })
+        fetched++
+      } catch (err) {
+        console.error(`Error storing internship "${opp.title}":`, err)
+        skipped++
+      }
+    }
+
+    res.json({ message: `Internship fetch complete`, fetched, skipped, total: internships.length })
+  } catch (error) {
+    console.error('Fetch external internships error:', error)
+    res.status(500).json({ error: 'Failed to fetch external internships' })
   }
 })
 

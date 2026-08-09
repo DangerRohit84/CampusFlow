@@ -18,10 +18,12 @@ import HackathonsPage from './pages/HackathonsPage'
 import HackathonDetailPage from './pages/HackathonDetailPage'
 import InternshipsPage from './pages/InternshipsPage'
 import CodingContestsPage from './pages/CodingContestsPage'
+import ContestLeaderboardPage from './pages/ContestLeaderboardPage'
 
 import InternshipDetailPage from './pages/InternshipDetailPage'
 import FormsPage from './pages/FormsPage'
 import FormDetailPage from './pages/FormDetailPage'
+import AdminOpportunitiesPage from './pages/AdminOpportunitiesPage'
 import AdminPage from './pages/AdminPage'
 import CollegeRegistrationPage from './pages/CollegeRegistrationPage'
 import AddTeacherPage from './pages/AddTeacherPage'
@@ -86,9 +88,11 @@ export default function App() {
           <Route path="internships" element={<InternshipsPage />} />
           <Route path="internships/:id" element={<InternshipDetailPage />} />
           <Route path="contests" element={<CodingContestsPage />} />
+          <Route path="contests/leaderboard" element={<ContestLeaderboardPage />} />
 
           <Route path="forms" element={<FormsPage />} />
           <Route path="forms/:id" element={<FormDetailPage />} />
+          <Route path="admin/opportunities" element={<AdminOpportunitiesPage />} />
           <Route path="rooms" element={<RoomsRoute />} />
           <Route path="rooms/:id" element={<RoomDetailRoute />} />
           <Route path="admin" element={<AdminPage />} />

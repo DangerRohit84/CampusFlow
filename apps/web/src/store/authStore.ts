@@ -1,21 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authAPI } from '../lib/api'
-
-interface User {
-  id: string
-  name: string
-  email: string
-  role: string
-  avatar?: string
-  departmentId?: string
-  department?: { id: string; name: string }
-  incomingYear?: number
-  outgoingYear?: number
-  studentId?: string
-  empNumber?: string
-  college?: { id: string; name: string }
-}
+import { type User } from '../types/api'
 
 interface AuthState {
   user: User | null
@@ -23,7 +9,7 @@ interface AuthState {
   isAuthenticated: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (data: { email: string; name: string; password: string; departmentId?: string; role?: string; collegeId?: string; empNumber?: string; studentId?: string; incomingYear?: number }) => Promise<void>
+  register: (data: { email: string; name: string; password: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) => Promise<void>
   logout: () => void
   updateUser: (user: Partial<User>) => void
 }

@@ -316,6 +316,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     let hackathons: any[] = []
 
+    if (!user.collegeId && user.role !== 'SUPER_ADMIN') {
+      res.json([])
+      return
+    }
+
     if (user.role === 'SUPER_ADMIN') {
       // Super admin sees all
       hackathons = await prisma.hackathon.findMany({
@@ -342,7 +347,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         orderBy: { createdAt: 'desc' },
       })
     } else {
-      // Students see published hackathons from their college
+      // Students see published hackathons from their college + external opportunities
       hackathons = await prisma.hackathon.findMany({
         where: {
           status: 'PUBLISHED',
@@ -416,9 +421,11 @@ router.get('/export/all', async (req: AuthRequest, res: Response) => {
         { header: 'Team Name', key: 'teamName', width: 20 },
         { header: 'Status', key: 'status', width: 15 },
         { header: 'Current Round', key: 'currentRound', width: 15 },
+        { header: 'Win Position', key: 'winPosition', width: 15 },
+        { header: 'Review', key: 'review', width: 40 },
       ]
 
-      hackathon.registrations.forEach((reg, idx) => {
+      hackathon.registrations.forEach((reg: any, idx: number) => {
         sheet.addRow({
           sno: idx + 1,
           rollNo: reg.user.studentId || '',
@@ -428,6 +435,8 @@ router.get('/export/all', async (req: AuthRequest, res: Response) => {
           teamName: reg.teamName || '',
           status: reg.status,
           currentRound: reg.currentRound,
+          winPosition: reg.winPosition || '',
+          review: reg.review || '',
         })
       })
     }
@@ -453,7 +462,7 @@ router.get('/export/all', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const hackathon = await prisma.hackathon.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         creator: { select: { name: true, email: true, role: true } },
         registrations: {
@@ -466,6 +475,21 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     if (!hackathon) {
       res.status(404).json({ error: 'Hackathon not found' })
       return
+    }
+
+    // Auto-expire: revert SELECTED registrations to REGISTERED after 3 days of no update
+    const threeDaysAgo = new Date()
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+
+    for (const reg of hackathon.registrations) {
+      if (reg.status === 'SELECTED' && reg.updatedAt < threeDaysAgo) {
+        await prisma.hackathonRegistration.update({
+          where: { id: reg.id },
+          data: { status: 'REGISTERED', currentRound: 0 },
+        })
+        reg.status = 'REGISTERED'
+        reg.currentRound = 0
+      }
     }
 
     res.json(hackathon)
@@ -483,7 +507,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const hackathon = await prisma.hackathon.findUnique({ where: { id: req.params.id } })
+    const hackathon = await prisma.hackathon.findUnique({ where: { id: req.params.id as string } })
     if (!hackathon) {
       res.status(404).json({ error: 'Hackathon not found' })
       return
@@ -491,7 +515,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
 
     // Check if already registered
     const existing = await prisma.hackathonRegistration.findUnique({
-      where: { hackathonId_userId: { hackathonId: req.params.id, userId: req.userId! } },
+      where: { hackathonId_userId: { hackathonId: req.params.id as string, userId: req.userId! } },
     })
 
     if (existing) {
@@ -524,7 +548,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
 
     const registration = await prisma.hackathonRegistration.create({
       data: {
-        hackathonId: req.params.id,
+        hackathonId: req.params.id as string,
         userId: req.userId!,
         teamName,
         teamMembers,
@@ -545,7 +569,7 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
 router.put('/:id/registrations/:regId/round', async (req: AuthRequest, res: Response) => {
   try {
     const registration = await prisma.hackathonRegistration.findUnique({
-      where: { id: req.params.regId },
+      where: { id: req.params.regId as string },
     })
 
     if (!registration) {
@@ -561,17 +585,59 @@ router.put('/:id/registrations/:regId/round', async (req: AuthRequest, res: Resp
 
     const { round, status } = req.body
 
+    // Check if this is the last round
+    const hackathon = await prisma.hackathon.findUnique({
+      where: { id: req.params.id as string },
+      include: { rounds: { orderBy: { roundNumber: 'desc' } } },
+    })
+
+    const isLastRound = hackathon?.rounds && hackathon.rounds.length > 0 && round >= hackathon.rounds[0].roundNumber
+
     const updated = await prisma.hackathonRegistration.update({
-      where: { id: req.params.regId },
+      where: { id: req.params.regId as string },
       data: {
         currentRound: round,
-        status: status || 'SELECTED',
+        status: isLastRound ? 'COMPLETED' : (status || 'SELECTED'),
       },
     })
 
     res.json(updated)
   } catch (error) {
     res.status(500).json({ error: 'Failed to update round' })
+  }
+})
+
+// Submit win position and review after completing final round
+router.put('/:id/registrations/:regId/result', async (req: AuthRequest, res: Response) => {
+  try {
+    const registration = await prisma.hackathonRegistration.findUnique({
+      where: { id: req.params.regId as string },
+    })
+
+    if (!registration) {
+      res.status(404).json({ error: 'Registration not found' })
+      return
+    }
+
+    if (registration.userId !== req.userId) {
+      res.status(403).json({ error: 'Can only update your own registration' })
+      return
+    }
+
+    const { winPosition, review } = req.body
+
+    const updated = await prisma.hackathonRegistration.update({
+      where: { id: req.params.regId as string },
+      data: {
+        winPosition: winPosition || null,
+        review: review || null,
+        status: 'COMPLETED',
+      },
+    })
+
+    res.json(updated)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to submit result' })
   }
 })
 
@@ -588,7 +654,7 @@ router.post('/:id/rounds', async (req: AuthRequest, res: Response) => {
 
     const round = await prisma.hackathonRound.create({
       data: {
-        hackathonId: req.params.id,
+        hackathonId: req.params.id as string,
         roundNumber: parseInt(roundNumber),
         title,
         description,
@@ -612,13 +678,13 @@ router.put('/:id/rounds/:roundId', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const round = await prisma.hackathonRound.findUnique({ where: { id: req.params.roundId } })
+    const round = await prisma.hackathonRound.findUnique({ where: { id: req.params.roundId as string } })
     if (!round) {
       res.status(404).json({ error: 'Round not found' })
       return
     }
 
-    if (round.hackathonId !== req.params.id) {
+    if (round.hackathonId !== req.params.id as string) {
       res.status(400).json({ error: 'Round does not belong to this hackathon' })
       return
     }
@@ -626,7 +692,7 @@ router.put('/:id/rounds/:roundId', async (req: AuthRequest, res: Response) => {
     const { title, description, date, resultDate } = req.body
 
     const updated = await prisma.hackathonRound.update({
-      where: { id: req.params.roundId },
+      where: { id: req.params.roundId as string },
       data: {
         ...(title !== undefined && { title }),
         ...(description !== undefined && { description }),
@@ -651,18 +717,18 @@ router.delete('/:id/rounds/:roundId', async (req: AuthRequest, res: Response) =>
       return
     }
 
-    const round = await prisma.hackathonRound.findUnique({ where: { id: req.params.roundId } })
+    const round = await prisma.hackathonRound.findUnique({ where: { id: req.params.roundId as string } })
     if (!round) {
       res.status(404).json({ error: 'Round not found' })
       return
     }
 
-    if (round.hackathonId !== req.params.id) {
+    if (round.hackathonId !== req.params.id as string) {
       res.status(400).json({ error: 'Round does not belong to this hackathon' })
       return
     }
 
-    await prisma.hackathonRound.delete({ where: { id: req.params.roundId } })
+    await prisma.hackathonRound.delete({ where: { id: req.params.roundId as string } })
     res.json({ message: 'Round deleted' })
   } catch (error) {
     console.error('Delete round error:', error)
@@ -680,7 +746,7 @@ router.put('/:id/registrations/:regId/status', async (req: AuthRequest, res: Res
     }
 
     const registration = await prisma.hackathonRegistration.findUnique({
-      where: { id: req.params.regId },
+      where: { id: req.params.regId as string },
     })
 
     if (!registration) {
@@ -688,7 +754,7 @@ router.put('/:id/registrations/:regId/status', async (req: AuthRequest, res: Res
       return
     }
 
-    if (registration.hackathonId !== req.params.id) {
+    if (registration.hackathonId !== req.params.id as string) {
       res.status(400).json({ error: 'Registration does not belong to this hackathon' })
       return
     }
@@ -701,7 +767,7 @@ router.put('/:id/registrations/:regId/status', async (req: AuthRequest, res: Res
     }
 
     const updated = await prisma.hackathonRegistration.update({
-      where: { id: req.params.regId },
+      where: { id: req.params.regId as string },
       data: {
         currentRound,
         status,
@@ -750,6 +816,8 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
       { header: 'Project Idea', key: 'projectIdea', width: 30 },
       { header: 'Status', key: 'status', width: 15 },
       { header: 'Current Round', key: 'currentRound', width: 15 },
+      { header: 'Win Position', key: 'winPosition', width: 15 },
+      { header: 'Review', key: 'review', width: 40 },
       { header: 'Registered At', key: 'createdAt', width: 20 },
     ]
 
@@ -765,6 +833,8 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
         projectIdea: reg.projectIdea || '',
         status: reg.status,
         currentRound: reg.currentRound,
+        winPosition: reg.winPosition || '',
+        review: reg.review || '',
         createdAt: reg.createdAt.toLocaleDateString(),
       })
     })
@@ -829,6 +899,61 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Hackathon deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete hackathon' })
+  }
+})
+
+// POST /fetch-external - Trigger auto-fetch of hackathons from external sources
+router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'COLLEGE_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const { fetchFromAllSources } = await import('../services/opportunityAgent')
+    const allOpps = await fetchFromAllSources()
+    const hackathons = allOpps.filter(o => o.type === 'HACKATHON')
+
+    let fetched = 0
+    let skipped = 0
+
+    for (const opp of hackathons) {
+      if (!opp.url || !opp.title) { skipped++; continue }
+      try {
+        const existing = await prisma.hackathon.findFirst({
+          where: { title: opp.title, source: opp.source },
+        })
+        if (existing) { skipped++; continue }
+
+        await prisma.hackathon.create({
+          data: {
+            title: opp.title,
+            description: opp.description || null,
+            url: opp.url,
+            organizer: opp.organizer || null,
+            deadline: opp.deadline ? new Date(opp.deadline) : null,
+            startDate: opp.startDate ? new Date(opp.startDate) : null,
+            duration: opp.duration || null,
+            location: opp.location || null,
+            mode: opp.mode || null,
+            prizePool: opp.prizePool || null,
+            status: 'DRAFT',
+            source: opp.source,
+            creatorId: user.id,
+          },
+        })
+        fetched++
+      } catch (err) {
+        console.error(`Error storing hackathon "${opp.title}":`, err)
+        skipped++
+      }
+    }
+
+    res.json({ message: `Hackathon fetch complete`, fetched, skipped, total: hackathons.length })
+  } catch (error) {
+    console.error('Fetch external hackathons error:', error)
+    res.status(500).json({ error: 'Failed to fetch external hackathons' })
   }
 })
 
