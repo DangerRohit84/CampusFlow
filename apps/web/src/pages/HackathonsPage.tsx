@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { hackathonAPI, departmentAPI, opportunityAPI } from '../lib/api'
+import { hackathonAPI, departmentAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Trophy, Calendar, Users, Download,
@@ -13,7 +13,6 @@ import clsx from 'clsx'
 import FilterTabs from '../components/shared/FilterTabs'
 import EmptyState from '../components/shared/EmptyState'
 import PageHeader from '../components/shared/PageHeader'
-import EligibilityPopup from '../components/shared/EligibilityPopup'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
@@ -53,7 +52,6 @@ export default function HackathonsPage() {
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
 
   const createModal = useModal()
-  const eligibilityPopup = useModal()
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -64,18 +62,8 @@ export default function HackathonsPage() {
 
   const loadHackathons = async () => {
     try {
-      if (!user?.collegeId && (user?.departmentName || user?.departmentId)) {
-        // Normal user without college — fetch from opportunities filtered by department
-        const data = await opportunityAPI.getForMe('HACKATHON')
-        setHackathons(data.map((o: any) => ({
-          ...o,
-          name: o.title,
-          source: 'external',
-        })))
-      } else {
-        const data = await hackathonAPI.getAll()
-        setHackathons(data)
-      }
+      const data = await hackathonAPI.getAll()
+      setHackathons(data)
     } catch (err) {
       console.error('Failed to load hackathons', err)
     } finally {
@@ -203,27 +191,22 @@ export default function HackathonsPage() {
       toast.error('Title is required')
       return
     }
-    createModal.close()
-    eligibilityPopup.open()
-  }
-
-  const handleConfirmCreate = async (withEligibility: boolean) => {
     try {
       await hackathonAPI.create({
         ...form,
         themes: form.themes ? form.themes.split(',').map((t) => t.trim()) : [],
         rounds: aiRounds.length > 0 ? aiRounds : undefined,
-        targetDepartments: withEligibility ? targetDepartments : [],
-        targetYears: withEligibility ? targetYears : [],
-        eligibilityEnabled: withEligibility && (targetDepartments.length > 0 || targetYears.length > 0),
+        targetDepartments: eligibilityEnabled ? targetDepartments : [],
+        targetYears: eligibilityEnabled ? targetYears : [],
+        eligibilityEnabled: eligibilityEnabled && (targetDepartments.length > 0 || targetYears.length > 0),
       })
       toast.success('Hackathon created!')
-      eligibilityPopup.close()
       createModal.close()
       setForm({ title: '', description: '', url: '', organizer: '', registrationUrl: '', startDate: '', endDate: '', deadline: '', teamSize: '', themes: '', location: '', mode: 'OFFLINE', eligibility: '', prizePool: '', duration: '', schedule: '', bootcamps: '', highlights: '' })
       setAiRounds([])
       setTargetDepartments([])
       setTargetYears([])
+      setEligibilityEnabled(false)
       loadHackathons()
     } catch (err) {
       toast.error('Failed to create hackathon')
@@ -602,6 +585,77 @@ export default function HackathonsPage() {
                 )}
               </div>
 
+              {/* Eligibility Section - Inline */}
+              <div className="mt-5 p-4 rounded-xl bg-surface-50 border border-surface-200">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eligibilityEnabled}
+                    onChange={(e) => {
+                      setEligibilityEnabled(e.target.checked)
+                      if (!e.target.checked) {
+                        setTargetDepartments([])
+                        setTargetYears([])
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500"
+                  />
+                  <span className="text-sm font-medium text-surface-700">Restrict eligibility (departments/years)</span>
+                </label>
+                {eligibilityEnabled && (
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-2">Departments</label>
+                      <div className="flex flex-wrap gap-2">
+                        {departments.map((dept) => (
+                          <button
+                            key={dept.id}
+                            type="button"
+                            onClick={() => {
+                              setTargetDepartments((prev) =>
+                                prev.includes(dept.name) ? prev.filter((d) => d !== dept.name) : [...prev, dept.name]
+                              )
+                            }}
+                            className={clsx(
+                              'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                              targetDepartments.includes(dept.name)
+                                ? 'bg-primary-500 text-white border-primary-500'
+                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                            )}
+                          >
+                            {dept.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-2">Years</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[1, 2, 3, 4].map((year) => (
+                          <button
+                            key={year}
+                            type="button"
+                            onClick={() => {
+                              setTargetYears((prev) =>
+                                prev.includes(year) ? prev.filter((y) => y !== year) : [...prev, year]
+                              )
+                            }}
+                            className={clsx(
+                              'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                              targetYears.includes(year)
+                                ? 'bg-primary-500 text-white border-primary-500'
+                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                            )}
+                          >
+                            Year {year}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-3 mt-5">
                 <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
@@ -614,21 +668,6 @@ export default function HackathonsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Eligibility Popup */}
-      <EligibilityPopup
-        show={eligibilityPopup.isOpen}
-        title="Who can register?"
-        subtitle="Select departments and years, or skip to allow everyone."
-        departments={departments}
-        targetDepartments={targetDepartments}
-        setTargetDepartments={setTargetDepartments}
-        targetYears={targetYears}
-        setTargetYears={setTargetYears}
-        onSkip={() => handleConfirmCreate(false)}
-        onConfirm={() => handleConfirmCreate(true)}
-        onCancel={() => { eligibilityPopup.close(); createModal.open(); setTargetDepartments([]); setTargetYears([]) }}
-      />
     </div>
   )
 }

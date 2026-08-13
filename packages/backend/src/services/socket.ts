@@ -8,7 +8,7 @@ const userSockets = new Map<string, string[]>()
 export function initSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(','),
       methods: ['GET', 'POST'],
     },
   })

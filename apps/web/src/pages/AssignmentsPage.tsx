@@ -73,7 +73,7 @@ export default function AssignmentsPage() {
           { label: 'Submitted', value: stats.submitted, icon: CheckCircle, color: 'text-primary-600', bg: 'bg-primary-50' },
           { label: 'Graded', value: stats.graded, icon: BookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' },
         ].map((s) => (
-          <Card key={s.label} className="flex items-center gap-4">
+          <Card key={s.label} hover className="flex items-center gap-4">
             <div className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center`}><s.icon size={22} className={s.color} /></div>
             <div><p className="text-2xl font-bold text-surface-900">{s.value}</p><p className="text-xs text-surface-500">{s.label}</p></div>
           </Card>

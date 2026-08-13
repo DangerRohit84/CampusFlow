@@ -2,6 +2,45 @@
 import prisma from '../config/db'
 import { fetchAllPlatforms } from './platformFetchers'
 
+// Normalize a string for fuzzy matching: lowercase, strip non-alphanumeric, collapse spaces
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// Map platform fetcher codes to CodingContest platform values
+const platformMap: Record<string, string> = {
+  leetcode: 'LEETCODE',
+  codeforces: 'CODEFORCES',
+  codechef: 'CODECHEF',
+  hackerrank: 'HACKERRANK',
+  gfg: 'GFG',
+}
+
+// Match a participation to a CodingContest by platform + title or URL
+async function findMatchingContest(platform: string, contestName: string, contestUrl: string | null): Promise<string | null> {
+  const dbPlatform = platformMap[platform] || platform.toUpperCase()
+  const normalized = normalize(contestName)
+
+  const candidates = await prisma.codingContest.findMany({
+    where: { platform: dbPlatform },
+    select: { id: true, title: true, url: true },
+  })
+
+  for (const c of candidates) {
+    // 1. Exact title match
+    if (normalize(c.title) === normalized) return c.id
+    // 2. Title contains match
+    if (normalize(c.title).includes(normalized) || normalized.includes(normalize(c.title))) return c.id
+    // 3. URL match (most reliable for platforms like CodeChef/Codeforces)
+    if (contestUrl && c.url) {
+      const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()
+      if (normUrl(contestUrl) === normUrl(c.url)) return c.id
+    }
+  }
+
+  return null
+}
+
 export async function syncUserContests(userId: string): Promise<{ synced: number; platforms: string[] }> {
   const profile = await prisma.codingProfile.findUnique({ where: { userId } })
   if (!profile) return { synced: 0, platforms: [] }
@@ -13,6 +52,9 @@ export async function syncUserContests(userId: string): Promise<{ synced: number
   for (const r of results) {
     platforms.add(r.platform)
     try {
+      // Try to find matching CodingContest for this participation
+      const contestId = await findMatchingContest(r.platform, r.contestName, r.contestUrl)
+
       await prisma.contestParticipation.upsert({
         where: {
           userId_platform_contestName: {
@@ -26,10 +68,9 @@ export async function syncUserContests(userId: string): Promise<{ synced: number
           score: r.score,
           rating: r.rating,
           ratingChange: r.ratingChange,
-          problemsSolved: r.problemsSolved,
-          totalProblems: r.totalProblems,
           contestUrl: r.contestUrl,
           participatedAt: r.participatedAt,
+          contestId,
           syncedAt: new Date(),
         },
         create: {
@@ -41,9 +82,8 @@ export async function syncUserContests(userId: string): Promise<{ synced: number
           score: r.score,
           rating: r.rating,
           ratingChange: r.ratingChange,
-          problemsSolved: r.problemsSolved,
-          totalProblems: r.totalProblems,
           participatedAt: r.participatedAt,
+          contestId,
         },
       })
       synced++

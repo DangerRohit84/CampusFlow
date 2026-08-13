@@ -76,7 +76,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const body = assignmentSchema.partial().parse(req.body)
     const assignment = await prisma.assignment.update({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
       data: body,
     })
     res.json(assignment)
@@ -93,7 +93,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.assignment.delete({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
     })
     res.json({ message: 'Assignment deleted' })
   } catch (error) {

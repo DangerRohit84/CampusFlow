@@ -34,7 +34,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // Get schedule by day
 router.get('/day/:dayOfWeek', async (req: AuthRequest, res: Response) => {
   try {
-    const dayOfWeek = parseInt(req.params.dayOfWeek)
+    const dayOfWeek = parseInt(req.params.dayOfWeek as string)
     const schedules = await prisma.schedule.findMany({
       where: { userId: req.userId, dayOfWeek },
       orderBy: { startTime: 'asc' },
@@ -67,7 +67,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const body = scheduleSchema.partial().parse(req.body)
     const schedule = await prisma.schedule.update({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
       data: body,
     })
     res.json(schedule)
@@ -84,7 +84,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.schedule.delete({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
     })
     res.json({ message: 'Schedule deleted' })
   } catch (error) {

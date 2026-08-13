@@ -38,7 +38,7 @@ router.get('/unread-count', async (req: AuthRequest, res: Response) => {
 router.put('/:id/read', async (req: AuthRequest, res: Response) => {
   try {
     const notification = await prisma.notification.update({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
       data: { read: true },
     })
     res.json(notification)
@@ -64,7 +64,7 @@ router.put('/read-all', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.notification.delete({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
     })
     res.json({ message: 'Notification deleted' })
   } catch (error) {

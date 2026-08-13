@@ -75,13 +75,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Department name is required' })
       return
     }
-    const dept = await prisma.department.findUnique({ where: { id: req.params.id } })
+    const dept = await prisma.department.findUnique({ where: { id: req.params.id as string } })
     if (!dept || dept.collegeId !== user.collegeId) {
       res.status(404).json({ error: 'Department not found' })
       return
     }
     const updated = await prisma.department.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { name: name.trim() },
     })
     res.json(updated)
@@ -103,7 +103,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
     const dept = await prisma.department.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: { _count: { select: { users: true } } },
     })
     if (!dept || dept.collegeId !== user.collegeId) {
@@ -114,7 +114,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: `Cannot delete: ${dept._count.users} users belong to this department` })
       return
     }
-    await prisma.department.delete({ where: { id: req.params.id } })
+    await prisma.department.delete({ where: { id: req.params.id as string } })
     res.json({ success: true })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete department' })

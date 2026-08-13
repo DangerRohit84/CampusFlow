@@ -104,7 +104,7 @@ router.post('/sessions', async (req: AuthRequest, res: Response) => {
 router.get('/sessions/:sessionId/messages', async (req: AuthRequest, res: Response) => {
   try {
     const session = await prisma.chatSession.findFirst({
-      where: { id: req.params.sessionId, userId: req.userId },
+      where: { id: req.params.sessionId as string, userId: req.userId },
     })
     if (!session) {
       res.status(404).json({ error: 'Session not found' })
@@ -112,7 +112,7 @@ router.get('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respon
     }
 
     const messages = await prisma.chatMessage.findMany({
-      where: { sessionId: req.params.sessionId },
+      where: { sessionId: req.params.sessionId as string },
       orderBy: { createdAt: 'asc' },
     })
     res.json(messages)
@@ -127,7 +127,7 @@ router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respo
     const body = messageSchema.parse(req.body)
     const provider = providerSchema.parse(req.body.provider)
     const session = await prisma.chatSession.findFirst({
-      where: { id: req.params.sessionId, userId: req.userId },
+      where: { id: req.params.sessionId as string, userId: req.userId },
     })
     if (!session) {
       res.status(404).json({ error: 'Session not found' })
@@ -135,11 +135,11 @@ router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respo
     }
 
     const userMessage = await prisma.chatMessage.create({
-      data: { sessionId: req.params.sessionId, role: 'USER', content: body.content },
+      data: { sessionId: req.params.sessionId as string, role: 'USER', content: body.content },
     })
 
     const recentMessages = await prisma.chatMessage.findMany({
-      where: { sessionId: req.params.sessionId },
+      where: { sessionId: req.params.sessionId as string },
       orderBy: { createdAt: 'desc' },
       take: 10,
     })
@@ -148,11 +148,11 @@ router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respo
     const aiResponse = await chatWithProvider(body.content, provider, context)
 
     const assistantMessage = await prisma.chatMessage.create({
-      data: { sessionId: req.params.sessionId, role: 'ASSISTANT', content: aiResponse },
+      data: { sessionId: req.params.sessionId as string, role: 'ASSISTANT', content: aiResponse },
     })
 
     await prisma.chatSession.update({
-      where: { id: req.params.sessionId },
+      where: { id: req.params.sessionId as string },
       data: { updatedAt: new Date(), title: recentMessages.length <= 1 ? body.content.slice(0, 50) : undefined },
     })
 

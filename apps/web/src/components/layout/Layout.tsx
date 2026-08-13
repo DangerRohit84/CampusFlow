@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 import CommandPalette from '../CommandPalette'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, codingProfileAPI, opportunityAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, codingProfileAPI } from '../../lib/api'
 
 const navByRole: Record<string, any[]> = {
   STUDENT: [
@@ -32,6 +32,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/schedule', label: 'Timetable', icon: Calendar },
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
+    { path: '/teacher/opportunities', label: 'Assigned to Me', icon: CheckSquare },
     { path: '/contests', label: 'Contests', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
@@ -70,7 +71,7 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [todayClasses, setTodayClasses] = useState<any[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0, pendingOpportunities: 0 })
+  const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
   const [notifications, setNotifications] = useState<any[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfileNudge, setShowProfileNudge] = useState(false)
@@ -122,14 +123,7 @@ export default function Layout() {
     }).catch(() => {})
   }, [location.pathname])
 
-  // Fetch pending opportunities count for admin/teacher
-  useEffect(() => {
-    if (['COLLEGE_ADMIN', 'SUPER_ADMIN', 'TEACHER'].includes(user?.role || '')) {
-      opportunityAPI.getPending().then((data) => {
-        setNearDeadlineCount((prev) => ({ ...prev, pendingOpportunities: data.length }))
-      }).catch(() => {})
-    }
-  }, [user?.role, location.pathname])
+
 
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
@@ -187,7 +181,6 @@ export default function Layout() {
             : item.path === '/forms' ? nearDeadlineCount.forms
             : item.path === '/internships' ? nearDeadlineCount.internships
             : item.path === '/contests' ? nearDeadlineCount.contests
-            : item.path === '/admin/opportunities' ? nearDeadlineCount.pendingOpportunities
             : 0
           return (
             <button key={item.path} onClick={() => navigate(item.path)} title={item.label}

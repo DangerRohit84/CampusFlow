@@ -38,7 +38,7 @@ export default function InsightsPage() {
 
       {/* Performance Insights */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <Card>
+        <Card hover>
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center"><BarChart3 className="w-5 h-5 text-white" /></div>
             <h2 className="text-lg font-bold text-surface-900">Performance Analysis</h2>
@@ -59,7 +59,7 @@ export default function InsightsPage() {
 
       {/* Study Plan Generator */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card>
+        <Card hover>
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-accent-100 flex items-center justify-center"><GraduationCap className="w-5 h-5 text-accent-600" /></div>
             <h2 className="text-lg font-bold text-surface-900">Study Plan Generator</h2>

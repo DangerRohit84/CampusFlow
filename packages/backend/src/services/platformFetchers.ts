@@ -8,68 +8,25 @@ export interface PlatformContestResult {
   score: number | null
   rating: number | null
   ratingChange: number | null
-  problemsSolved: number | null
-  totalProblems: number | null
   participatedAt: Date | null
 }
 
 export async function fetchCodeforces(handle: string): Promise<PlatformContestResult[]> {
   const results: PlatformContestResult[] = []
   try {
-    // Get user info for rating history
-    const infoResp = await fetch(`https://codeforces.com/api/user.info?handles=${handle}`)
-    const infoData = await infoResp.json() as { status: string; result?: unknown[] }
-    if (infoData.status !== 'OK') return results
-
-    // Get contest history
-    const statusResp = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=10000`)
-    const statusData = await statusResp.json() as { status: string; result?: Array<{ contestId?: number; problem: { index: string } }> }
-    if (statusData.status !== 'OK') return results
-
-    // Group submissions by contest
-    const contestMap = new Map<number, { name: string; url: string; problems: Set<string>; rank?: number; rating?: number }>()
-    
-    for (const submission of statusData.result ?? []) {
-      if (!submission.contestId) continue
-      const contestId = submission.contestId
-      if (!contestMap.has(contestId)) {
-        contestMap.set(contestId, {
-          name: `Codeforces Round #${contestId}`,
-          url: `https://codeforces.com/contest/${contestId}`,
-          problems: new Set(),
-        })
-      }
-      const contest = contestMap.get(contestId)!
-      contest.problems.add(submission.problem.index)
-    }
-
-    // Get rating changes for rank/rating info
     const ratingResp = await fetch(`https://codeforces.com/api/user.rating?handle=${handle}`)
-    const ratingData = await ratingResp.json() as { status: string; result?: Array<{ contestId: number; rank: number; newRating: number; oldRating: number }> }
-    
-    const ratingMap = new Map<number, { rank: number; rating: number; ratingChange: number }>()
-    if (ratingData.status === 'OK') {
-      for (const entry of ratingData.result ?? []) {
-        ratingMap.set(entry.contestId, {
-          rank: entry.rank,
-          rating: entry.newRating,
-          ratingChange: entry.newRating - entry.oldRating,
-        })
-      }
-    }
+    const ratingData = await ratingResp.json() as { status: string; result?: Array<{ contestId: number; rank: number; newRating: number; oldRating: number; contestName: string }> }
+    if (ratingData.status !== 'OK') return results
 
-    for (const [contestId, data] of contestMap) {
-      const ratingInfo = ratingMap.get(contestId)
+    for (const entry of ratingData.result ?? []) {
       results.push({
         platform: 'codeforces',
-        contestName: data.name,
-        contestUrl: data.url,
-        rank: ratingInfo?.rank ?? null,
-        score: data.problems.size,
-        rating: ratingInfo?.rating ?? null,
-        ratingChange: ratingInfo?.ratingChange ?? null,
-        problemsSolved: data.problems.size,
-        totalProblems: null,
+        contestName: entry.contestName || `Codeforces Round #${entry.contestId}`,
+        contestUrl: `https://codeforces.com/contest/${entry.contestId}`,
+        rank: entry.rank,
+        score: null,
+        rating: entry.newRating,
+        ratingChange: entry.newRating - entry.oldRating,
         participatedAt: null,
       })
     }
@@ -86,54 +43,35 @@ export async function fetchLeetCode(handle: string): Promise<PlatformContestResu
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query: `
-          query contestHistory($username: String!) {
-            allContests {
+        query: `query userContestRankingHistory($username: String!) {
+          userContestRankingHistory(username: $username) {
+            attended
+            trendDirection
+            rating
+            ranking
+            contest {
               title
               titleSlug
               startTime
             }
-            matchedUser(username: $username) {
-              contestHistory {
-                attended
-                totalProblems
-                trendingDirection
-                finishTimeInSeconds
-                rating
-                ranking
-                contest {
-                  title
-                  titleSlug
-                  startTime
-                }
-              }
-            }
           }
-        `,
+        }`,
         variables: { username: handle },
       }),
     })
-    const data = await resp.json() as { data?: { matchedUser?: { contestHistory?: Array<{
-      attended: boolean
-      totalProblems: number
-      rating: number
-      ranking: number
-      contest: { title: string; titleSlug: string; startTime: number }
-    }> } } }
-    const history = data?.data?.matchedUser?.contestHistory || []
-    
+    const data = await resp.json() as any
+    const history = data?.data?.userContestRankingHistory || []
+
     for (const entry of history) {
       if (!entry.attended) continue
       results.push({
         platform: 'leetcode',
         contestName: entry.contest.title,
-        contestUrl: `https://leetcode.com/contests/${entry.contest.titleSlug}`,
+        contestUrl: `https://leetcode.com/contest/${entry.contest.titleSlug}`,
         rank: entry.ranking,
-        score: entry.totalProblems,
+        score: null,
         rating: Math.round(entry.rating),
         ratingChange: null,
-        problemsSolved: entry.totalProblems,
-        totalProblems: null,
         participatedAt: new Date(entry.contest.startTime * 1000),
       })
     }
@@ -146,22 +84,46 @@ export async function fetchLeetCode(handle: string): Promise<PlatformContestResu
 export async function fetchCodeChef(handle: string): Promise<PlatformContestResult[]> {
   const results: PlatformContestResult[] = []
   try {
-    const resp = await fetch(`https://contest-hive.vercel.app/api/codechef/${handle}`)
-    const data = await resp.json() as { contests?: any[]; ratingData?: any[] }
-    const contests = data.contests || data.ratingData || []
-    
-    for (const c of contests) {
+    const resp = await fetch(`https://www.codechef.com/users/${handle}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    })
+    if (!resp.ok) throw new Error(`CodeChef profile error: ${resp.status}`)
+    const html = await resp.text()
+
+    // Extract rating history from embedded JS: var all_rating = [...];
+    const match = html.match(/var\s+all_rating\s*=\s*(\[[\s\S]*?\])\s*;/)
+    if (!match) {
+      console.warn(`CodeChef: no rating data found for ${handle}`)
+      return results
+    }
+
+    const ratingHistory: Array<{
+      code: string; getyear: string; getmonth: string; getday: string;
+      rating: string; rank: string; name: string; end_date: string;
+    }> = JSON.parse(match[1])
+
+    // Build previous rating map for rating change calculation
+    const prevRating = new Map<string, number>()
+    for (let i = 1; i < ratingHistory.length; i++) {
+      prevRating.set(ratingHistory[i].code, parseInt(ratingHistory[i - 1].rating))
+    }
+
+    for (const entry of ratingHistory) {
+      const rating = parseInt(entry.rating)
+      const oldRating = prevRating.get(entry.code) ?? rating
+      const code = entry.code.replace(/D$/, '') // Strip trailing 'D' (DSA Monday suffix) for URL
+
       results.push({
         platform: 'codechef',
-        contestName: c.name || c.contestName || 'CodeChef Contest',
-        contestUrl: c.url || null,
-        rank: c.rank || c.place || null,
-        score: c.score || null,
-        rating: c.rating || c.newRating || null,
-        ratingChange: c.ratingChange || (c.newRating && c.oldRating ? c.newRating - c.oldRating : null),
-        problemsSolved: c.problemsSolved || null,
-        totalProblems: null,
-        participatedAt: c.date ? new Date(c.date) : null,
+        contestName: entry.name || `CodeChef ${code}`,
+        contestUrl: `https://www.codechef.com/${code}`,
+        rank: parseInt(entry.rank) || null,
+        score: null,
+        rating,
+        ratingChange: rating - oldRating,
+        participatedAt: new Date(entry.end_date),
       })
     }
   } catch (err) {
@@ -173,22 +135,55 @@ export async function fetchCodeChef(handle: string): Promise<PlatformContestResu
 export async function fetchHackerRank(handle: string): Promise<PlatformContestResult[]> {
   const results: PlatformContestResult[] = []
   try {
-    const resp = await fetch(`https://www.hackerrank.com/rest/contests/by/${handle}/hackos_score`)
+    const resp = await fetch(`https://www.hackerrank.com/${handle}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    })
     if (!resp.ok) return results
-    const data = await resp.json() as { models?: any[] }
-    
-    for (const c of data.models || []) {
+    const html = await resp.text()
+
+    // Extract JSON from <script id="initialUserData"> (URL-encoded)
+    const match = html.match(/<script[^>]*id="initialUserData"[^>]*>([\s\S]*?)<\/script>/)
+    if (!match) return results
+
+    const decoded = decodeURIComponent(match[1].trim())
+    const userData = JSON.parse(decoded) as {
+      contestHistory?: { list?: Array<{
+        contest?: { slug?: string; name?: string }
+        rank?: number
+        score?: number
+        date?: string
+      }> }
+      scores?: Record<string, number>
+    }
+
+    const contestList = userData?.contestHistory?.list || []
+    for (const c of contestList) {
       results.push({
         platform: 'hackerrank',
-        contestName: c.name || 'HackerRank Contest',
-        contestUrl: c.url ? `https://www.hackerrank.com${c.url}` : null,
+        contestName: c.contest?.name || c.contest?.slug || 'HackerRank Contest',
+        contestUrl: c.contest?.slug ? `https://www.hackerrank.com/contests/${c.contest.slug}` : null,
         rank: c.rank || null,
         score: c.score || null,
         rating: null,
         ratingChange: null,
-        problemsSolved: c.total || null,
-        totalProblems: null,
-        participatedAt: c.created_at ? new Date(c.created_at) : null,
+        participatedAt: c.date ? new Date(c.date) : null,
+      })
+    }
+
+    // If no contest history, create a profile summary entry from scores
+    if (results.length === 0 && userData?.scores && Object.keys(userData.scores).length > 0) {
+      const totalScore = Object.values(userData.scores).reduce((a, b) => a + b, 0)
+      results.push({
+        platform: 'hackerrank',
+        contestName: 'HackerRank Overall Profile',
+        contestUrl: `https://www.hackerrank.com/${handle}`,
+        rank: null,
+        score: totalScore,
+        rating: null,
+        ratingChange: null,
+        participatedAt: null,
       })
     }
   } catch (err) {
@@ -200,14 +195,19 @@ export async function fetchHackerRank(handle: string): Promise<PlatformContestRe
 export async function fetchGFG(handle: string): Promise<PlatformContestResult[]> {
   const results: PlatformContestResult[] = []
   try {
-    const resp = await fetch(`https://www.geeksforgeeks.org/user/${handle}`)
+    const resp = await fetch(`https://www.geeksforgeeks.org/user/${handle}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    })
     if (!resp.ok) return results
     const html = await resp.text()
-    
-    // Extract coding score and problems from profile
-    const scoreMatch = html.match(/Coding Score:\s*(\d+)/)
-    const problemsMatch = html.match(/Problem[s] Solved:\s*(\d+)/)
-    
+
+    // Extract from self.__next_f.push() chunks — look for score/total_problems_solved
+    // Data may have escaped quotes (\"\") or regular quotes ("")
+    const scoreMatch = html.match(/\\?"score\\?"\s*:\s*(\d+)/)
+    const problemsMatch = html.match(/\\?"total_problems_solved\\?"\s*:\s*(\d+)/)
+
     if (scoreMatch || problemsMatch) {
       results.push({
         platform: 'gfg',
@@ -217,8 +217,6 @@ export async function fetchGFG(handle: string): Promise<PlatformContestResult[]>
         score: scoreMatch ? parseInt(scoreMatch[1]) : null,
         rating: null,
         ratingChange: null,
-        problemsSolved: problemsMatch ? parseInt(problemsMatch[1]) : null,
-        totalProblems: null,
         participatedAt: null,
       })
     }

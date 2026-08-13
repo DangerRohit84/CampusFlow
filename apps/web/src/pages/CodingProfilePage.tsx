@@ -157,7 +157,6 @@ export default function CodingProfilePage() {
                         {p.ratingChange > 0 ? '+' : ''}{p.ratingChange}
                       </span>
                     )}
-                    {p.problemsSolved && <span className="text-surface-500">{p.problemsSolved} problems</span>}
                   </div>
                 </div>
               ))}

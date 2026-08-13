@@ -112,13 +112,14 @@ export default function InternshipDetailPage() {
 
   const targetDeptIds: string[] = safeParse(internship.targetDepartments)
   const targetYears: number[] = safeParse(internship.targetYears).map(Number)
+  const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
   const targetDeptNames = targetDeptIds.length > 0
-    ? departments.filter(d => targetDeptIds.includes(d.id)).map(d => d.name)
+    ? departments.filter(d => targetDeptIds.some(t => isUUID(t) ? t === d.id : t.toUpperCase() === d.name.toUpperCase())).map(d => d.name)
     : []
 
   const isEligible = !internship.eligibilityEnabled || (() => {
     if (!user || user.role !== 'STUDENT') return true
-    if (targetDeptIds.length > 0 && (!user.departmentId || !targetDeptIds.includes(user.departmentId))) return false
+    if (targetDeptIds.length > 0 && (!user.departmentId || !targetDeptIds.some(t => isUUID(t) ? t === user.departmentId : t.toUpperCase() === (user.department?.name || '').toUpperCase()))) return false
     if (targetYears.length > 0 && user.incomingYear) {
       const currentYear = Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
       if (!targetYears.includes(currentYear)) return false

@@ -145,7 +145,7 @@ export default function SchedulePage() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Timeline */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="lg:col-span-2">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" hover className="overflow-hidden">
             <div className="p-5 pb-3 flex items-center justify-between border-b border-surface-100">
               <div className="flex items-center gap-3">
                 <CalendarDays className="w-5 h-5 text-primary-600" />
@@ -215,7 +215,7 @@ export default function SchedulePage() {
         {/* Right Sidebar */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="space-y-6">
           {/* Week Overview */}
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-4">Week Overview</h3>
             <div className="space-y-3">
               {days.map((day, i) => {
@@ -235,7 +235,7 @@ export default function SchedulePage() {
           </Card>
 
           {/* Stats */}
-          <Card>
+          <Card hover>
             <h3 className="font-bold text-surface-900 mb-4">Stats</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 bg-primary-50 rounded-xl text-center">

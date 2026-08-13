@@ -176,7 +176,7 @@ router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const contest = await prisma.codingContest.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: { creator: { select: { name: true, email: true, role: true } } },
     })
 
@@ -200,7 +200,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const existing = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    const existing = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!existing) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -217,7 +217,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const { title, platform, url, startTime, duration, contestType, status, solutions } = req.body
 
     const updated = await prisma.codingContest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(title !== undefined && { title }),
         ...(platform !== undefined && { platform }),
@@ -240,7 +240,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // Bulk replace solutions for a contest
 router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -264,7 +264,7 @@ router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
     }
 
     const updated = await prisma.codingContest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { solutions: JSON.stringify(solutions) },
     })
 
@@ -278,7 +278,7 @@ router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
 // Delete coding contest
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -293,7 +293,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    await prisma.codingContest.delete({ where: { id: req.params.id } })
+    await prisma.codingContest.delete({ where: { id: req.params.id as string } })
     res.json({ message: 'Contest deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete contest' })
@@ -303,7 +303,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 // Add solution to a contest
 router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -342,7 +342,7 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
     })
 
     const updated = await prisma.codingContest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { solutions: JSON.stringify(solutions) },
     })
 
@@ -356,7 +356,7 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
 // Remove solution from a contest
 router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id } })
+    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -371,7 +371,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
       return
     }
 
-    const solutionIndex = parseInt(req.params.solutionIndex)
+    const solutionIndex = parseInt(req.params.solutionIndex as string)
     let solutions: any[]
     try {
       solutions = JSON.parse(contest.solutions || '[]')
@@ -387,7 +387,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
     solutions.splice(solutionIndex, 1)
 
     const updated = await prisma.codingContest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { solutions: JSON.stringify(solutions) },
     })
 

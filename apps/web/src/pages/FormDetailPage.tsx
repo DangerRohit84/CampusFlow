@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
+import type { Department } from '../types/api'
 
 export default function FormDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -19,7 +20,7 @@ export default function FormDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [extendDays, setExtendDays] = useState('7')
-  const [departments, setDepartments] = useState<any[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [editingFields, setEditingFields] = useState(false)
   const [editFields, setEditFields] = useState<any[]>([])
   const [savingFields, setSavingFields] = useState(false)
@@ -32,7 +33,7 @@ export default function FormDetailPage() {
   const isExpired = form?.expiresAt && new Date() > new Date(form.expiresAt)
 
   // Eligibility computation
-  const safeParse = (json: any): any[] => {
+  const safeParse = (json: unknown): string[] => {
     try {
       if (Array.isArray(json)) return json
       if (typeof json === 'string') return JSON.parse(json || '[]')
@@ -41,7 +42,7 @@ export default function FormDetailPage() {
   }
 
   const targetDeptIds: string[] = safeParse(form?.targetDepartments)
-  const targetYearsList: number[] = safeParse(form?.targetYears)
+  const targetYearsList: number[] = safeParse(form?.targetYears).map(Number)
   const targetDeptNames = targetDeptIds.length > 0 && departments.length > 0
     ? departments.filter(d => targetDeptIds.includes(d.id)).map(d => d.name)
     : []

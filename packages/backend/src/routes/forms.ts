@@ -93,7 +93,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: {
           OR: [
             { creatorId: req.userId },
-            { creator: { department: user.department } },
+            { creator: { departmentId: user.departmentId } },
             { formRooms: { some: { roomId: { in: teacherRoomIds } } } },
           ],
         },
@@ -111,7 +111,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: {
           status: 'ACTIVE',
           OR: [
-            { creator: { department: user.department } },
+            { creator: { departmentId: user.departmentId } },
             { formRooms: { some: { roomId: { in: studentRoomIds } } } },
           ],
         },
@@ -136,7 +136,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id } })
+    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!existingForm) {
       res.status(404).json({ error: 'Form not found' })
       return
@@ -146,7 +146,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const isAdmin = user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
     const isCRofLinkedRoom = user.role === 'STUDENT' && await prisma.formRoom.findFirst({
       where: {
-        formId: req.params.id,
+        formId: req.params.id as string,
         room: { members: { some: { studentId: req.userId!, isCR: true } } },
       }
     })
@@ -158,7 +158,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const { title, description, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
     const form = await prisma.form.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(title !== undefined && { title }),
         ...(description !== undefined && { description }),
@@ -185,7 +185,7 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id } })
+    const existingForm = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!existingForm) {
       res.status(404).json({ error: 'Form not found' })
       return
@@ -195,7 +195,7 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
     const isAdmin = user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
     const isCRofLinkedRoom = user.role === 'STUDENT' && await prisma.formRoom.findFirst({
       where: {
-        formId: req.params.id,
+        formId: req.params.id as string,
         room: { members: { some: { studentId: req.userId!, isCR: true } } },
       }
     })
@@ -212,13 +212,13 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
     }
 
     // Delete existing fields and recreate
-    await prisma.formField.deleteMany({ where: { formId: req.params.id } })
+    await prisma.formField.deleteMany({ where: { formId: req.params.id as string } })
 
     const created = await Promise.all(
       fields.map((f: any, i: number) =>
         prisma.formField.create({
           data: {
-            formId: req.params.id,
+            formId: req.params.id as string,
             label: f.label,
             type: f.type || 'TEXT',
             required: f.required || false,
@@ -246,7 +246,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const form = await prisma.form.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         creator: { select: { name: true, email: true, empNumber: true } },
         fields: { orderBy: { order: 'asc' } },
@@ -320,7 +320,7 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
     }
 
     const form = await prisma.form.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: { fields: true },
     })
 
@@ -331,7 +331,7 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
 
     // Check room-based eligibility first
     const formRooms = await prisma.formRoom.findMany({
-      where: { formId: req.params.id },
+      where: { formId: req.params.id as string },
       select: { roomId: true }
     })
 
@@ -383,7 +383,7 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
 
     // Check if already responded
     const existing = await prisma.formResponse.findUnique({
-      where: { formId_userId: { formId: req.params.id, userId: req.userId! } },
+      where: { formId_userId: { formId: req.params.id as string, userId: req.userId! } },
     })
 
     // Enforce allowEdit setting
@@ -403,7 +403,7 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
       // Create new response
       const response = await prisma.formResponse.create({
         data: {
-          formId: req.params.id,
+          formId: req.params.id as string,
           userId: req.userId!,
           answers: JSON.stringify(req.body.answers),
         },
@@ -431,7 +431,7 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const form = await prisma.form.findUnique({ where: { id: req.params.id } })
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
       return
@@ -444,7 +444,7 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
     }
 
     const updated = await prisma.form.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { expiresAt: new Date(expiresAt) },
     })
 
@@ -465,7 +465,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
     }
 
     const form = await prisma.form.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         fields: { orderBy: { order: 'asc' } },
         responses: {
@@ -545,7 +545,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
 // Delete form (Creator only)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const form = await prisma.form.findUnique({ where: { id: req.params.id } })
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
       return
@@ -556,7 +556,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
     const isCRofLinkedRoom = user?.role === 'STUDENT' && await prisma.formRoom.findFirst({
       where: {
-        formId: req.params.id,
+        formId: req.params.id as string,
         room: { members: { some: { studentId: req.userId!, isCR: true } } },
       }
     })
@@ -566,7 +566,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    await prisma.form.delete({ where: { id: req.params.id } })
+    await prisma.form.delete({ where: { id: req.params.id as string } })
     res.json({ message: 'Form deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete form' })

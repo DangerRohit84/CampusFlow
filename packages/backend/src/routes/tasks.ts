@@ -111,7 +111,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const body = taskSchema.partial().parse(req.body)
     const task = await prisma.task.update({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
       data: { ...body, date: body.date ? new Date(body.date) : undefined },
     })
     res.json(task)
@@ -127,11 +127,11 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // Toggle task complete
 router.put('/:id/toggle', async (req: AuthRequest, res: Response) => {
   try {
-    const task = await prisma.task.findFirst({ where: { id: req.params.id, userId: req.userId } })
+    const task = await prisma.task.findFirst({ where: { id: req.params.id as string, userId: req.userId } })
     if (!task) { res.status(404).json({ error: 'Not found' }); return }
 
     const updated = await prisma.task.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { completed: !task.completed, status: task.completed ? 'PENDING' : 'COMPLETED' },
     })
     res.json(updated)
@@ -143,7 +143,7 @@ router.put('/:id/toggle', async (req: AuthRequest, res: Response) => {
 // Delete task
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.task.delete({ where: { id: req.params.id, userId: req.userId } })
+    await prisma.task.delete({ where: { id: req.params.id as string, userId: req.userId } })
     res.json({ message: 'Task deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete task' })

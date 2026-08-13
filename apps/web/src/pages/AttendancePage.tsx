@@ -49,7 +49,7 @@ export default function AttendancePage() {
           { label: 'Absent', value: stats?.absent || 0, icon: XCircle, color: 'from-red-400 to-red-600' },
           { label: 'Late', value: stats?.late || 0, icon: Clock, color: 'from-amber-400 to-amber-600' },
         ].map((s) => (
-          <Card key={s.label} className="relative overflow-hidden">
+          <Card key={s.label} hover className="relative overflow-hidden">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-surface-500">{s.label}</p>
@@ -65,7 +65,7 @@ export default function AttendancePage() {
 
       {/* Attendance Ring */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card>
+        <Card hover>
           <div className="flex flex-col md:flex-row items-center gap-8">
             <div className="relative w-40 h-40 shrink-0">
               <svg className="w-40 h-40 transform -rotate-90" viewBox="0 0 160 160">
@@ -122,7 +122,7 @@ export default function AttendancePage() {
 
       {/* Recent Records */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <Card padding="none">
+        <Card padding="none" hover>
           <div className="p-6 pb-3">
             <h3 className="font-bold text-surface-900">Recent Attendance</h3>
           </div>

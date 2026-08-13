@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { codingContestAPI, codingProfileAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -6,7 +7,7 @@ import {
   Plus, Trophy, Calendar, Clock, ExternalLink,
   Trash2, Loader2, ChevronLeft, ChevronRight,
   Play, CheckCircle2, Filter, Youtube, Code2,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Download
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -32,10 +33,11 @@ const statusConfig: Record<string, { color: string; dot: string; label: string }
 }
 
 export default function CodingContestsPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const [contests, setContests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [calendarData, setCalendarData] = useState<Record<string, any[]>>({})
+  // calendar dots are now derived from filteredContests (respects status filter)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [platformFilter, setPlatformFilter] = useState<Platform>('ALL')
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -43,13 +45,26 @@ export default function CodingContestsPage() {
   const [solutions, setSolutions] = useState<Record<string, any[]>>({})
   const [myParticipations, setMyParticipations] = useState<any[]>([])
   const [participants, setParticipants] = useState<any[]>([])
-  const [showParticipants, setShowParticipants] = useState(false)
-  const [leaderboard, setLeaderboard] = useState<any[]>([])
-  const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [activeParticipantContest, setActiveParticipantContest] = useState<string | null>(null)
 
   const createModal = useModal()
+  const participantsModal = useModal()
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
+
+  // Check if user participated in a specific contest
+  const hasParticipated = (contest: any) => {
+    return myParticipations.some((p) => {
+      // Match by contestId if linked
+      if (p.contestId && p.contestId === contest.id) return true
+      // Fallback: match by platform + normalized title
+      if (p.platform?.toLowerCase() !== contest.platform?.toLowerCase()) return false
+      const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+      const pName = normalize(p.contestName || '')
+      const cTitle = normalize(contest.title || '')
+      return pName === cTitle || pName.includes(cTitle) || cTitle.includes(pName)
+    })
+  }
 
   const [form, setForm] = useState({
     title: '',
@@ -62,12 +77,20 @@ export default function CodingContestsPage() {
 
   useEffect(() => {
     const init = async () => {
-      // Auto-fetch from platforms first, then load
+      // Auto-fetch from platforms first, then load (with 6-hour cache)
       if (isTeacher) {
-        try { await codingContestAPI.fetchNow() } catch {}
+        const CACHE_KEY = 'campusflow-last-contest-fetch'
+        const SIX_HOURS_MS = 6 * 60 * 60 * 1000
+        const lastFetch = localStorage.getItem(CACHE_KEY)
+        const now = Date.now()
+        if (!lastFetch || now - parseInt(lastFetch, 10) > SIX_HOURS_MS) {
+          try {
+            await codingContestAPI.fetchNow()
+            localStorage.setItem(CACHE_KEY, String(now))
+          } catch {}
+        }
       }
       await loadContests()
-      await loadCalendar()
       if (user?.role === 'STUDENT') {
         codingProfileAPI.getParticipations().then(setMyParticipations).catch(() => {})
       }
@@ -89,34 +112,33 @@ export default function CodingContestsPage() {
     }
   }
 
-  const loadCalendar = async () => {
-    try {
-      const start = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1))
-      const end = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0))
-      const data = await codingContestAPI.getCalendar(start, end)
-      // Group flat array by date string
-      const grouped: Record<string, any[]> = {}
-      for (const contest of (Array.isArray(data) ? data : [])) {
-        const dateKey = toLocalDateStr(new Date(contest.startTime))
-        if (!grouped[dateKey]) grouped[dateKey] = []
-        grouped[dateKey].push(contest)
-      }
-      setCalendarData(grouped)
-    } catch (err) {
-      console.error('Failed to load calendar', err)
-    }
-  }
+  // Calendar is now derived from filteredContests — no separate API call needed
 
   const loadParticipants = async (contestId: string) => {
+    setActiveParticipantContest(contestId)
     const data = await codingProfileAPI.getContestParticipants(contestId)
     setParticipants(data)
-    setShowParticipants(true)
+    participantsModal.open()
   }
 
-  const loadLeaderboard = async () => {
-    const data = await codingProfileAPI.getLeaderboard()
-    setLeaderboard(data)
-    setShowLeaderboard(true)
+  const exportParticipantsToCSV = () => {
+    if (participants.length === 0) {
+      toast.error('No participants to export')
+      return
+    }
+    const headers = ['name', 'department', 'rank', 'rating']
+    const csvRows = [headers.join(',')]
+    for (const row of participants) {
+      csvRows.push(headers.map(h => `"${String(row[h] ?? row.user?.[h] ?? '').replace(/"/g, '""')}"`).join(','))
+    }
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'participants.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Participants exported')
   }
 
   // Helper: local date string YYYY-MM-DD (avoids UTC shift from toISOString)
@@ -179,7 +201,6 @@ export default function CodingContestsPage() {
       createModal.close()
       setForm({ title: '', platform: 'LEETCODE', url: '', startTime: '', duration: '', contestType: 'OTHER' })
       loadContests()
-      loadCalendar()
     } catch (err) {
       toast.error('Failed to create contest')
     }
@@ -191,7 +212,6 @@ export default function CodingContestsPage() {
       await codingContestAPI.delete(id)
       toast.success('Deleted')
       loadContests()
-      loadCalendar()
     } catch (err) {
       toast.error('Failed to delete')
     }
@@ -261,20 +281,28 @@ export default function CodingContestsPage() {
   const calendarDays = useMemo(() => {
     const daysInMonth = getDaysInMonth(currentMonth)
     const firstDay = getFirstDayOfMonth(currentMonth)
-    const days: Array<{ day: number; dateStr: string; hasContests: boolean; count: number }> = []
+    const days: Array<{ day: number; dateStr: string; hasContests: boolean; count: number; platforms: string[] }> = []
+
+    // Build a map of date -> unique platforms from filtered contests
+    const filteredByDate: Record<string, Set<string>> = {}
+    for (const c of filteredContests) {
+      const dateKey = toLocalDateStr(new Date(c.startTime))
+      if (!filteredByDate[dateKey]) filteredByDate[dateKey] = new Set()
+      filteredByDate[dateKey].add(c.platform)
+    }
 
     for (let i = 0; i < firstDay; i++) {
-      days.push({ day: 0, dateStr: '', hasContests: false, count: 0 })
+      days.push({ day: 0, dateStr: '', hasContests: false, count: 0, platforms: [] })
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = toLocalDateStr(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d))
-      const count = calendarData[dateStr]?.length || 0
-      days.push({ day: d, dateStr, hasContests: count > 0, count })
+      const platforms = filteredByDate[dateStr] ? Array.from(filteredByDate[dateStr]) : []
+      days.push({ day: d, dateStr, hasContests: platforms.length > 0, count: platforms.length, platforms })
     }
 
     return days
-  }, [currentMonth, calendarData])
+  }, [currentMonth, filteredContests])
 
   if (loading) {
     return (
@@ -295,7 +323,7 @@ export default function CodingContestsPage() {
             {isTeacher && (
               <>
                 <button
-                  onClick={loadLeaderboard}
+                  onClick={() => navigate('/contests/leaderboard')}
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
                 >
                   <Trophy size={16} /> Leaderboard
@@ -323,7 +351,6 @@ export default function CodingContestsPage() {
               onClick={() => {
                 setPlatformFilter(p)
                 setSelectedDate(null)
-                setActiveTab('ALL')
                 loadContests(p)
               }}
               className={clsx(
@@ -416,7 +443,7 @@ export default function CodingContestsPage() {
 
                         <h3 className="font-bold text-surface-900 mb-1 line-clamp-1">{c.title}</h3>
 
-                        {myParticipations.some((p) => p.platform.toLowerCase() === c.platform?.toLowerCase()) && (
+                        {hasParticipated(c) && (
                           <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold flex items-center gap-1 mt-1">
                             <CheckCircle2 size={10} /> Participated
                           </span>
@@ -493,7 +520,7 @@ export default function CodingContestsPage() {
                               onClick={() => loadParticipants(c.id)}
                               className="flex items-center gap-1.5 text-xs font-medium text-surface-600 hover:text-surface-800"
                             >
-                              View Participants ({participants.length})
+                              View Participants{activeParticipantContest === c.id ? ` (${participants.length})` : ''}
                             </button>
                           </div>
                         )}
@@ -525,68 +552,6 @@ export default function CodingContestsPage() {
             </div>
           )}
 
-          {/* Participants Display (Teacher only) */}
-          {isTeacher && showParticipants && (
-            <div className="mt-4 bg-white rounded-2xl border border-surface-100 p-6">
-              <h3 className="font-bold text-surface-900 mb-2">Participants</h3>
-              <div className="space-y-2">
-                {participants.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-surface-900">{p.user.name}</span>
-                      <span className="text-xs text-surface-400">{p.user.department?.name}</span>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      {p.rank && <span>#{p.rank}</span>}
-                      {p.rating && <span className="font-medium text-primary-600">{p.rating}</span>}
-                      {p.problemsSolved && <span className="text-surface-500">{p.problemsSolved} problems</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Leaderboard Display (Teacher only) */}
-          {isTeacher && showLeaderboard && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-6 mt-4">
-              <h2 className="font-bold text-surface-900 mb-4">Contest Leaderboard</h2>
-              <div className="space-y-2">
-                {leaderboard.map((entry, idx) => (
-                  <div key={entry.userId} className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        idx === 0 ? 'bg-yellow-100 text-yellow-700' :
-                        idx === 1 ? 'bg-gray-100 text-gray-700' :
-                        idx === 2 ? 'bg-orange-100 text-orange-700' :
-                        'bg-surface-100 text-surface-600'
-                      }`}>
-                        {idx + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium text-surface-900">{entry.name}</p>
-                        <p className="text-xs text-surface-400">{entry.department}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div className="text-center">
-                        <p className="font-bold text-surface-900">{entry.totalContests}</p>
-                        <p className="text-xs text-surface-400">Contests</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="font-bold text-primary-600">{entry.bestRating}</p>
-                        <p className="text-xs text-surface-400">Best Rating</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="font-bold text-surface-900">{entry.totalProblems}</p>
-                        <p className="text-xs text-surface-400">Problems</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Panel - Calendar (40%) */}
@@ -650,15 +615,15 @@ export default function CodingContestsPage() {
                       <span className={clsx(
                         'absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5',
                       )}>
-                        {Array.from({ length: Math.min(item.count, 3) }).map((_, i) => (
-                          <span
-                            key={i}
-                            className={clsx(
-                              'w-1 h-1 rounded-full',
-                              isSelected ? 'bg-white' : 'bg-primary-500'
-                            )}
-                          />
-                        ))}
+                        {item.platforms.map((p) => {
+                          const dotColor = p === 'LEETCODE' ? (isSelected ? 'bg-white' : 'bg-yellow-500')
+                            : p === 'CODECHEF' ? (isSelected ? 'bg-white' : 'bg-amber-500')
+                            : p === 'CODEFORCES' ? (isSelected ? 'bg-white' : 'bg-blue-500')
+                            : (isSelected ? 'bg-white' : 'bg-surface-400')
+                          return (
+                            <span key={p} className={clsx('w-1 h-1 rounded-full', dotColor)} />
+                          )
+                        })}
                       </span>
                     )}
                   </button>
@@ -787,6 +752,76 @@ export default function CodingContestsPage() {
                 >
                   Create
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Participants Modal */}
+      <AnimatePresence>
+        {participantsModal.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={participantsModal.close}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+                <h2 className="text-xl font-bold text-surface-900">Participants</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={exportParticipantsToCSV}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                  >
+                    <Download size={16} /> Export CSV
+                  </button>
+                  <button
+                    onClick={participantsModal.close}
+                    className="p-2 rounded-lg hover:bg-surface-100 transition-colors text-surface-500"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="overflow-y-auto flex-1 p-6">
+                {participants.length === 0 ? (
+                  <p className="text-center text-surface-400 py-8">No participants found</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-surface-100">
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Name</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Department</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-surface-500 uppercase tracking-wider">Rank</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-surface-500 uppercase tracking-wider">Rating</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-surface-50">
+                        {participants.map((p) => (
+                          <tr key={p.id} className="hover:bg-surface-50 transition-colors">
+                            <td className="px-4 py-3 font-medium text-surface-900">{p.user?.name || p.name}</td>
+                            <td className="px-4 py-3 text-surface-500">{p.user?.department?.name || p.department}</td>
+                            <td className="px-4 py-3 text-center font-semibold text-surface-900">{p.rank ? `#${p.rank}` : '—'}</td>
+                            <td className="px-4 py-3 text-center font-bold text-primary-600">{p.rating || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

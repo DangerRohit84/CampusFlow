@@ -18,7 +18,6 @@ export interface User {
 export interface Department {
   id: string
   name: string
-  code: string
   collegeId: string
   college?: College
 }

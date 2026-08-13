@@ -76,7 +76,7 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
 
     const userStats = new Map<string, {
       userId: string; name: string; department: string; avatar: string | null
-      totalContests: number; avgRank: number; totalProblems: number; bestRating: number
+      totalContests: number; avgRank: number; bestRating: number
     }>()
 
     for (const p of participations) {
@@ -86,7 +86,6 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
       const existing = userStats.get(p.userId)
       if (existing) {
         existing.totalContests++
-        existing.totalProblems += p.problemsSolved || 0
         if (p.rating && p.rating > existing.bestRating) existing.bestRating = p.rating
       } else {
         userStats.set(p.userId, {
@@ -96,7 +95,6 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
           avatar: p.user.avatar,
           totalContests: 1,
           avgRank: p.rank || 0,
-          totalProblems: p.problemsSolved || 0,
           bestRating: p.rating || 0,
         })
       }
@@ -114,11 +112,39 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
 // GET /coding-profile/contest/:contestId/participants — per-contest participants
 router.get('/contest/:contestId/participants', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const participations = await prisma.contestParticipation.findMany({
-      where: { contestId: String(req.params.contestId) },
+    const contestId = String(req.params.contestId)
+
+    // First try direct contestId lookup
+    let participations: any[] = await prisma.contestParticipation.findMany({
+      where: { contestId },
       include: { user: { include: { department: true } } },
       orderBy: { rank: 'asc' },
     })
+
+    // Fallback: if no results via contestId, try matching by platform + contestName or URL
+    if (participations.length === 0) {
+      const contest = await prisma.codingContest.findUnique({ where: { id: contestId } })
+      if (contest) {
+        const allForPlatform = await prisma.contestParticipation.findMany({
+          where: { platform: contest.platform.toLowerCase() },
+          include: { user: { include: { department: true } } },
+          orderBy: { rank: 'asc' },
+        })
+        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+        const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()
+        const cTitle = normalize(contest.title)
+        const cUrl = normUrl(contest.url)
+        participations = allForPlatform.filter((p) => {
+          // Match by title
+          const pName = normalize(p.contestName)
+          if (pName === cTitle || pName.includes(cTitle) || cTitle.includes(pName)) return true
+          // Match by URL (most reliable)
+          if (p.contestUrl && normUrl(p.contestUrl) === cUrl) return true
+          return false
+        })
+      }
+    }
+
     res.json(participations)
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch participants' })

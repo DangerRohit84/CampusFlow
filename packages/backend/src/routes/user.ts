@@ -74,14 +74,15 @@ router.get('/profile', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'User not found' })
       return
     }
+    const u = user as any
     res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-      department: user.department,
-      year: user.year,
-      semester: user.semester,
+      department: u.department,
+      year: u.year,
+      semester: u.semester,
       avatar: user.avatar,
       preferences: user.preferences ? JSON.parse(user.preferences) : {},
     })
@@ -98,20 +99,21 @@ router.put('/profile', async (req: AuthRequest, res: Response) => {
       where: { id: req.userId },
       data: {
         ...(name && { name }),
-        ...(department && { department }),
-        ...(year && { year }),
-        ...(semester && { semester }),
+        ...(department && { department: department } as any),
+        ...(year && { year: year } as any),
+        ...(semester && { semester: semester } as any),
         ...(preferences && { preferences: JSON.stringify(preferences) }),
       },
-    })
+    } as any)
+    const u = user as any
     res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-      department: user.department,
-      year: user.year,
-      semester: user.semester,
+      department: u.department,
+      year: u.year,
+      semester: u.semester,
     })
   } catch (error) {
     res.status(500).json({ error: 'Failed to update profile' })

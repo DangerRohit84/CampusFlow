@@ -34,7 +34,7 @@ export default function GradesPage() {
 
       {/* Stats Row */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card className="relative overflow-hidden">
+        <Card hover className="relative overflow-hidden">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-medium text-surface-500">CGPA</p>
@@ -46,7 +46,7 @@ export default function GradesPage() {
           <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-emerald-50 rounded-full opacity-50" />
         </Card>
 
-        <Card className="relative overflow-hidden">
+        <Card hover className="relative overflow-hidden">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-medium text-surface-500">Total Credits</p>
@@ -58,7 +58,7 @@ export default function GradesPage() {
           <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-primary-50 rounded-full opacity-50" />
         </Card>
 
-        <Card className="relative overflow-hidden">
+        <Card hover className="relative overflow-hidden">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-medium text-surface-500">Highest Grade</p>
@@ -75,7 +75,7 @@ export default function GradesPage() {
 
       {/* GPA Visual Bar */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card>
+        <Card hover>
           <h3 className="font-bold text-surface-900 mb-4">GPA Scale</h3>
           <div className="relative h-8 bg-surface-100 rounded-full overflow-hidden">
             <motion.div
@@ -96,7 +96,7 @@ export default function GradesPage() {
 
       {/* Grades Table */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <Card padding="none">
+        <Card padding="none" hover>
           <div className="p-6 pb-3">
             <h3 className="font-bold text-surface-900">Course Grades</h3>
           </div>

@@ -6,7 +6,7 @@ import cron from 'node-cron'
 import { config } from './config'
 import { initSocket } from './services/socket'
 import { fetchAndStoreContests } from './services/contestFetcher'
-import { fetchAndStoreOpportunities } from './services/opportunityAgent'
+
 import { syncAllUsers } from './services/syncEngine'
 import { errorHandler } from './middleware/errorHandler'
 import authRoutes from './routes/auth'
@@ -27,7 +27,7 @@ import departmentRoutes from './routes/departments'
 import roomsRouter from './routes/rooms'
 import internshipsRouter from './routes/internships'
 import codingProfileRoutes from './routes/codingProfile'
-import opportunityRoutes from './routes/opportunities'
+
 import prisma from './config/db'
 
 const app = express()
@@ -90,6 +90,36 @@ app.post('/api/colleges/register', async (req, res) => {
   }
 })
 
+// Public: List approved colleges for registration dropdown (no auth required)
+app.get('/api/colleges/list', async (_req, res) => {
+  try {
+    const colleges = await prisma.college.findMany({
+      where: { status: 'APPROVED' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(colleges)
+  } catch (error) {
+    console.error('Public college list error:', error)
+    res.status(500).json({ error: 'Failed to fetch colleges' })
+  }
+})
+
+// Public: Get departments for a college (no auth required)
+app.get('/api/colleges/:id/departments', async (req, res) => {
+  try {
+    const departments = await prisma.department.findMany({
+      where: { collegeId: req.params.id },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(departments)
+  } catch (error) {
+    console.error('Public college departments error:', error)
+    res.status(500).json({ error: 'Failed to fetch departments' })
+  }
+})
+
 // API Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/schedules', scheduleRoutes)
@@ -109,7 +139,7 @@ app.use('/api/departments', departmentRoutes)
 app.use('/api/rooms', roomsRouter)
 app.use('/api/internships', internshipsRouter)
 app.use('/api/coding-profile', codingProfileRoutes)
-app.use('/api/opportunities', opportunityRoutes)
+
 
 // 404 handler
 app.use('/api/*', (req, res) => {
@@ -146,16 +176,7 @@ cron.schedule('0 */6 * * *', async () => {
   }
 })
 
-// Schedule opportunity (hackathon + internship) fetch every 12 hours
-cron.schedule('0 */12 * * *', async () => {
-  console.log('[Cron] Running opportunity fetch (hackathons + internships)...')
-  try {
-    const result = await fetchAndStoreOpportunities()
-    console.log(`[Cron] Opportunity fetch done: ${result.fetched} fetched, ${result.skipped} skipped`)
-  } catch (error) {
-    console.error('[Cron] Opportunity fetch failed:', error)
-  }
-})
+
 
 // Cron: sync contest participation every 6 hours
 setInterval(async () => {
@@ -170,10 +191,119 @@ setInterval(async () => {
 
 // Initial fetch on server start
 fetchAndStoreContests().catch(console.error)
-fetchAndStoreOpportunities().then(r => {
-  console.log(`[Startup] Opportunity fetch: ${r.fetched} fetched, ${r.skipped} skipped`)
-}).catch(err => {
-  console.error('[Startup] Opportunity fetch failed:', err)
+
+// Cron: fetch opportunities (hackathons + internships) every 12 hours
+cron.schedule('0 */12 * * *', async () => {
+  console.log('[Cron] Fetching opportunities from external sources...')
+  try {
+    const { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging } = await import('./services/opportunityAgent')
+
+    // Find an admin to own the staging records
+    const admin = await prisma.user.findFirst({
+      where: { role: { in: ['SUPER_ADMIN', 'COLLEGE_ADMIN'] } },
+    })
+    if (!admin) {
+      console.log('[Cron] No admin user found, skipping opportunity fetch')
+      return
+    }
+
+    const allOpps = await fetchFromAllSources()
+    let hackathonFetched = 0, hackathonSkipped = 0
+    let internshipFetched = 0, internshipSkipped = 0
+    const hackathonIdsToEnrich: string[] = []
+    const internshipIdsToEnrich: string[] = []
+
+    // Process hackathons
+    const hackathons = allOpps.filter(o => o.type === 'HACKATHON')
+    for (const opp of hackathons) {
+      if (!opp.url || !opp.title) { hackathonSkipped++; continue }
+      try {
+        const existing = await prisma.hackathonStaging.findFirst({
+          where: { title: opp.title, source: opp.source },
+        })
+        if (existing) { hackathonSkipped++; continue }
+
+        const created = await prisma.hackathonStaging.create({
+          data: {
+            title: opp.title,
+            description: opp.description || null,
+            url: opp.url,
+            organizer: opp.organizer || null,
+            deadline: opp.deadline ? new Date(opp.deadline) : null,
+            startDate: opp.startDate ? new Date(opp.startDate) : null,
+            duration: opp.duration || null,
+            location: opp.location || null,
+            mode: opp.mode || null,
+            prizePool: opp.prizePool || null,
+            themes: JSON.stringify(opp.themes || []),
+            website: opp.website || null,
+            discord: opp.discord || null,
+            participantsCount: opp.participantsCount || 0,
+            inviteOnly: opp.inviteOnly || false,
+            status: 'DRAFT',
+            source: opp.source,
+            creatorId: admin.id,
+            collegeId: admin.collegeId || null,
+          },
+        })
+        hackathonFetched++
+        hackathonIdsToEnrich.push(created.id)
+      } catch { hackathonSkipped++ }
+    }
+
+    // Process internships
+    const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
+    for (const opp of internships) {
+      if (!opp.url || !opp.title) { internshipSkipped++; continue }
+      try {
+        const existing = await prisma.internshipStaging.findFirst({
+          where: { title: opp.title, source: opp.source },
+        })
+        if (existing) { internshipSkipped++; continue }
+
+        const created = await prisma.internshipStaging.create({
+          data: {
+            title: opp.title,
+            description: opp.description || 'No description available',
+            company: opp.company || opp.organizer || 'Unknown',
+            role: opp.role || opp.title,
+            url: opp.url,
+            stipend: opp.stipend || null,
+            duration: opp.duration || null,
+            mode: opp.mode || 'REMOTE',
+            deadline: opp.deadline || null,
+            startDate: opp.startDate || null,
+            status: 'ACTIVE',
+            source: opp.source,
+            creatorId: admin.id,
+            collegeId: admin.collegeId || null,
+          },
+        })
+        internshipFetched++
+        internshipIdsToEnrich.push(created.id)
+      } catch { internshipSkipped++ }
+    }
+
+    console.log(`[Cron] Opportunities: ${hackathonFetched} hackathons + ${internshipFetched} internships fetched, ${hackathonSkipped + internshipSkipped} skipped`)
+
+    // Enrich sequentially with delay between each to avoid rate limits
+    const ENRICH_DELAY_MS = 12000
+
+    async function enrichSequentially(ids: string[], enrichFn: (id: string) => Promise<void>, label: string) {
+      for (let i = 0; i < ids.length; i++) {
+        console.log(`[Cron] Enriching ${label} ${i + 1}/${ids.length}`)
+        await enrichFn(ids[i]).catch(() => {})
+        if (i < ids.length - 1) {
+          await new Promise(r => setTimeout(r, ENRICH_DELAY_MS))
+        }
+      }
+    }
+
+    await enrichSequentially(hackathonIdsToEnrich, enrichHackathonStaging, 'hackathons')
+    await enrichSequentially(internshipIdsToEnrich, enrichInternshipStaging, 'internships')
+  } catch (err) {
+    console.error('[Cron] Opportunity fetch failed:', err)
+  }
 })
 
 export { app, httpServer }

@@ -1,22 +1,35 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Lock, User, GraduationCap, ArrowRight, Building2, BookOpen, Calendar } from 'lucide-react'
+import { Mail, Lock, User, GraduationCap, ArrowRight, Building2, BookOpen, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/authStore'
-import { adminAPI } from '../lib/api'
+import { collegeAPI } from '../lib/api'
 
 export default function RegisterPage() {
-  const [form, setForm] = useState({ name: '', email: '', password: '', college: '', studentId: '', department: '', incomingYear: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', collegeId: '', studentId: '', department: '', incomingYear: '' })
+  const [colleges, setColleges] = useState<any[]>([])
+  const [collegeSearch, setCollegeSearch] = useState('')
+  const [collegeOpen, setCollegeOpen] = useState(false)
   const { register, loading } = useAuthStore()
   const navigate = useNavigate()
 
+  useEffect(() => {
+    collegeAPI.getPublicList().then(setColleges).catch(() => {})
+  }, [])
+
+  const filteredColleges = colleges.filter((c) =>
+    c.name.toLowerCase().includes(collegeSearch.toLowerCase())
+  )
+
+  const selectedCollege = colleges.find((c) => c.id === form.collegeId)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.college) {
-      toast.error('Please enter your college name')
+    if (!form.collegeId) {
+      toast.error('Please select your college')
       return
     }
     try {
@@ -75,7 +88,48 @@ export default function RegisterPage() {
             <Input label="Full Name" placeholder="Alex Johnson" icon={<User size={18} />} value={form.name} onChange={update('name')} required />
             <Input label="University Email" type="email" placeholder="you@university.edu" icon={<Mail size={18} />} value={form.email} onChange={update('email')} required />
             <Input label="Roll Number" placeholder="e.g., CS2023001" icon={<GraduationCap size={18} />} value={form.studentId} onChange={update('studentId')} required />
-            <Input label="College" placeholder="Your college name" icon={<Building2 size={18} />} value={form.college} onChange={update('college')} required />
+
+            {/* College Searchable Dropdown */}
+            <div className="relative">
+              <label className="block text-sm font-medium text-surface-700 mb-1.5">College</label>
+              <div className="relative">
+                <Building2 size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+                <input
+                  type="text"
+                  placeholder="Search your college..."
+                  value={collegeOpen ? collegeSearch : (selectedCollege?.name || '')}
+                  onFocus={() => { setCollegeOpen(true); setCollegeSearch('') }}
+                  onChange={(e) => { setCollegeSearch(e.target.value); setCollegeOpen(true) }}
+                  onBlur={() => setTimeout(() => setCollegeOpen(false), 200)}
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-surface-200 bg-white text-surface-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                />
+                <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400" />
+              </div>
+              {collegeOpen && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-surface-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  {filteredColleges.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-surface-500">No colleges found</div>
+                  ) : (
+                    filteredColleges.map((college) => (
+                      <button
+                        key={college.id}
+                        type="button"
+                        onMouseDown={() => {
+                          setForm((p) => ({ ...p, collegeId: college.id }))
+                          setCollegeSearch('')
+                          setCollegeOpen(false)
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 transition-colors flex items-center gap-2"
+                      >
+                        <Building2 size={14} className="text-surface-400" />
+                        {college.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             <Input label="Department" placeholder="e.g., CSE, ECE, Mechanical" icon={<BookOpen size={18} />} value={form.department} onChange={update('department')} required />
             <div>
               <label className="block text-sm font-medium text-surface-700 mb-1.5">Year</label>

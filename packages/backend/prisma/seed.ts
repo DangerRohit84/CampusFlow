@@ -401,65 +401,7 @@ async function main() {
 
   console.log('✓ Internships seeded')
 
-  // ─── Seed Coding Contests ────────────────────────────────────────────
-  const now = new Date()
-  const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-lc-weekly' },
-    update: {},
-    create: {
-      id: 'seed-contest-lc-weekly',
-      title: 'LeetCode Weekly Contest 400',
-      platform: 'LEETCODE',
-      url: 'https://leetcode.com/contest/weekly-contest-400/',
-      startTime: nextWeek.toISOString(),
-      duration: 90,
-      contestType: 'WEEKLY',
-      status: 'UPCOMING',
-      solutions: '[]',
-      isAutoFetched: true,
-    },
-  })
-
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-cc-cookoff' },
-    update: {},
-    create: {
-      id: 'seed-contest-cc-cookoff',
-      title: 'CodeChef Cook-off',
-      platform: 'CODECHEF',
-      url: 'https://www.codechef.com/contests/cook-off',
-      startTime: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-      duration: 120,
-      contestType: 'OTHER',
-      status: 'UPCOMING',
-      solutions: '[]',
-      isAutoFetched: true,
-    },
-  })
-
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-cf-div2' },
-    update: {},
-    create: {
-      id: 'seed-contest-cf-div2',
-      title: 'Codeforces Round 950 (Div. 2)',
-      platform: 'CODEFORCES',
-      url: 'https://codeforces.com/contest/1985',
-      startTime: lastWeek.toISOString(),
-      duration: 120,
-      contestType: 'OTHER',
-      status: 'ENDED',
-      solutions: JSON.stringify([
-        { title: 'CF 950 Div2 Solutions', url: 'https://youtube.com/watch?v=example', thumbnail: '' },
-      ]),
-      isAutoFetched: true,
-    },
-  })
-
-  console.log('✓ Coding contests seeded')
 
   console.log('Seed completed!')
 }
