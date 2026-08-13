@@ -3,13 +3,22 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
 import Groq from 'groq-sdk'
+import OpenAI from 'openai'
 import { config } from '../config'
 
 const router = Router()
 router.use(authenticate)
 
-const hasAI = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
-const groq = hasAI ? new Groq({ apiKey: config.groqApiKey }) : null
+const hasOpenCodeServe = config.openCodeServeUrl !== ''
+const hasGroq = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
+
+const openCodeServe = hasOpenCodeServe ? new OpenAI({
+  apiKey: 'no-key',
+  baseURL: config.openCodeServeUrl,
+}) : null
+const groq = hasGroq ? new Groq({ apiKey: config.groqApiKey }) : null
+
+const hasAI = hasOpenCodeServe || hasGroq
 
 // GET / - List internships (filtered by eligibility for students)
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -58,6 +67,103 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Error listing internships:', error)
     res.status(500).json({ error: 'Failed to list internships' })
+  }
+})
+
+// GET /staging - List staging internships with pagination (admin/teacher only)
+router.get('/staging', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const page = parseInt(req.query.page as string) || 1
+    const limit = parseInt(req.query.limit as string) || 20
+    const skip = (page - 1) * limit
+
+    const today = new Date().toISOString().slice(0, 10)
+    const [internships, total] = await Promise.all([
+      prisma.internshipStaging.findMany({
+        orderBy: [
+          { deadline: 'asc' },
+          { createdAt: 'desc' },
+        ],
+        where: {
+          OR: [
+            { deadline: null },
+            { deadline: { gte: today } },
+          ],
+        },
+        skip,
+        take: limit,
+      }),
+      prisma.internshipStaging.count({
+        where: {
+          OR: [
+            { deadline: null },
+            { deadline: { gte: today } },
+          ],
+        },
+      }),
+    ])
+
+    res.json({
+      data: internships,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    })
+  } catch (error) {
+    console.error('Get staging internships error:', error)
+    res.status(500).json({ error: 'Failed to fetch staging internships' })
+  }
+})
+
+// GET /staging/counts - Get staging counts (independent of pagination)
+router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
+  try {
+    const all = await prisma.internshipStaging.findMany({ select: { targetDepartments: true, status: true } })
+    let total = 0, enriched = 0, pending = 0
+    for (const item of all) {
+      const depts = JSON.parse(item.targetDepartments || '[]')
+      total++
+      if (depts.length > 0) {
+        enriched++
+        if (item.status !== 'APPROVED' && item.status !== 'REJECTED') pending++
+      }
+    }
+    res.json({ total, enriched, pending })
+  } catch (error) {
+    console.error('Error fetching internship staging counts:', error)
+    res.status(500).json({ error: 'Failed to fetch counts' })
+  }
+})
+
+// GET /staging/:id - Get single staging internship
+router.get('/staging/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const internship = await prisma.internshipStaging.findUnique({
+      where: { id: req.params.id as string },
+    })
+    if (!internship) {
+      res.status(404).json({ error: 'Staging internship not found' })
+      return
+    }
+    res.json(internship)
+  } catch (error) {
+    console.error('Get staging internship error:', error)
+    res.status(500).json({ error: 'Failed to fetch staging internship' })
   }
 })
 
@@ -359,7 +465,7 @@ router.post('/fetch-details', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    if (!groq) {
+    if (!openCodeServe && !groq) {
       res.status(503).json({ error: 'AI service not configured' })
       return
     }
@@ -404,25 +510,58 @@ Return ONLY a valid JSON object with these fields:
   "duration": "like 3 months, 6 months",
   "mode": "REMOTE, ONSITE, or HYBRID",
   "deadline": "application deadline YYYY-MM-DD or null",
-  "url": "application URL (the original URL provided)"
+  "url": "application URL (the original URL provided)",
+  "targetDepartments": ["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL"] - ONLY if explicitly mentioned, otherwise [],
+  "targetYears": [1, 2, 3, 4] - ONLY if explicitly mentioned, otherwise []
 }
 
 CRITICAL RULES:
 1. NEVER fabricate information not present in the content.
 2. NEVER make up dates unless explicitly found. Set to null if not found.
-3. Return ONLY the JSON object, no other text:`
+3. For targetDepartments: ANALYZE the role and description to INFER which departments have relevant skills. SOFTWARE (CSE, IT, AIDS, CSBS, CYS, DS, MCA), ELECTRICAL (ECE, EEE), MECHANICAL (MECH, AUTO, IE, CIVIL), BUSINESS (MBA). If software/developer role → CSE, IT, AIDS. If hardware/embedded → ECE, EEE. If mechanical → MECH. If marketing/business → MBA. If open to all → ["ALL"]. If nothing specific → [].
+4. For targetYears: INFER from context. "fresher" → [1]. "2nd year" → [2]. "pre-final" → [3]. "final year" → [4]. "all years" → [1,2,3,4]. No info → [].
+5. Return ONLY the JSON object, no other text:`
 
-    const completion = await groq.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.1,
-      max_tokens: 1000,
-    })
+    // Try OpenCode Serve first, then Groq fallback
+    let responseText = ''
+    if (openCodeServe) {
+      try {
+        const completion = await openCodeServe.chat.completions.create({
+          messages: [{ role: 'user', content: prompt }],
+          model: 'big-pickle',
+          temperature: 0.1,
+          max_tokens: 1000,
+        })
+        responseText = completion.choices[0]?.message?.content || ''
+      } catch (serveErr) {
+        console.log('OpenCode Serve failed for internship fetch-details:', serveErr)
+      }
+    }
 
-    const responseText = completion.choices[0]?.message?.content || '{}'
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const details = JSON.parse(jsonMatch[0])
+    // Fallback to Groq if Serve failed or not available
+    if (!responseText && groq) {
+      try {
+        const completion = await groq.chat.completions.create({
+          messages: [{ role: 'user', content: prompt }],
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0.1,
+          max_tokens: 1000,
+        })
+        responseText = completion.choices[0]?.message?.content || ''
+      } catch (groqErr) {
+        console.log('Groq also failed for internship fetch-details:', groqErr)
+      }
+    }
+
+    let details: any = null
+    try {
+      const firstParse = JSON.parse(responseText)
+      details = typeof firstParse === 'string' ? JSON.parse(firstParse) : firstParse
+    } catch {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) details = JSON.parse(jsonMatch[0])
+    }
+    if (details) {
       res.json({ details })
     } else {
       res.json({ message: 'Could not extract details. Please fill manually.', details: null })
@@ -433,31 +572,32 @@ CRITICAL RULES:
   }
 })
 
-// POST /fetch-external - Trigger auto-fetch of internships from external sources
+// POST /fetch-external - Trigger auto-fetch of internships from external sources (staging flow)
 router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'COLLEGE_ADMIN')) {
-      res.status(403).json({ error: 'Admin access required' })
+    if (!user || user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'Super admin access required' })
       return
     }
 
-    const { fetchFromAllSources } = await import('../services/opportunityAgent')
+    const { fetchFromAllSources, enrichInternshipStaging } = await import('../services/opportunityAgent')
     const allOpps = await fetchFromAllSources()
     const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
 
     let fetched = 0
     let skipped = 0
+    const idsToEnrich: string[] = []
 
     for (const opp of internships) {
       if (!opp.url || !opp.title) { skipped++; continue }
       try {
-        const existing = await prisma.internship.findFirst({
+        const existing = await prisma.internshipStaging.findFirst({
           where: { title: opp.title, source: opp.source },
         })
         if (existing) { skipped++; continue }
 
-        await prisma.internship.create({
+        const created = await prisma.internshipStaging.create({
           data: {
             title: opp.title,
             description: opp.description || 'No description available',
@@ -472,20 +612,238 @@ router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
             status: 'ACTIVE',
             source: opp.source,
             creatorId: user.id,
-            collegeId: user.collegeId || '',
+            collegeId: user.collegeId || null,
           },
         })
         fetched++
+        idsToEnrich.push(created.id)
       } catch (err) {
-        console.error(`Error storing internship "${opp.title}":`, err)
+        console.error(`Error storing internship staging "${opp.title}":`, err)
         skipped++
       }
     }
+
+    console.log(`[Fetch] ${fetched} internships created — enriching in background`)
+
+    // Enrich in background (don't block the response)
+    const ENRICH_DELAY_MS = 12000
+    ;(async () => {
+      for (let i = 0; i < idsToEnrich.length; i++) {
+        console.log(`[Fetch] Enriching internship ${i + 1}/${idsToEnrich.length}`)
+        await enrichInternshipStaging(idsToEnrich[i]).catch(() => {})
+        if (i < idsToEnrich.length - 1) {
+          await new Promise(r => setTimeout(r, ENRICH_DELAY_MS))
+        }
+      }
+      console.log(`[Fetch] Done — enriched ${idsToEnrich.length} internships`)
+    })()
 
     res.json({ message: `Internship fetch complete`, fetched, skipped, total: internships.length })
   } catch (error) {
     console.error('Fetch external internships error:', error)
     res.status(500).json({ error: 'Failed to fetch external internships' })
+  }
+})
+
+// POST /staging/:id/approve - Approve staging internship (move to main table)
+router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const staging = await prisma.internshipStaging.findUnique({
+      where: { id: req.params.id as string },
+    })
+    if (!staging) {
+      res.status(404).json({ error: 'Staging internship not found' })
+      return
+    }
+
+    const internship = await prisma.internship.create({
+      data: {
+        title: staging.title,
+        description: staging.description,
+        company: staging.company,
+        role: staging.role,
+        url: staging.url,
+        stipend: staging.stipend,
+        duration: staging.duration,
+        mode: staging.mode,
+        startDate: staging.startDate,
+        deadline: staging.deadline,
+        targetDepartments: staging.targetDepartments,
+        targetYears: staging.targetYears,
+        eligibilityEnabled: staging.eligibilityEnabled,
+        status: 'ACTIVE',
+        source: staging.source,
+        creatorId: user.id,
+        collegeId: user.collegeId || null,
+      },
+    })
+
+    // Mark as approved in staging (keep for approved tab)
+    await prisma.internshipStaging.update({
+      where: { id: req.params.id as string },
+      data: { status: 'APPROVED' },
+    })
+
+    res.json({ message: 'Internship approved', internship })
+  } catch (error) {
+    console.error('Approve staging internship error:', error)
+    res.status(500).json({ error: 'Failed to approve staging internship' })
+  }
+})
+
+// POST /staging/:id/reject - Reject staging internship (update status to REJECTED)
+router.post('/staging/:id/reject', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const staging = await prisma.internshipStaging.findUnique({
+      where: { id: req.params.id as string },
+    })
+    if (!staging) {
+      res.status(404).json({ error: 'Staging internship not found' })
+      return
+    }
+
+    await prisma.internshipStaging.update({
+      where: { id: req.params.id as string },
+      data: { status: 'REJECTED' },
+    })
+
+    res.json({ message: 'Internship rejected' })
+  } catch (error) {
+    console.error('Reject staging internship error:', error)
+    res.status(500).json({ error: 'Failed to reject staging internship' })
+  }
+})
+
+// POST /staging/:id/assign - Assign staging internship to teacher
+router.post('/staging/:id/assign', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'COLLEGE_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const { teacherId } = req.body
+    if (!teacherId) {
+      res.status(400).json({ error: 'teacherId is required' })
+      return
+    }
+
+    const teacher = await prisma.user.findUnique({ where: { id: teacherId } })
+    if (!teacher || teacher.role !== 'TEACHER') {
+      res.status(400).json({ error: 'Invalid teacher' })
+      return
+    }
+
+    const staging = await prisma.internshipStaging.findUnique({ where: { id: req.params.id as string } })
+    if (!staging) {
+      res.status(404).json({ error: 'Staging internship not found' })
+      return
+    }
+
+    const updated = await prisma.internshipStaging.update({
+      where: { id: req.params.id as string },
+      data: { creatorId: teacherId },
+    })
+
+    res.json({ message: `Assigned to ${teacher.name}`, staging: updated })
+  } catch (error) {
+    console.error('Assign internship staging error:', error)
+    res.status(500).json({ error: 'Failed to assign' })
+  }
+})
+
+// POST /staging/assign-all - Assign ALL pending internships to teacher
+router.post('/staging/assign-all', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'COLLEGE_ADMIN')) {
+      res.status(403).json({ error: 'Admin access required' })
+      return
+    }
+
+    const { teacherId } = req.body
+    if (!teacherId) {
+      res.status(400).json({ error: 'teacherId is required' })
+      return
+    }
+
+    const teacher = await prisma.user.findUnique({ where: { id: teacherId } })
+    if (!teacher || teacher.role !== 'TEACHER') {
+      res.status(400).json({ error: 'Invalid teacher' })
+      return
+    }
+
+    const result = await prisma.internshipStaging.updateMany({
+      where: { status: 'ACTIVE' },
+      data: { creatorId: teacherId },
+    })
+
+    res.json({ assigned: result.count, teacher: teacher.name })
+  } catch (error) {
+    console.error('Assign all internship staging error:', error)
+    res.status(500).json({ error: 'Failed to assign all' })
+  }
+})
+
+// POST /staging/re-enrich - Re-enrich all unenriched internship staging records
+router.post('/staging/re-enrich', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'Super admin access required' })
+      return
+    }
+
+    const { enrichInternshipStaging } = await import('../services/opportunityAgent')
+
+    // Find staging records with no targetDepartments OR no deadline (not fully enriched)
+    const unenriched = await prisma.internshipStaging.findMany({
+      where: {
+        status: { not: 'REJECTED' },
+        OR: [
+          { targetDepartments: '[]' },
+          { deadline: null },
+        ],
+      },
+    })
+
+    if (unenriched.length === 0) {
+      res.json({ message: 'All internships already enriched', enriched: 0 })
+      return
+    }
+
+    console.log(`[Re-enrich] Found ${unenriched.length} unenriched internships — enriching in background`)
+
+    // Enrich in background (don't block the response)
+    const ENRICH_DELAY_MS = 12000
+    ;(async () => {
+      for (let i = 0; i < unenriched.length; i++) {
+        console.log(`[Re-enrich] Enriching internship ${i + 1}/${unenriched.length}`)
+        await enrichInternshipStaging(unenriched[i].id).catch(() => {})
+        if (i < unenriched.length - 1) {
+          await new Promise(r => setTimeout(r, ENRICH_DELAY_MS))
+        }
+      }
+      console.log(`[Re-enrich] Done — enriched ${unenriched.length} internships`)
+    })()
+
+    res.json({ message: `Enrichment started in background`, total: unenriched.length })
+  } catch (error) {
+    console.error('Re-enrich internships error:', error)
+    res.status(500).json({ error: 'Failed to re-enrich' })
   }
 })
 

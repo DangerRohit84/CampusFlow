@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { io, Socket } from 'socket.io-client'
+import type { Department } from '../types/api'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const API_URL = `${API_BASE}/api`
@@ -200,6 +201,16 @@ export const hackathonAPI = {
     a.click()
     window.URL.revokeObjectURL(url)
   },
+  // Staging methods
+  getStaging: (page = 1, limit = 20) => api.get('/hackathons/staging', { params: { page, limit } }).then((r) => r.data),
+  getStagingOne: (id: string) => api.get(`/hackathons/staging/${id}`).then((r) => r.data),
+  updateStaging: (id: string, data: any) => api.put(`/hackathons/staging/${id}`, data).then((r) => r.data),
+  deleteStaging: (id: string) => api.delete(`/hackathons/staging/${id}`).then((r) => r.data),
+  approveStaging: (id: string) => api.post(`/hackathons/staging/${id}/approve`).then((r) => r.data),
+  rejectStaging: (id: string) => api.post(`/hackathons/staging/${id}/reject`).then((r) => r.data),
+  fetchExternal: () => api.post('/hackathons/fetch-external').then((r) => r.data),
+  reEnrich: () => api.post('/hackathons/staging/re-enrich').then((r) => r.data),
+  getCounts: () => api.get('/hackathons/staging/counts').then((r) => r.data),
 }
 
 // Internships
@@ -223,6 +234,16 @@ export const internshipAPI = {
     return response.data
   },
   fetchDetails: (url: string) => api.post('/internships/fetch-details', { url }).then((r) => r.data.details),
+  // Staging methods
+  getStaging: (page = 1, limit = 20) => api.get('/internships/staging', { params: { page, limit } }).then((r) => r.data),
+  getStagingOne: (id: string) => api.get(`/internships/staging/${id}`).then((r) => r.data),
+  updateStaging: (id: string, data: any) => api.put(`/internships/staging/${id}`, data).then((r) => r.data),
+  deleteStaging: (id: string) => api.delete(`/internships/staging/${id}`).then((r) => r.data),
+  approveStaging: (id: string) => api.post(`/internships/staging/${id}/approve`).then((r) => r.data),
+  rejectStaging: (id: string) => api.post(`/internships/staging/${id}/reject`).then((r) => r.data),
+  fetchExternal: () => api.post('/internships/fetch-external').then((r) => r.data),
+  reEnrich: () => api.post('/internships/staging/re-enrich').then((r) => r.data),
+  getCounts: () => api.get('/internships/staging/counts').then((r) => r.data),
 }
 
 // Coding Contests
@@ -313,6 +334,34 @@ export const departmentAPI = {
   delete: (id: string) => api.delete(`/departments/${id}`).then((r) => r.data),
 }
 
+// Match AI department codes/abbreviations to actual department names
+const DEPT_ABBREV_MAP: Record<string, string> = {
+  'CSE': 'computer', 'CS': 'computer', 'COMPUTER SCIENCE': 'computer',
+  'IT': 'information tech', 'INFORMATION TECHNOLOGY': 'information tech',
+  'ECE': 'electronics', 'ELECTRONICS': 'electronics',
+  'EEE': 'electrical', 'ELECTRICAL': 'electrical', 'EE': 'electrical',
+  'MECH': 'mechanical', 'ME': 'mechanical', 'MECHANICAL': 'mechanical',
+  'CIVIL': 'civil',
+  'EIE': 'instrumentation', 'INSTRUMENTATION': 'instrumentation',
+  'ISE': 'information sc', 'INFORMATION SCIENCE': 'information sc',
+}
+
+export function matchAICodesToDepartments(aiCodes: string[], departments: Department[]): string[] {
+  if (!aiCodes?.length || !departments?.length) return []
+  if (aiCodes.includes('ALL')) return departments.map((d) => d.name)
+
+  const matched: string[] = []
+  for (const code of aiCodes) {
+    const normalizedCode = code.toUpperCase().trim()
+    const mapped = DEPT_ABBREV_MAP[normalizedCode]
+    const dept = departments.find(
+      (d) => d.name.toUpperCase() === normalizedCode || d.name.toUpperCase().includes(mapped || normalizedCode)
+    )
+    if (dept) matched.push(dept.name)
+  }
+  return matched
+}
+
 // Admin
 export const adminAPI = {
   getUsers: () => api.get('/admin/users').then((r) => r.data),
@@ -333,6 +382,11 @@ export const adminAPI = {
   getForms: () => api.get('/admin/forms').then((r) => r.data),
   deleteHackathon: (id: string) => api.delete(`/admin/hackathons/${id}`).then((r) => r.data),
   deleteForm: (id: string) => api.delete(`/admin/forms/${id}`).then((r) => r.data),
+}
+
+// College
+export const collegeAPI = {
+  getPublicList: () => axios.get(`${API_URL}/colleges/public`).then((r) => r.data),
 }
 
 // User
@@ -357,23 +411,6 @@ export const codingProfileAPI = {
   getContestParticipants: (contestId: string) =>
     api.get(`/coding-profile/contest/${contestId}/participants`).then((r) => r.data),
   syncAll: () => api.post('/coding-profile/sync-all').then((r) => r.data),
-}
-
-
-
-// Opportunities
-export const opportunityAPI = {
-  getAll: (params?: { type?: string; status?: string; source?: string }) =>
-    api.get('/opportunities', { params }).then((r) => r.data),
-  getForMe: (type?: string) =>
-    api.get('/opportunities/for-me', { params: type ? { type } : {} }).then((r) => r.data),
-  getPending: () => api.get('/opportunities/pending').then((r) => r.data),
-  approve: (id: string) => api.put(`/opportunities/${id}/approve`).then((r) => r.data),
-  reject: (id: string) => api.put(`/opportunities/${id}/reject`).then((r) => r.data),
-  assign: (id: string, teacherId: string) =>
-    api.put(`/opportunities/${id}/assign`, { teacherId }).then((r) => r.data),
-  fetchNow: () => api.post('/opportunities/fetch-now').then((r) => r.data),
-  delete: (id: string) => api.delete(`/opportunities/${id}`).then((r) => r.data),
 }
 
 export default api
