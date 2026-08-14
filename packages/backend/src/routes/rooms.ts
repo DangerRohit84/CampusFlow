@@ -42,6 +42,9 @@ function getFileType(filename: string): string {
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const roomId = String(req.params.id)
+    if (!/^[a-zA-Z0-9]+$/.test(roomId)) {
+      return cb(new Error('Invalid room ID'), '')
+    }
     const uploadDir = path.join(__dirname, '../../uploads/rooms', roomId)
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true })

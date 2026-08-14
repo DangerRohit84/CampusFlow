@@ -4,6 +4,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { config } from '../config'
 import multer from 'multer'
+import { getDayOfWeek } from '../utils/dateUtils'
 
 const router = Router()
 router.use(authenticate)
@@ -292,8 +293,7 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
 // Get today's classes
 router.get('/today', async (req: AuthRequest, res: Response) => {
   try {
-    const today = new Date()
-    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
+    const dayOfWeek = getDayOfWeek()
 
     const classes = await prisma.schedule.findMany({
       where: { userId: req.userId, dayOfWeek },

@@ -4,8 +4,10 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   console.error('Error:', err.message)
   console.error(err.stack)
 
+  const isDev = process.env.NODE_ENV === 'development'
+
   res.status(500).json({
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    message: isDev ? err.message : undefined,
   })
 }

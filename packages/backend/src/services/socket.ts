@@ -1,5 +1,8 @@
 import { Server as HttpServer } from 'http'
 import { Server, Socket } from 'socket.io'
+import jwt from 'jsonwebtoken'
+import { config } from '../config'
+import prisma from '../config/db'
 
 let io: Server
 
@@ -8,15 +11,41 @@ const userSockets = new Map<string, string[]>()
 export function initSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(','),
+      origin: (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map((o: string) => o.trim()),
       methods: ['GET', 'POST'],
     },
   })
 
   io.on('connection', (socket: Socket) => {
-    console.log('Client connected:', socket.id)
+    // Verify JWT from handshake auth
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token
+    if (!token || typeof token !== 'string') {
+      console.log('Socket connection rejected: no token provided')
+      socket.disconnect()
+      return
+    }
 
-    socket.on('auth:join', (userId: string) => {
+    let userId: string
+    try {
+      const decoded = jwt.verify(token, config.jwtSecret) as { userId: string }
+      userId = decoded.userId
+    } catch {
+      console.log('Socket connection rejected: invalid token')
+      socket.disconnect()
+      return
+    }
+
+    // Store verified userId on socket for later use
+    socket.data.userId = userId
+    console.log('Client connected:', socket.id, '(user:', userId, ')')
+
+    socket.on('auth:join', async () => {
+      // Use verified userId from JWT — never trust client input
+      const user = await prisma.user.findUnique({ where: { id: userId } })
+      if (!user) {
+        socket.emit('error', { message: 'Invalid user' })
+        return
+      }
       socket.join(`user:${userId}`)
       const sockets = userSockets.get(userId) || []
       sockets.push(socket.id)

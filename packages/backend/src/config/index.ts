@@ -1,10 +1,18 @@
 import dotenv from 'dotenv'
 dotenv.config()
 
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required')
+}
+
+if (!process.env.GROQ_API_KEY) {
+  console.warn('WARNING: GROQ_API_KEY is not set. AI features will be disabled.')
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '4000'),
   databaseUrl: process.env.DATABASE_URL!,
-  jwtSecret: process.env.JWT_SECRET || 'default-secret',
+  jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   groqApiKey: process.env.GROQ_API_KEY || '',
   openCodeZenApiKey: process.env.OPENCODE_ZEN_API_KEY || '',

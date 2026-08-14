@@ -1,6 +1,7 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { getDayOfWeek } from '../utils/dateUtils'
 
 const router = Router()
 router.use(authenticate)
@@ -250,7 +251,7 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     const upcomingDeadlines = pendingAssignments.filter((a) => new Date(a.dueDate) >= new Date()).length
 
     // Today's schedule (get current day of week)
-    const today = new Date().getDay()
+    const today = getDayOfWeek()
     const todaySchedule = schedules.filter((s) => s.dayOfWeek === today)
 
     res.json({

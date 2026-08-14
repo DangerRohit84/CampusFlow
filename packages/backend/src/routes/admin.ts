@@ -1,4 +1,5 @@
 import { Router, Response } from 'express'
+import crypto from 'crypto'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import bcrypt from 'bcryptjs'
@@ -44,7 +45,7 @@ router.get('/forms', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Delete any hackathon (admin override)
+// Delete any hackathon (admin override — college-scoped)
 router.delete('/hackathons/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -52,6 +53,18 @@ router.delete('/hackathons/:id', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'Admin access required' })
       return
     }
+
+    const hackathon = await prisma.hackathon.findUnique({ where: { id: req.params.id as string } })
+    if (!hackathon) {
+      res.status(404).json({ error: 'Hackathon not found' })
+      return
+    }
+
+    if (user.role !== 'SUPER_ADMIN' && hackathon.collegeId !== user.collegeId) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
     await prisma.hackathonRound.deleteMany({ where: { hackathonId: req.params.id as string } })
     await prisma.hackathonRegistration.deleteMany({ where: { hackathonId: req.params.id as string } })
     await prisma.hackathon.delete({ where: { id: req.params.id as string } })
@@ -61,7 +74,7 @@ router.delete('/hackathons/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Delete any form (admin override)
+// Delete any form (admin override — college-scoped)
 router.delete('/forms/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -69,6 +82,18 @@ router.delete('/forms/:id', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'Admin access required' })
       return
     }
+
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
+    if (!form) {
+      res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    if (user.role !== 'SUPER_ADMIN' && form.collegeId !== user.collegeId) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
     await prisma.formResponse.deleteMany({ where: { formId: req.params.id as string } })
     await prisma.formField.deleteMany({ where: { formId: req.params.id as string } })
     await prisma.form.delete({ where: { id: req.params.id as string } })
@@ -301,7 +326,8 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const passwordHash = await bcrypt.hash(password || 'password123', 10)
+    const tempPassword = crypto.randomBytes(9).toString('base64url').slice(0, 12) + 'A1!'
+    const passwordHash = await bcrypt.hash(password || tempPassword, 10)
 
     const newUser = await prisma.user.create({
       data: {
@@ -320,6 +346,7 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
       name: newUser.name,
       email: newUser.email,
       role: newUser.role,
+      tempPassword: password ? undefined : tempPassword,
     })
   } catch (error) {
     console.error('Add teacher error:', error)
@@ -353,8 +380,13 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const passwordHash = await bcrypt.hash(password || 'password123', 10)
+    const tempPassword = crypto.randomBytes(9).toString('base64url').slice(0, 12) + 'A1!'
+    const passwordHash = await bcrypt.hash(password || tempPassword, 10)
     const incoming = incomingYear ? parseInt(incomingYear) : undefined
+    if (incoming !== undefined && isNaN(incoming)) {
+      res.status(400).json({ error: 'Invalid incomingYear value' })
+      return
+    }
 
     const newUser = await prisma.user.create({
       data: {
@@ -375,6 +407,7 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
       name: newUser.name,
       email: newUser.email,
       role: newUser.role,
+      tempPassword: password ? undefined : tempPassword,
     })
   } catch (error) {
     console.error('Add student error:', error)
@@ -413,7 +446,8 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
           }
         }
 
-        const passwordHash = await bcrypt.hash(t.password || 'password123', 10)
+        const tempPassword = crypto.randomBytes(9).toString('base64url').slice(0, 12) + 'A1!'
+        const passwordHash = await bcrypt.hash(t.password || tempPassword, 10)
         await prisma.user.create({
           data: {
             email: t.email,
@@ -469,8 +503,14 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
           }
         }
 
-        const passwordHash = await bcrypt.hash(s.password || 'password123', 10)
+        const tempPassword = crypto.randomBytes(9).toString('base64url').slice(0, 12) + 'A1!'
+        const passwordHash = await bcrypt.hash(s.password || tempPassword, 10)
         const incoming = s.incomingYear ? parseInt(s.incomingYear) : undefined
+        if (incoming !== undefined && isNaN(incoming)) {
+          results.failed++
+          results.errors.push(`${s.email}: Invalid incomingYear value`)
+          continue
+        }
         await prisma.user.create({
           data: {
             email: s.email,
@@ -497,11 +537,22 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Update user
+// Update user (college-scoped)
 router.put('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    // Verify target user belongs to the same college (SUPER_ADMIN bypasses)
+    const targetUser = await prisma.user.findUnique({ where: { id: req.params.id as string } })
+    if (!targetUser) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    if (user.role !== 'SUPER_ADMIN' && targetUser.collegeId !== user.collegeId) {
       res.status(403).json({ error: 'Access denied' })
       return
     }
@@ -518,6 +569,10 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const incoming = incomingYear ? parseInt(incomingYear) : undefined
+    if (incoming !== undefined && isNaN(incoming)) {
+      res.status(400).json({ error: 'Invalid incomingYear value' })
+      return
+    }
     const updated = await prisma.user.update({
       where: { id: req.params.id as string },
       data: {
@@ -537,11 +592,22 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Delete user
+// Delete user (college-scoped)
 router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    // Verify target user belongs to the same college (SUPER_ADMIN bypasses)
+    const targetUser = await prisma.user.findUnique({ where: { id: req.params.id as string } })
+    if (!targetUser) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    if (user.role !== 'SUPER_ADMIN' && targetUser.collegeId !== user.collegeId) {
       res.status(403).json({ error: 'Access denied' })
       return
     }

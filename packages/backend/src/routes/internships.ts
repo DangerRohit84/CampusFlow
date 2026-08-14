@@ -612,7 +612,7 @@ router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
             status: 'ACTIVE',
             source: opp.source,
             creatorId: user.id,
-            collegeId: user.collegeId || null,
+            collegeId: user.collegeId!,
           },
         })
         fetched++
@@ -680,7 +680,7 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
         status: 'ACTIVE',
         source: staging.source,
         creatorId: user.id,
-        collegeId: user.collegeId || null,
+        collegeId: user.collegeId!,
       },
     })
 

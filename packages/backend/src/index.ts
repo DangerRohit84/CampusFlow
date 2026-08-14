@@ -3,6 +3,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import { createServer } from 'http'
 import cron from 'node-cron'
+import rateLimit from 'express-rate-limit'
 import { config } from './config'
 import { initSocket } from './services/socket'
 import { fetchAndStoreContests } from './services/contestFetcher'
@@ -38,23 +39,53 @@ initSocket(httpServer)
 
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: false }))
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',')
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map((o: string) => o.trim())
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
 
+// Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+})
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many auth attempts, please try again later' },
+})
+
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (_req, res) => {
+  let dbStatus = 'ok'
+  try {
+    await prisma.$queryRaw`SELECT 1`
+  } catch {
+    dbStatus = 'error'
+  }
   res.json({
-    status: 'ok',
+    status: dbStatus === 'ok' ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     service: 'CampusFlow API',
     version: '1.0.0',
+    db: dbStatus,
     features: ['auth', 'schedules', 'assignments', 'notifications', 'chat', 'ai', 'search', 'websocket', 'hackathons', 'rooms', 'internships'],
   })
 })
 
-// Public: Register college (no auth required)
-app.post('/api/colleges/register', async (req, res) => {
+// Public: Register college (no auth required) - rate limited
+app.post('/api/colleges/register', rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts, please try again later' },
+}), async (req, res) => {
   try {
     const { name, code, address, phone, website, adminEmail } = req.body
 
@@ -121,24 +152,26 @@ app.get('/api/colleges/:id/departments', async (req, res) => {
 })
 
 // API Routes
+app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/register', authLimiter)
 app.use('/api/auth', authRoutes)
-app.use('/api/schedules', scheduleRoutes)
-app.use('/api/assignments', assignmentRoutes)
-app.use('/api/notifications', notificationRoutes)
-app.use('/api/chat', chatRoutes)
-app.use('/api/user', userRoutes)
-app.use('/api/search', searchRoutes)
-app.use('/api/ai', aiRoutes)
-app.use('/api/tasks', taskRoutes)
-app.use('/api/timetable', timetableRoutes)
-app.use('/api/hackathons', hackathonRoutes)
-app.use('/api/contests', contestRoutes)
-app.use('/api/forms', formRoutes)
-app.use('/api/admin', adminRoutes)
-app.use('/api/departments', departmentRoutes)
-app.use('/api/rooms', roomsRouter)
-app.use('/api/internships', internshipsRouter)
-app.use('/api/coding-profile', codingProfileRoutes)
+app.use('/api/schedules', generalLimiter, scheduleRoutes)
+app.use('/api/assignments', generalLimiter, assignmentRoutes)
+app.use('/api/notifications', generalLimiter, notificationRoutes)
+app.use('/api/chat', generalLimiter, chatRoutes)
+app.use('/api/user', generalLimiter, userRoutes)
+app.use('/api/search', generalLimiter, searchRoutes)
+app.use('/api/ai', generalLimiter, aiRoutes)
+app.use('/api/tasks', generalLimiter, taskRoutes)
+app.use('/api/timetable', generalLimiter, timetableRoutes)
+app.use('/api/hackathons', generalLimiter, hackathonRoutes)
+app.use('/api/contests', generalLimiter, contestRoutes)
+app.use('/api/forms', generalLimiter, formRoutes)
+app.use('/api/admin', generalLimiter, adminRoutes)
+app.use('/api/departments', generalLimiter, departmentRoutes)
+app.use('/api/rooms', generalLimiter, roomsRouter)
+app.use('/api/internships', generalLimiter, internshipsRouter)
+app.use('/api/coding-profile', generalLimiter, codingProfileRoutes)
 
 
 // 404 handler
@@ -243,7 +276,7 @@ cron.schedule('0 */12 * * *', async () => {
             status: 'DRAFT',
             source: opp.source,
             creatorId: admin.id,
-            collegeId: admin.collegeId || null,
+            collegeId: admin.collegeId!,
           },
         })
         hackathonFetched++
@@ -276,7 +309,7 @@ cron.schedule('0 */12 * * *', async () => {
             status: 'ACTIVE',
             source: opp.source,
             creatorId: admin.id,
-            collegeId: admin.collegeId || null,
+            collegeId: admin.collegeId!,
           },
         })
         internshipFetched++

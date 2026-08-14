@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { chatWithAI } from '../ai/groq'
+import { getDayOfWeek } from '../utils/dateUtils'
 
 const router = Router()
 router.use(authenticate)
@@ -161,7 +162,7 @@ router.post('/ai-schedule', async (req: AuthRequest, res: Response) => {
 
     // Get existing classes for that day
     const d = new Date(date)
-    const dayOfWeek = d.getDay() === 0 ? 6 : d.getDay() - 1
+    const dayOfWeek = getDayOfWeek(d)
     const classes = await prisma.schedule.findMany({
       where: { userId: req.userId, dayOfWeek },
       orderBy: { startTime: 'asc' },
@@ -222,7 +223,7 @@ router.get('/daily-summary', async (req: AuthRequest, res: Response) => {
 
     const [tasks, classes] = await Promise.all([
       prisma.task.findMany({ where: { userId: req.userId, date: { gte: today, lt: tomorrow } }, orderBy: { startTime: 'asc' } }),
-      prisma.schedule.findMany({ where: { userId: req.userId, dayOfWeek: today.getDay() === 0 ? 6 : today.getDay() - 1 } }),
+      prisma.schedule.findMany({ where: { userId: req.userId, dayOfWeek: getDayOfWeek() } }),
     ])
 
     const totalTasks = tasks.length
