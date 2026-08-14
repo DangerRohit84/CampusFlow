@@ -1,11 +1,14 @@
 import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
+import Constants from 'expo-constants'
+import { useAuthStore } from '../store/authStore'
 
-const API_URL = 'http://localhost:4000/api'
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:4000/api'
 
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
 })
 
 api.interceptors.request.use(async (config) => {
@@ -17,9 +20,23 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      await SecureStore.deleteItemAsync('token')
+    // Network errors (no response from server)
+    if (!error.response) {
+      console.warn('Network error:', error.message)
+      return Promise.reject(error)
     }
+
+    // 401 Unauthorized - token expired or invalid
+    if (error.response.status === 401) {
+      try {
+        await SecureStore.deleteItemAsync('token')
+        await SecureStore.deleteItemAsync('user')
+        useAuthStore.getState().logout()
+      } catch (e) {
+        console.warn('Error during logout:', e)
+      }
+    }
+
     return Promise.reject(error)
   }
 )
