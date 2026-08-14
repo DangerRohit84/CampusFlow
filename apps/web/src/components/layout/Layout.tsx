@@ -1,10 +1,11 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
+import { useAppStore } from '../../store/appStore'
 import {
   LayoutDashboard, Calendar, MessageSquare, BookOpen,
   Bell, Settings, LogOut, Menu, X, GraduationCap,
   ChevronRight, Sparkles, Search, Award, Target, Clock, Trophy,
-  ClipboardList, Shield, DoorOpen, Briefcase, Code, Lightbulb, CheckSquare
+  ClipboardList, Shield, DoorOpen, Briefcase, Code, CheckSquare
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
@@ -19,6 +20,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/hackathons', label: 'Hackathons', icon: Trophy },
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -34,6 +36,7 @@ const navByRole: Record<string, any[]> = {
     { path: '/internships', label: 'Internships', icon: Briefcase },
     { path: '/teacher/opportunities', label: 'Assigned to Me', icon: CheckSquare },
     { path: '/contests', label: 'Contests', icon: Code },
+    { path: '/coding-profile', label: 'Coding Profile', icon: Code },
     { path: '/forms', label: 'Forms', icon: ClipboardList },
     { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     { path: '/chat', label: 'AI Assistant', icon: MessageSquare },
@@ -65,6 +68,7 @@ const navByRole: Record<string, any[]> = {
 
 export default function Layout() {
   const { user, logout } = useAuthStore()
+  const { theme, toggleTheme } = useAppStore()
   const location = useLocation()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -299,20 +303,62 @@ export default function Layout() {
         )}
       </AnimatePresence>
 
+      {/* Theme Lamp - fixed below navbar, right side */}
+      <div className="fixed top-14 right-16 z-50" style={{ height: '60px' }}>
+        <div className="theme-lamp" onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <svg className="theme-lamp__cord" viewBox="0 0 4 60" fill="none">
+            <path d="M2 0v60" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
+          </svg>
+          <div className="theme-lamp__bulb">
+            <svg viewBox="0 0 32 48" fill="none" className="theme-lamp__icon">
+              {theme === 'dark' ? (
+                <>
+                  <path d="M16 4C8.82 4 3 9.82 3 17c0 4.5 2.22 8.5 5.62 11 .8.6 1.38 1.5 1.38 2.5V32a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5c0-1 .58-1.9 1.38-2.5A13.94 13.94 0 0 0 29 17C29 9.82 23.18 4 16 4Z" fill="#334155" stroke="#475569" strokeWidth="1.5" />
+                  <line x1="12" y1="36" x2="20" y2="36" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="13" y1="39" x2="19" y2="39" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="14" y1="42" x2="18" y2="42" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" />
+                  <circle cx="16" cy="17" r="4" fill="#64748b" />
+                </>
+              ) : (
+                <>
+                  <path d="M16 4C8.82 4 3 9.82 3 17c0 4.5 2.22 8.5 5.62 11 .8.6 1.38 1.5 1.38 2.5V32a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5c0-1 .58-1.9 1.38-2.5A13.94 13.94 0 0 0 29 17C29 9.82 23.18 4 16 4Z" fill="#fbbf24" stroke="#f59e0b" strokeWidth="1.5" />
+                  <line x1="12" y1="36" x2="20" y2="36" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="13" y1="39" x2="19" y2="39" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="14" y1="42" x2="18" y2="42" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                  <circle cx="16" cy="17" r="6" fill="#fef3c7" opacity="0.6" />
+                  <circle cx="16" cy="17" r="8" fill="#fef3c7" opacity="0.3" />
+                  <circle cx="16" cy="17" r="10" fill="#fef3c7" opacity="0.15" />
+                </>
+              )}
+            </svg>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Bar */}
-        <header className="h-14 border-b border-surface-100 bg-white/80 backdrop-blur-xl flex items-center px-4 lg:px-6 gap-4 shrink-0 z-30">
-          <button onClick={() => window.innerWidth >= 1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpen(true)} className="p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors">
+        <header className="h-14 border-b border-surface-100 bg-white/80 backdrop-blur-xl flex items-center px-4 lg:px-6 gap-3 shrink-0 z-30">
+          {/* Left: Hamburger */}
+          <button onClick={() => window.innerWidth >= 1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpen(true)} className="p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors shrink-0">
             {sidebarOpen && window.innerWidth >= 1024 ? <X size={18} /> : <Menu size={18} />}
           </button>
 
-          <div className="flex-1 max-w-md relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={16} />
-            <input type="text" placeholder="Search... (⌘K)" className="w-full pl-10 pr-4 py-2 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all" readOnly onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))} />
+          {/* Center: Search */}
+          <div className="flex-1 flex justify-center">
+            <div className="w-full max-w-md relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={16} />
+              <input type="text" placeholder="Search... (⌘K)" className="w-full pl-10 pr-4 py-2 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all" readOnly onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))} />
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Right: User + Bell */}
+          <div className="flex items-center gap-2 shrink-0 pr-2">
+            <div className="hidden sm:flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-[10px]">{user?.name?.charAt(0) || 'S'}</div>
+              <span className="text-sm font-medium text-surface-700 hidden md:block">{user?.name?.split(' ')[0]}</span>
+            </div>
+            <div className="w-px h-6 bg-surface-200 hidden sm:block" />
             <button className="relative p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors" onClick={() => navigate('/notifications')}>
               <Bell size={18} />
               {unreadCount > 0 && (
@@ -321,10 +367,6 @@ export default function Layout() {
                 </span>
               )}
             </button>
-            <div className="hidden sm:flex items-center gap-2 pl-2 ml-2 border-l border-surface-200">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-[10px]">{user?.name?.charAt(0) || 'S'}</div>
-              <span className="text-sm font-medium text-surface-700 hidden md:block">{user?.name?.split(' ')[0]}</span>
-            </div>
           </div>
         </header>
 

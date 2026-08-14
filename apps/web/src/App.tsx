@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './store/authStore'
 import Layout from './components/layout/Layout'
+import ErrorBoundary from './components/ErrorBoundary'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
@@ -21,6 +22,7 @@ import AdminOpportunitiesPage from './pages/AdminOpportunitiesPage'
 import TeacherAssignedPage from './pages/TeacherAssignedPage'
 import CodingContestsPage from './pages/CodingContestsPage'
 import ContestLeaderboardPage from './pages/ContestLeaderboardPage'
+import CodingProfilePage from './pages/CodingProfilePage'
 
 import InternshipDetailPage from './pages/InternshipDetailPage'
 import FormsPage from './pages/FormsPage'
@@ -68,41 +70,44 @@ export default function App() {
           style: { background: '#1f2937', color: '#f9fafb' },
         }}
       />
-      <Routes>
-        <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
-        <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
-        <Route path="/register-college" element={<CollegeRegistrationPage />} />
-        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="schedule" element={<SchedulePage />} />
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="assignments" element={<AssignmentsPage />} />
-          <Route path="grades" element={<GradesPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="search" element={<SearchPage />} />
-          <Route path="insights" element={<InsightsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="hackathons" element={<HackathonsPage />} />
-          <Route path="hackathons/:id" element={<HackathonDetailPage />} />
-          <Route path="internships" element={<InternshipsPage />} />
-          <Route path="internships/:id" element={<InternshipDetailPage />} />
-          <Route path="admin/opportunities" element={<AdminOpportunitiesPage />} />
-          <Route path="teacher/opportunities" element={<TeacherAssignedPage />} />
-          <Route path="contests" element={<CodingContestsPage />} />
-          <Route path="contests/leaderboard" element={<ContestLeaderboardPage />} />
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
+          <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+          <Route path="/register-college" element={<CollegeRegistrationPage />} />
+          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="schedule" element={<SchedulePage />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="assignments" element={<AssignmentsPage />} />
+            <Route path="grades" element={<GradesPage />} />
+            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="search" element={<SearchPage />} />
+            <Route path="insights" element={<InsightsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="hackathons" element={<HackathonsPage />} />
+            <Route path="hackathons/:id" element={<HackathonDetailPage />} />
+            <Route path="internships" element={<InternshipsPage />} />
+            <Route path="internships/:id" element={<InternshipDetailPage />} />
+            <Route path="admin/opportunities" element={<AdminOpportunitiesPage />} />
+            <Route path="teacher/opportunities" element={<TeacherAssignedPage />} />
+            <Route path="contests" element={<CodingContestsPage />} />
+            <Route path="contests/leaderboard" element={<ContestLeaderboardPage />} />
+            <Route path="coding-profile" element={<CodingProfilePage />} />
 
-          <Route path="forms" element={<FormsPage />} />
-          <Route path="forms/:id" element={<FormDetailPage />} />
-          <Route path="rooms" element={<RoomsRoute />} />
-          <Route path="rooms/:id" element={<RoomDetailRoute />} />
-          <Route path="admin" element={<AdminPage />} />
-          <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
-          <Route path="admin/add-teachers" element={<AddTeacherPage />} />
-          <Route path="admin/add-students" element={<AddStudentPage />} />
-        </Route>
-      </Routes>
+            <Route path="forms" element={<FormsPage />} />
+            <Route path="forms/:id" element={<FormDetailPage />} />
+            <Route path="rooms" element={<RoomsRoute />} />
+            <Route path="rooms/:id" element={<RoomDetailRoute />} />
+            <Route path="admin" element={<AdminPage />} />
+            <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
+            <Route path="admin/add-teachers" element={<AddTeacherPage />} />
+            <Route path="admin/add-students" element={<AddStudentPage />} />
+          </Route>
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }
