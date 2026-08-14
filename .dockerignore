@@ -1,6 +1,12 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 *.db
+*.log
+*.pdf
 .DS_Store
+.turbo/
+docs/
 turbo-debug.log

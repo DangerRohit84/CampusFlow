@@ -6,8 +6,8 @@ FROM base AS builder
 WORKDIR /app
 COPY package.json turbo.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/mobile/package.json ./apps/mobile/
 COPY packages/backend/package.json ./packages/backend/
-COPY packages/shared/package.json ./packages/shared/
 RUN npm install
 COPY . .
 RUN turbo build --filter=@campusflow/web --filter=@campusflow/backend
