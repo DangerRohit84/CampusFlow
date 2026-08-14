@@ -21,7 +21,7 @@ const CATEGORIES = [
   { key: 'other', label: 'Other', icon: File },
 ]
 
-const FILE_API_BASE = 'http://localhost:4000'
+const FILE_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
 function getFileIcon(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase()

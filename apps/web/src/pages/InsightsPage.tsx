@@ -5,6 +5,7 @@ import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import { aiAPI } from '../lib/api'
+import { sanitizeMarkdown } from '../lib/sanitize'
 
 export default function InsightsPage() {
   const [insights, setInsights] = useState<string>('')
@@ -51,7 +52,7 @@ export default function InsightsPage() {
             </div>
           ) : (
             <div className="prose prose-sm max-w-none text-surface-700 whitespace-pre-wrap leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: insights.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }}
+              dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(insights) }}
             />
           )}
         </Card>
@@ -108,7 +109,7 @@ export default function InsightsPage() {
             <div className="mt-6 p-4 bg-surface-50 rounded-xl border border-surface-200">
               <h3 className="font-bold text-surface-900 mb-3">Your Study Plan</h3>
               <div className="prose prose-sm max-w-none text-surface-700 whitespace-pre-wrap leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: studyPlan.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }}
+                dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(studyPlan) }}
               />
             </div>
           )}

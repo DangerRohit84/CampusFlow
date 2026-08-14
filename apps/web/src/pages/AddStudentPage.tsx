@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { adminAPI, departmentAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -11,7 +10,6 @@ import clsx from 'clsx'
 
 export default function AddStudentPage() {
   const { user } = useAuthStore()
-  const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'form' | 'csv'>('form')
   const [loading, setLoading] = useState(false)
@@ -130,7 +128,7 @@ export default function AddStudentPage() {
       {/* Default Password */}
       <div className="bg-white rounded-2xl border border-surface-100 p-5">
         <label className="block text-sm font-medium text-surface-700 mb-1">Default Password</label>
-        <input type="text" value={defaultPassword} onChange={(e) => setDefaultPassword(e.target.value)}
+        <input type="password" value={defaultPassword} onChange={(e) => setDefaultPassword(e.target.value)}
           className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
           placeholder="Password for all students" />
         <p className="text-xs text-surface-400 mt-1">This password will be used for all students added</p>
@@ -189,7 +187,7 @@ export default function AddStudentPage() {
               <select value={student.incomingYear} onChange={(e) => setStudent({ ...student, incomingYear: e.target.value })}
                 className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400">
                 <option value="">Select batch year</option>
-                {[2024, 2023, 2022, 2021, 2020, 2019, 2018].map(y => (
+                {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>

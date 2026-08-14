@@ -11,34 +11,7 @@ import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import PageHeader from '../components/shared/PageHeader'
 import EmptyState from '../components/shared/EmptyState'
-
-function parseJsonArray(val: unknown): string[] {
-  if (!val) return []
-  if (Array.isArray(val)) return val.map(String)
-  if (typeof val === 'string') {
-    try {
-      const parsed = JSON.parse(val)
-      return Array.isArray(parsed) ? parsed.map(String) : []
-    } catch {
-      return val.split(',').map((s: string) => s.trim()).filter(Boolean)
-    }
-  }
-  return []
-}
-
-function parseJsonNumberArray(val: unknown): number[] {
-  if (!val) return []
-  if (Array.isArray(val)) return val.map(Number).filter((n) => !isNaN(n))
-  if (typeof val === 'string') {
-    try {
-      const parsed = JSON.parse(val)
-      return Array.isArray(parsed) ? parsed.map(Number).filter((n: number) => !isNaN(n)) : []
-    } catch {
-      return val.split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n))
-    }
-  }
-  return []
-}
+import { parseJsonArray, parseJsonNumberArray } from '../lib/parseJson'
 
 export default function TeacherAssignedPage() {
   const { user } = useAuthStore()
@@ -59,8 +32,8 @@ export default function TeacherAssignedPage() {
         internshipAPI.getStaging(),
       ])
       // Filter to only items assigned to this teacher
-      setHackathons(hackData.filter((h: any) => h.creatorId === user?.id))
-      setInternships(intData.filter((i: any) => i.creatorId === user?.id))
+      setHackathons(hackData.filter((h: any) => h.assignedTeacherId === user?.id))
+      setInternships(intData.filter((i: any) => i.assignedTeacherId === user?.id))
     } catch (err) {
       console.error('Failed to load', err)
     } finally {

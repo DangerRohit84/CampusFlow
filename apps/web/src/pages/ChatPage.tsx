@@ -4,6 +4,7 @@ import { Send, Sparkles, Bot, User, Calendar, Clock, FileText, Lightbulb, Zap, G
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import { chatAPI } from '../lib/api'
+import { sanitizeMarkdown } from '../lib/sanitize'
 
 function getActiveProvider() {
   try {
@@ -108,7 +109,7 @@ export default function ChatPage() {
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shrink-0 shadow-md"><GraduationCap size={18} className="text-white" /></div>
                 )}
                 <div className={`max-w-[75%] rounded-2xl px-5 py-3.5 ${msg.role === 'user' ? 'bg-gradient-to-br from-primary-600 to-accent-600 text-white rounded-br-md' : 'bg-surface-100 text-surface-900 rounded-bl-md'}`}>
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(msg.content) }} />
                   {msg.suggestions && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/10">
                       {msg.suggestions.map((s) => (
