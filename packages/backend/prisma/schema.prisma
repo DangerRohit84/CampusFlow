@@ -63,10 +63,10 @@ model User {
   codingContests      CodingContest[]
   codingProfile         CodingProfile?
   contestParticipations ContestParticipation[]
-   hackathonStagings  HackathonStaging[] @relation("HackathonStagingCreator")
-   internshipStagings InternshipStaging[] @relation("InternshipStagingCreator")
-   attendanceRecords    AttendanceRecord[]
-   attendancePredictions AttendancePrediction[]
+  hackathonStagings  HackathonStaging[] @relation("HackathonStagingCreator")
+  internshipStagings InternshipStaging[] @relation("InternshipStagingCreator")
+  attendanceRecords    AttendanceRecord[]
+  attendancePredictions AttendancePrediction[]
 }
 
 model CodingProfile {
