@@ -7,6 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum AttendanceSource {
+  UPLOAD
+  MANUAL
+}
+
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
@@ -51,8 +63,10 @@ model User {
   codingContests      CodingContest[]
   codingProfile         CodingProfile?
   contestParticipations ContestParticipation[]
-  hackathonStagings  HackathonStaging[] @relation("HackathonStagingCreator")
-  internshipStagings InternshipStaging[] @relation("InternshipStagingCreator")
+   hackathonStagings  HackathonStaging[] @relation("HackathonStagingCreator")
+   internshipStagings InternshipStaging[] @relation("InternshipStagingCreator")
+   attendanceRecords    AttendanceRecord[]
+   attendancePredictions AttendancePrediction[]
 }
 
 model CodingProfile {
@@ -409,7 +423,7 @@ model HackathonStaging {
 model InternshipStaging {
   id                 String   @id @default(uuid())
   creatorId          String
-  collegeId          String
+  collegeId          String?
   title              String
   description        String
   company            String
@@ -429,7 +443,7 @@ model InternshipStaging {
   updatedAt          DateTime @updatedAt
 
   creator User     @relation("InternshipStagingCreator", fields: [creatorId], references: [id])
-  college College  @relation(fields: [collegeId], references: [id])
+  college College? @relation(fields: [collegeId], references: [id])
 }
 
 
@@ -617,4 +631,77 @@ model RoomNotification {
   @@index([roomId])
   @@index([studentId])
   @@index([isRead])
+}
+
+model AttendanceRecord {
+  id            String            @id @default(cuid())
+  studentId     String
+  student       User              @relation(fields: [studentId], references: [id])
+  subject       String
+  date          DateTime
+  status        AttendanceStatus
+  source        AttendanceSource
+  createdAt     DateTime          @default(now())
+
+  @@index([studentId, subject])
+  @@index([studentId, createdAt])
+}
+
+model AttendancePrediction {
+  id               String   @id @default(cuid())
+  studentId        String
+  student          User     @relation(fields: [studentId], references: [id])
+  subject          String
+  totalClasses     Int
+  presentClasses   Int
+  classesPerWeek   Int
+  weeksRemaining   Int
+  targetPercentage Float    @default(75)
+  createdAt        DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model PlatformSettings {
+  id          String    @id @default(cuid())
+  platform    String
+  type        String
+  fetchLimit  Int       @default(0)
+  lastFetchAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([platform, type])
+  @@map("platform_settings")
+}
+
+model AiProvider {
+  id            String   @id @default(cuid())
+  name          String
+  baseUrl       String
+  apiKey        String
+  model         String
+  type          String   @default("openai-compatible")
+  headers       String?
+  enabled       Boolean  @default(true)
+  isBuiltIn     Boolean  @default(false)
+  collegeId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  routings      AiRouting[]
+
+  @@unique([name, collegeId])
+}
+
+model AiRouting {
+  id            String   @id @default(cuid())
+  feature       String
+  providerId    String
+  provider      AiProvider @relation(fields: [providerId], references: [id])
+  fallbackOrder Int
+  collegeId     String?
+  createdAt     DateTime @default(now())
+
+  @@unique([feature, fallbackOrder, collegeId])
 }
