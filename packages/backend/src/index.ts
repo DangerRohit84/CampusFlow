@@ -28,6 +28,9 @@ import departmentRoutes from './routes/departments'
 import roomsRouter from './routes/rooms'
 import internshipsRouter from './routes/internships'
 import codingProfileRoutes from './routes/codingProfile'
+import fetchRoutes from './routes/fetch'
+import aiManagerRoutes from './routes/ai-manager'
+import attendanceRoutes from './routes/attendance'
 
 import prisma from './config/db'
 
@@ -172,6 +175,9 @@ app.use('/api/departments', generalLimiter, departmentRoutes)
 app.use('/api/rooms', generalLimiter, roomsRouter)
 app.use('/api/internships', generalLimiter, internshipsRouter)
 app.use('/api/coding-profile', generalLimiter, codingProfileRoutes)
+app.use('/api/fetch', fetchRoutes)
+app.use('/api/ai-manager', aiManagerRoutes)
+app.use('/api/attendance', generalLimiter, attendanceRoutes)
 
 
 // 404 handler
@@ -336,6 +342,26 @@ cron.schedule('0 */12 * * *', async () => {
     await enrichSequentially(internshipIdsToEnrich, enrichInternshipStaging, 'internships')
   } catch (err) {
     console.error('[Cron] Opportunity fetch failed:', err)
+  }
+})
+
+// Cron: cleanup old rejected items every Sunday at 3 AM
+cron.schedule('0 3 * * 0', async () => {
+  console.log('[Cron] Cleaning up old rejected items...')
+  try {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 30)
+    const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+    const hackDeleted = await prisma.hackathonStaging.deleteMany({
+      where: { status: 'REJECTED', updatedAt: { lt: cutoff } },
+    })
+    const intDeleted = await prisma.internshipStaging.deleteMany({
+      where: { status: 'REJECTED', updatedAt: { lt: cutoff } },
+    })
+    console.log(`[Cron] Cleanup: deleted ${hackDeleted.count} hackathons, ${intDeleted.count} internships older than 30 days`)
+  } catch (err) {
+    console.error('[Cron] Cleanup failed:', err)
   }
 })
 
