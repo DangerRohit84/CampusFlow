@@ -403,7 +403,7 @@ async function main() {
 
   // AI Manager - seed built-in providers
   const BUILTIN_PROVIDERS = [
-    { name: 'Groq', baseUrl: 'https://api.groq.com', model: 'llama-3.3-70b-versatile', type: 'openai-compatible' },
+    { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', type: 'openai-compatible' },
     { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', type: 'openai-compatible' },
     { name: 'Anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514', type: 'anthropic' },
     { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash', type: 'google' },

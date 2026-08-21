@@ -61,7 +61,8 @@ export async function testProvider(id: string) {
   const start = Date.now()
 
   try {
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
