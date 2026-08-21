@@ -1,4 +1,3 @@
-import Groq from 'groq-sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import { getProviderForFeature } from '../services/ai-manager'
@@ -28,7 +27,7 @@ async function resolveProvider(feature: string): Promise<AIProvider> {
   return {
     baseUrl: 'https://api.groq.com/openai/v1',
     apiKey: config.groqApiKey,
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     type: 'openai-compatible',
     headers: {},
   }
@@ -123,18 +122,28 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
  * Call OpenAI-compatible API (Groq, OpenAI, DeepSeek, Mistral, etc.)
  */
 async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
-  const clientOptions: any = { apiKey: provider.apiKey }
-  if (provider.baseUrl) clientOptions.baseURL = provider.baseUrl
-
-  const groq = new Groq(clientOptions)
-  const completion = await groq.chat.completions.create({
-    messages: messages as any,
-    model: provider.model,
-    temperature: options?.temperature ?? 0.7,
-    max_tokens: options?.max_tokens ?? 1024,
+  const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages,
+      temperature: options?.temperature ?? 0.7,
+      max_tokens: options?.max_tokens ?? 1024,
+    }),
   })
 
-  return completion.choices[0]?.message?.content || 'No response generated.'
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`OpenAI-compatible API error ${response.status}: ${err}`)
+  }
+
+  const data = await response.json() as any
+  return data.choices?.[0]?.message?.content || 'No response generated.'
 }
 
 /**
