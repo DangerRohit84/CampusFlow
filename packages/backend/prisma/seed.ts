@@ -361,7 +361,7 @@ async function main() {
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,
-        collegeId: teacherForInternship.collegeId,
+        collegeId: teacherForInternship.collegeId!,
       },
     })
 
@@ -384,7 +384,7 @@ async function main() {
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,
-        collegeId: teacherForInternship.collegeId,
+        collegeId: teacherForInternship.collegeId!,
       },
     })
 
@@ -401,7 +401,30 @@ async function main() {
 
   console.log('✓ Internships seeded')
 
+  // AI Manager - seed built-in providers
+  const BUILTIN_PROVIDERS = [
+    { name: 'Groq', baseUrl: 'https://api.groq.com', model: 'llama-3.3-70b-versatile', type: 'openai-compatible' },
+    { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', type: 'openai-compatible' },
+    { name: 'Anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514', type: 'anthropic' },
+    { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash', type: 'google' },
+    { name: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-large-latest', type: 'openai-compatible' },
+    { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', type: 'openai-compatible' },
+    { name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3', type: 'openai-compatible' },
+    { name: 'OpenCode Serve', baseUrl: 'http://localhost:8081/v1', model: 'default', type: 'openai-compatible' },
+  ]
 
+  for (const p of BUILTIN_PROVIDERS) {
+    try {
+      await prisma.aiProvider.upsert({
+        where: { name_collegeId: { name: p.name, collegeId: college.id } },
+        update: {},
+        create: { ...p, apiKey: 'placeholder', isBuiltIn: true, enabled: false, collegeId: college.id },
+      })
+    } catch {
+      console.log(`Skipped provider ${p.name} (already exists or constraint issue)`)
+    }
+  }
+  console.log('Seeded AI providers')
 
   console.log('Seed completed!')
 }
