@@ -6,6 +6,8 @@ import ScenarioTable from './ScenarioTable';
 
 interface Prediction {
   name: string;
+  total: number;
+  present: number;
   currentPercentage: number;
   safeToSkip: number;
   ifAttendAll: number;
@@ -21,30 +23,94 @@ const RISK_STYLES = {
   AT_RISK: { bg: 'bg-danger-50 dark:bg-danger-900/20', text: 'text-danger-700 dark:text-danger-400', label: 'AT RISK', icon: TrendingDown },
 };
 
+interface SubjectFreq {
+  name: string;
+  classesPerWeek: number;
+  hasLab: boolean;
+  hasMakeup: boolean;
+}
+
 export default function PredictionsTab() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [overall, setOverall] = useState<any>(null);
-  const [subjects, setSubjects] = useState([
-    { name: 'Mathematics', classesPerWeek: 3, hasLab: false, hasMakeup: false },
-    { name: 'Physics', classesPerWeek: 4, hasLab: true, hasMakeup: false },
-    { name: 'Chemistry', classesPerWeek: 3, hasLab: false, hasMakeup: false },
-  ]);
+  const [subjects, setSubjects] = useState<SubjectFreq[]>([]);
+  const [subjectData, setSubjectData] = useState<Record<string, { total: number; present: number }>>({});
   const [target, setTarget] = useState(75);
   const [loading, setLoading] = useState(false);
+  const [noData, setNoData] = useState(false);
+
+  const fetchHistory = async () => {
+    try {
+      const result = await attendanceAPI.getHistory();
+      const history = result.history || [];
+
+      // Aggregate all records across all dates by subject
+      const subjectTotals: Record<string, { total: number; present: number }> = {};
+      for (const entry of history) {
+        for (const rec of entry.records || []) {
+          const subj = rec.subject;
+          if (!subjectTotals[subj]) {
+            subjectTotals[subj] = { total: 0, present: 0 };
+          }
+          subjectTotals[subj].total += 1;
+          if (rec.status === 'PRESENT' || rec.status === 'EXCUSED') {
+            subjectTotals[subj].present += 1;
+          }
+        }
+      }
+
+      const subjectNames = Object.keys(subjectTotals);
+      if (subjectNames.length === 0) {
+        setNoData(true);
+        setPredictions([]);
+        setOverall(null);
+        return;
+      }
+
+      setNoData(false);
+      setSubjectData(subjectTotals);
+
+      // Build subjects list with default class frequency for new subjects
+      setSubjects((prev) => {
+        const existingMap = new Map(prev.map((s) => [s.name, s]));
+        return subjectNames.map((name) => {
+          const existing = existingMap.get(name);
+          return existing || { name, classesPerWeek: 3, hasLab: false, hasMakeup: false };
+        });
+      });
+    } catch (err) {
+      console.error('Failed to fetch attendance history:', err);
+      setNoData(true);
+    }
+  };
 
   const fetchPredictions = async () => {
     setLoading(true);
     try {
-      const mockSubjects = subjects.map((s) => ({
-        name: s.name,
-        total: 35 + Math.floor(Math.random() * 10),
-        present: 20 + Math.floor(Math.random() * 15),
-        classesPerWeek: s.classesPerWeek,
-        weeksRemaining: 6,
-      }));
+      const predictSubjects = subjects
+        .filter((s) => subjectData[s.name])
+        .map((s) => ({
+          name: s.name,
+          total: subjectData[s.name].total,
+          present: subjectData[s.name].present,
+          classesPerWeek: s.classesPerWeek,
+          weeksRemaining: 6,
+        }));
 
-      const result = await attendanceAPI.predict(mockSubjects, target);
-      setPredictions(result.predictions);
+      if (predictSubjects.length === 0) {
+        setPredictions([]);
+        setOverall(null);
+        return;
+      }
+
+      const result = await attendanceAPI.predict(predictSubjects, target);
+      // Enrich predictions with total/present from subject data
+      const enriched = result.predictions.map((p: any) => ({
+        ...p,
+        total: subjectData[p.name]?.total || 0,
+        present: subjectData[p.name]?.present || 0,
+      }));
+      setPredictions(enriched);
       setOverall(result.overall);
     } catch (err) {
       console.error('Predict failed:', err);
@@ -54,11 +120,25 @@ export default function PredictionsTab() {
   };
 
   useEffect(() => {
-    fetchPredictions();
+    fetchHistory();
+  }, []);
+
+  useEffect(() => {
+    if (subjects.length > 0) {
+      fetchPredictions();
+    }
   }, [subjects, target]);
 
   return (
     <div className="space-y-6">
+      {noData && (
+        <div className="p-6 rounded-xl bg-surface-50 dark:bg-[#111920] border border-surface-200 dark:border-[#202C35] text-center">
+          <Target className="w-10 h-10 text-surface-300 mx-auto mb-3" />
+          <p className="text-surface-600 dark:text-[#A6B3BE] font-medium">No attendance records found</p>
+          <p className="text-sm text-surface-400 dark:text-[#A6B3BE] mt-1">Upload or manually enter attendance data to see predictions.</p>
+        </div>
+      )}
+
       {overall && (
         <div className={`p-4 rounded-xl flex items-center gap-3 ${
           overall.riskLevel === 'SAFE' ? 'bg-primary-50 dark:bg-primary-900/20' :
@@ -113,7 +193,7 @@ export default function PredictionsTab() {
                 <div className="p-2 bg-surface-50 dark:bg-[#0C1218] rounded-lg">
                   <div className="text-surface-500">Attended</div>
                   <div className="font-bold text-surface-900 dark:text-[#F4F7F8]">
-                    {Math.round(p.currentPercentage * 0.35)}/{Math.round(p.currentPercentage * 0.35 / (p.currentPercentage / 100))}
+                    {p.present}/{p.total}
                   </div>
                 </div>
                 <div className={`p-2 rounded-lg ${p.riskLevel === 'SAFE' ? 'bg-primary-50 dark:bg-primary-900/20' : 'bg-warning-50 dark:bg-warning-900/20'}`}>
@@ -145,7 +225,7 @@ export default function PredictionsTab() {
         <FrequencyEditor subjects={subjects} onChange={setSubjects} />
       </div>
 
-      <ScenarioTable predictions={predictions} target={target} />
+      <ScenarioTable predictions={predictions} target={target} subjects={subjects} />
     </div>
   );
 }

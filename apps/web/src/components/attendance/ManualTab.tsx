@@ -45,7 +45,6 @@ export default function ManualTab() {
   }
 
   const removeRow = (id: string) => {
-    if (rows.length === 1) return
     setRows(rows.filter((r) => r.id !== id))
   }
 
@@ -161,8 +160,7 @@ export default function ManualTab() {
                   <td className="text-center px-6 py-3">
                     <button
                       onClick={() => removeRow(row.id)}
-                      disabled={rows.length === 1}
-                      className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
                     >
                       <Trash2 size={16} />
                     </button>

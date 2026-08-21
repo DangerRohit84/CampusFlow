@@ -1,17 +1,25 @@
 interface Prediction {
   name: string;
+  total: number;
+  present: number;
   currentPercentage: number;
   ifAttendAll: number;
   ifMiss1PerWeek: number;
   ifMiss2PerWeek: number;
 }
 
+interface SubjectFreq {
+  name: string;
+  classesPerWeek: number;
+}
+
 interface Props {
   predictions: Prediction[];
   target: number;
+  subjects?: SubjectFreq[];
 }
 
-export default function ScenarioTable({ predictions, target }: Props) {
+export default function ScenarioTable({ predictions, target, subjects = [] }: Props) {
   const scenarios = [
     { label: 'Attend ALL remaining', key: 'ifAttendAll', style: 'bg-primary-50 dark:bg-primary-900/20 font-semibold' },
     { label: 'Miss 1 class/week', key: 'ifMiss1PerWeek', style: '' },
@@ -21,10 +29,13 @@ export default function ScenarioTable({ predictions, target }: Props) {
 
   const getValue = (p: Prediction, key: string) => {
     if (key === 'miss1Week') {
-      const classesMissed = 3;
-      const futureClasses = 6 * 3;
+      const subjectFreq = subjects.find((s) => s.name === p.name);
+      const classesPerWeek = subjectFreq?.classesPerWeek || 3;
+      const weeksRemaining = 6;
+      const classesMissed = classesPerWeek;
+      const futureClasses = weeksRemaining * classesPerWeek;
       const futureMisses = classesMissed;
-      const projected = (p.currentPercentage / 100 * 35 + (futureClasses - futureMisses)) / (35 + futureClasses) * 100;
+      const projected = (p.currentPercentage / 100 * p.total + (futureClasses - futureMisses)) / (p.total + futureClasses) * 100;
       return Math.round(projected * 10) / 10;
     }
     return (p as any)[key];

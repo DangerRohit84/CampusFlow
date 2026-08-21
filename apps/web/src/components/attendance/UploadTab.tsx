@@ -7,8 +7,9 @@ import { attendanceAPI } from '../../lib/api'
 
 interface AttendanceRecord {
   subject: string
-  totalClasses: number
-  attendedClasses: number
+  total: number
+  present: number
+  absent: number
   percentage: number
 }
 
@@ -53,8 +54,15 @@ export default function UploadTab() {
 
       setParsing(true)
       const parsed = await attendanceAPI.parse(text)
-      if (parsed?.records?.length) {
-        setRecords(parsed.records)
+      if (parsed?.subjects?.length) {
+        const mapped = parsed.subjects.map((s: any) => ({
+          subject: s.name,
+          total: s.total,
+          present: s.present,
+          absent: s.absent,
+          percentage: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0,
+        }))
+        setRecords(mapped)
       } else {
         setError('Could not parse attendance data from the image. Please try a different image.')
       }
@@ -82,7 +90,12 @@ export default function UploadTab() {
     setError('')
     setSuccess('')
     try {
-      await attendanceAPI.save(records, 'ocr-upload')
+      const savePayload = records.map((r) => ({
+        subject: r.subject,
+        date: new Date().toISOString().split('T')[0],
+        status: r.present > 0 ? 'PRESENT' : 'ABSENT',
+      }))
+      await attendanceAPI.save(savePayload, 'UPLOAD')
       setSuccess('Attendance records saved successfully!')
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to save records')
@@ -210,7 +223,8 @@ export default function UploadTab() {
                 <tr className="border-t border-b border-surface-100 dark:border-[#202C35] bg-surface-50 dark:bg-[#111920]">
                   <th className="text-left px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Subject</th>
                   <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Total</th>
-                  <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Attended</th>
+                  <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Present</th>
+                  <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Absent</th>
                   <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Percentage</th>
                   <th className="text-center px-6 py-3 font-semibold text-surface-600 dark:text-[#A6B3BE]">Status</th>
                 </tr>
@@ -219,8 +233,9 @@ export default function UploadTab() {
                 {records.map((r, i) => (
                   <tr key={i} className="hover:bg-surface-50 dark:hover:bg-[#202C35] transition-colors">
                     <td className="px-6 py-3 font-medium text-surface-900 dark:text-[#F4F7F8]">{r.subject}</td>
-                    <td className="px-6 py-3 text-center text-surface-600 dark:text-[#A6B3BE]">{r.totalClasses}</td>
-                    <td className="px-6 py-3 text-center text-surface-600 dark:text-[#A6B3BE]">{r.attendedClasses}</td>
+                    <td className="px-6 py-3 text-center text-surface-600 dark:text-[#A6B3BE]">{r.total}</td>
+                    <td className="px-6 py-3 text-center text-surface-600 dark:text-[#A6B3BE]">{r.present}</td>
+                    <td className="px-6 py-3 text-center text-surface-600 dark:text-[#A6B3BE]">{r.absent}</td>
                     <td className="px-6 py-3 text-center font-semibold text-surface-900 dark:text-[#F4F7F8]">{r.percentage}%</td>
                     <td className="px-6 py-3 text-center">
                       <Badge variant={r.percentage >= 80 ? 'success' : r.percentage >= 60 ? 'warning' : 'danger'}>
