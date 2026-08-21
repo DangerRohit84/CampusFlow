@@ -202,7 +202,7 @@ export const hackathonAPI = {
     window.URL.revokeObjectURL(url)
   },
   // Staging methods
-  getStaging: (page = 1, limit = 20) => api.get('/hackathons/staging', { params: { page, limit } }).then((r) => r.data),
+  getStaging: (page = 1, limit = 20, status?: string) => api.get('/hackathons/staging', { params: { page, limit, status } }).then((r) => r.data),
   getStagingOne: (id: string) => api.get(`/hackathons/staging/${id}`).then((r) => r.data),
   updateStaging: (id: string, data: any) => api.put(`/hackathons/staging/${id}`, data).then((r) => r.data),
   deleteStaging: (id: string) => api.delete(`/hackathons/staging/${id}`).then((r) => r.data),
@@ -235,7 +235,7 @@ export const internshipAPI = {
   },
   fetchDetails: (url: string) => api.post('/internships/fetch-details', { url }).then((r) => r.data.details),
   // Staging methods
-  getStaging: (page = 1, limit = 20) => api.get('/internships/staging', { params: { page, limit } }).then((r) => r.data),
+  getStaging: (page = 1, limit = 20, status?: string) => api.get('/internships/staging', { params: { page, limit, status } }).then((r) => r.data),
   getStagingOne: (id: string) => api.get(`/internships/staging/${id}`).then((r) => r.data),
   updateStaging: (id: string, data: any) => api.put(`/internships/staging/${id}`, data).then((r) => r.data),
   deleteStaging: (id: string) => api.delete(`/internships/staging/${id}`).then((r) => r.data),
@@ -328,7 +328,7 @@ export const roomAPI = {
 
 // Departments
 export const departmentAPI = {
-  getAll: () => api.get('/departments').then((r) => r.data),
+  getAll: (collegeId?: string) => api.get('/departments', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   create: (data: { name: string }) => api.post('/departments', data).then((r) => r.data),
   update: (id: string, data: { name: string }) => api.put(`/departments/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/departments/${id}`).then((r) => r.data),
@@ -364,22 +364,22 @@ export function matchAICodesToDepartments(aiCodes: string[], departments: Depart
 
 // Admin
 export const adminAPI = {
-  getUsers: () => api.get('/admin/users').then((r) => r.data),
+  getUsers: (collegeId?: string) => api.get('/admin/users', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   addTeacher: (data: any) => api.post('/admin/users/teacher', data).then((r) => r.data),
   addStudent: (data: any) => api.post('/admin/users/student', data).then((r) => r.data),
   bulkAddTeachers: (teachers: any[]) => api.post('/admin/users/teachers/bulk', { teachers }).then((r) => r.data),
   bulkAddStudents: (students: any[]) => api.post('/admin/users/students/bulk', { students }).then((r) => r.data),
   updateUser: (id: string, data: any) => api.put(`/admin/users/${id}`, data).then((r) => r.data),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`).then((r) => r.data),
-  getAnalytics: () => api.get('/admin/analytics').then((r) => r.data),
+  getAnalytics: (collegeId?: string) => api.get('/admin/analytics', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   getColleges: () => api.get('/admin/colleges').then((r) => r.data),
   registerCollege: (data: any) => api.post('/admin/colleges/register', data).then((r) => r.data),
   registerCollegePublic: (data: any) => axios.post(`${API_URL}/colleges/register`, data).then((r) => r.data),
   approveCollege: (id: string) => api.put(`/admin/colleges/${id}/approve`).then((r) => r.data),
   rejectCollege: (id: string) => api.put(`/admin/colleges/${id}/reject`).then((r) => r.data),
   deleteCollege: (id: string) => api.delete(`/admin/colleges/${id}`).then((r) => r.data),
-  getHackathons: () => api.get('/admin/hackathons').then((r) => r.data),
-  getForms: () => api.get('/admin/forms').then((r) => r.data),
+  getHackathons: (collegeId?: string) => api.get('/admin/hackathons', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
+  getForms: (collegeId?: string) => api.get('/admin/forms', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   deleteHackathon: (id: string) => api.delete(`/admin/hackathons/${id}`).then((r) => r.data),
   deleteForm: (id: string) => api.delete(`/admin/forms/${id}`).then((r) => r.data),
 }
@@ -398,6 +398,18 @@ export const userAPI = {
   getAttendance: () => api.get('/user/attendance').then((r) => r.data),
   getAttendanceStats: () => api.get('/user/attendance/stats').then((r) => r.data),
   getIntegrations: () => api.get('/user/integrations').then((r) => r.data),
+}
+
+// Attendance
+export const attendanceAPI = {
+  parse: (text: string) =>
+    api.post('/attendance/parse', { text }).then((r) => r.data),
+  predict: (subjects: any[], targetPercentage?: number) =>
+    api.post('/attendance/predict', { subjects, targetPercentage }).then((r) => r.data),
+  save: (records: any[], source: string) =>
+    api.post('/attendance/save', { records, source }).then((r) => r.data),
+  getHistory: () =>
+    api.get('/attendance/history').then((r) => r.data),
 }
 
 // Coding Profile
