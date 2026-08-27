@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Trash2, Loader2 } from 'lucide-react'
 import Modal from '../ui/Modal'
 import type { AiProvider } from '../../types/api'
@@ -89,7 +89,7 @@ export default function ProviderModal({ open, provider, onSave, onClose }: Props
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-surface-700 dark:text-night-200">Custom Headers</label>
-              <button onClick={addHeader} className="text-xs text-primary-600 dark:text-[#00A88F] flex items-center gap-1">
+              <button onClick={addHeader} className="text-xs text-primary-600 dark:text-[#7BA290] flex items-center gap-1">
                 <Plus size={12} /> Add
               </button>
             </div>
@@ -112,7 +112,7 @@ export default function ProviderModal({ open, provider, onSave, onClose }: Props
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#00A88F] dark:hover:bg-[#00C49A] text-white flex items-center gap-2">
+            className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white flex items-center gap-2">
             {saving && <Loader2 size={14} className="animate-spin" />}
             {provider ? 'Save Changes' : 'Add Provider'}
           </button>

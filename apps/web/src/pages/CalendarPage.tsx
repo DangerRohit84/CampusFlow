@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
 import { timetableAPI, assignmentAPI, taskAPI, codingContestAPI, hackathonAPI, formAPI } from '../lib/api'
@@ -26,7 +26,7 @@ type TimetableClass = {
 }
 
 const EVENT_COLORS: Record<string, { light: string; dark: string; bg: string; darkBg: string }> = {
-  class: { light: '#007060', dark: '#00A88F', bg: 'bg-teal-100', darkBg: 'dark:bg-teal-500/15' },
+  class: { light: '#007060', dark: '#7BA290', bg: 'bg-teal-100', darkBg: 'dark:bg-teal-500/15' },
   assignment: { light: '#EF4444', dark: '#EF4444', bg: 'bg-red-100', darkBg: 'dark:bg-red-500/15' },
   task: { light: '#3B82F6', dark: '#3B82F6', bg: 'bg-blue-100', darkBg: 'dark:bg-blue-500/15' },
   contest: { light: '#8B5CF6', dark: '#8B5CF6', bg: 'bg-purple-100', darkBg: 'dark:bg-purple-500/15' },
@@ -255,7 +255,7 @@ export default function CalendarPage() {
         </div>
         <button
           onClick={goToToday}
-          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#00A88F] dark:hover:bg-[#00C49A] text-white transition-colors"
+          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white transition-colors"
         >
           Today
         </button>
@@ -308,7 +308,7 @@ export default function CalendarPage() {
         <div className="grid grid-cols-7">
           {calendarDays.map((day, idx) => {
             if (day === null) {
-              return <div key={`empty-${idx}`} className="h-24 border-b border-r border-surface-100 dark:border-[#1A2530]" />
+              return <div key={`empty-${idx}`} className="h-24 border-b border-r border-surface-100 dark:border-night-650" />
             }
 
             const dateStr = toISODate(currentYear, currentMonth, day)
@@ -322,18 +322,18 @@ export default function CalendarPage() {
               <div
                 key={dateStr}
                 onClick={() => setSelectedDate(dateStr)}
-                className={`h-24 border-b border-r border-surface-100 dark:border-[#1A2530] p-1.5 cursor-pointer transition-colors hover:bg-surface-50 dark:hover:bg-night-850 ${
-                  isSelected ? 'bg-primary-50 dark:bg-[rgba(0,112,96,0.1)]' : ''
+                className={`h-24 border-b border-r border-surface-100 dark:border-night-650 p-1.5 cursor-pointer transition-colors hover:bg-surface-50 dark:hover:bg-night-850 ${
+                  isSelected ? 'bg-primary-50 dark:bg-[rgba(45,106,79,0.12)]' : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <span
                     className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
                       isToday
-                        ? 'bg-primary-600 dark:bg-[#00A88F] text-white ring-2 ring-primary-400 dark:ring-[#00C49A]'
+                        ? 'bg-primary-600 dark:bg-[#7BA290] text-white ring-2 ring-primary-400 dark:ring-[#A8C2B3]'
                         : isSelected
-                        ? 'bg-primary-100 dark:bg-[rgba(0,112,96,0.2)] text-primary-700 dark:text-[#00A88F]'
-                        : 'text-surface-700 dark:text-[#D1D9E0]'
+                        ? 'bg-primary-100 dark:bg-[rgba(45,106,79,0.18)] text-primary-700 dark:text-[#7BA290]'
+                        : 'text-surface-700 dark:text-[#CBD5E1]'
                     }`}
                   >
                     {day}
@@ -390,7 +390,7 @@ export default function CalendarPage() {
               </div>
             ) : selectedEvents.length === 0 ? (
               <div className="text-center py-8">
-                <CalendarDays className="w-12 h-12 text-surface-300 dark:text-[#2A3A48] mx-auto mb-3" />
+                <CalendarDays className="w-12 h-12 text-surface-300 dark:text-[#232F3B] mx-auto mb-3" />
                 <p className="text-surface-500 dark:text-night-300">No events on this day</p>
               </div>
             ) : (
@@ -407,7 +407,7 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={evt.id}
-                      className="flex items-start gap-3 p-3 rounded-xl bg-white dark:bg-night-850 border border-surface-100 dark:border-[#1A2530]"
+                      className="flex items-start gap-3 p-3 rounded-xl bg-white dark:bg-night-850 border border-surface-100 dark:border-night-650"
                     >
                       <div
                         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -455,7 +455,7 @@ export default function CalendarPage() {
                             </span>
                           )}
                           {evt.type === 'class' && evt.dayOfWeek && (
-                            <span className="text-surface-400 dark:text-[#5A6A78] italic">
+                            <span className="text-surface-400 dark:text-[#8A9BA8] italic">
                               Recurring every {evt.dayOfWeek.charAt(0) + evt.dayOfWeek.slice(1).toLowerCase()}
                             </span>
                           )}

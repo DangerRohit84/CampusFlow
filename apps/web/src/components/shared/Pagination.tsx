@@ -48,7 +48,7 @@ export default function Pagination({ page, totalPages, onChange, scroll = true }
             onClick={() => handle(p as number)}
             className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${
               page === p
-                ? 'bg-primary-500 dark:bg-[#00A88F] text-white shadow-sm'
+                ? 'bg-primary-500 dark:bg-[#7BA290] text-white shadow-sm'
                 : 'text-surface-600 bg-surface-100 hover:bg-surface-200 dark:bg-night-700 dark:text-night-200 dark:hover:bg-night-600'
             }`}
           >

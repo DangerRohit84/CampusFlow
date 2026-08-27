@@ -512,7 +512,7 @@ export default function FormsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#232F3B] transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">
@@ -593,7 +593,7 @@ export default function FormsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors">
+                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#232F3B] transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleEdit} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">

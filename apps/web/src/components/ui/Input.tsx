@@ -31,8 +31,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             type={isPassword && showPassword ? 'text' : type}
             className={clsx(
-              'w-full bg-surface-50 border border-surface-200 rounded-xl text-surface-900 placeholder-surface-400',
-              'focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400',
+              'w-full bg-white border border-surface-200 rounded-xl text-surface-900 placeholder:text-surface-400 shadow-sm',
+              'focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500',
               'transition-all duration-200',
               {
                 'px-4 py-3': !icon,

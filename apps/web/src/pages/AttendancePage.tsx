@@ -41,9 +41,9 @@ function calcNeedClasses(attended: number, held: number, required: number) {
 }
 
 const statusConfig = {
-  safe: { color: 'text-primary-600 dark:text-[#00A88F]', bg: 'bg-primary-100 dark:bg-[#00A88F]/10', bar: 'bg-primary-500', label: 'SAFE' },
-  warning: { color: 'text-warning-600 dark:text-[#F5A623]', bg: 'bg-warning-100 dark:bg-[#F5A623]/10', bar: 'bg-warning-500', label: 'WARNING' },
-  risk: { color: 'text-danger-600 dark:text-[#F07068]', bg: 'bg-danger-100 dark:bg-[#F07068]/10', bar: 'bg-danger-500', label: 'RISK' },
+  safe: { color: 'text-primary-600 dark:text-[#7BA290]', bg: 'bg-primary-100 dark:bg-[#7BA290]/10', bar: 'bg-primary-500', label: 'SAFE' },
+  warning: { color: 'text-warning-600 dark:text-[#C9A86A]', bg: 'bg-warning-100 dark:bg-[#C9A86A]/10', bar: 'bg-warning-500', label: 'WARNING' },
+  risk: { color: 'text-danger-600 dark:text-[#F87171]', bg: 'bg-danger-100 dark:bg-[#F87171]/10', bar: 'bg-danger-500', label: 'RISK' },
 }
 
 export default function AttendancePage() {
@@ -215,7 +215,7 @@ export default function AttendancePage() {
             <span className="text-sm text-surface-500 dark:text-night-200">%</span>
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1a2530] transition-colors ml-2"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1A242E] transition-colors ml-2"
             >
               <Upload size={14} /> Upload
             </button>
@@ -264,7 +264,7 @@ export default function AttendancePage() {
               {totalSkipped > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {subjects.filter(s => s.skip > 0).map(s => (
-                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-[#F5A623]/10 text-warning-600 dark:text-[#F5A623]">
+                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]">
                       {s.name || 'Untitled'}: ⚠️ {s.skip}
                     </span>
                   ))}
@@ -323,7 +323,7 @@ export default function AttendancePage() {
                         />
                         <button
                           onClick={() => deleteSubject(subject.id)}
-                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F07068]/10 transition-colors shrink-0"
+                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F87171]/10 transition-colors shrink-0"
                         >
                           <Trash2 size={16} />
                         </button>

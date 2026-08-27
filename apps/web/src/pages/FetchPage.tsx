@@ -24,7 +24,7 @@ const HACKATHON_PLATFORMS = [
   { id: 'DEVFOLIO', name: 'Devfolio', icon: '💻', color: 'border-l-[#635BFF]' },
   { id: 'DEVPOST', name: 'Devpost', icon: '🏆', color: 'border-l-[#635BFF]' },
   { id: 'MLH', name: 'MLH', icon: '🎯', color: 'border-l-[#DC2626]' },
-  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-[#F5A623]' },
+  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-[#C9A86A]' },
 ]
 
 const INTERNSHIP_PLATFORMS = [

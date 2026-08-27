@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Save, Loader2 } from 'lucide-react'
 import type { AiProvider, AiRouting } from '../../types/api'
 
@@ -83,7 +83,7 @@ export default function RoutingTable({ providers, routing, onSave }: Props) {
                 <button
                   onClick={() => handleSave(f.id)}
                   disabled={saving === f.id}
-                  className="p-1.5 rounded-lg hover:bg-surface-200 dark:hover:bg-night-700 text-primary-600 dark:text-[#00A88F]"
+                  className="p-1.5 rounded-lg hover:bg-surface-200 dark:hover:bg-night-700 text-primary-600 dark:text-[#7BA290]"
                 >
                   {saving === f.id ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 </button>

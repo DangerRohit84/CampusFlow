@@ -40,11 +40,11 @@ function gradeToGpa(grade: string, scale: string): number {
 
 function gradeColor(grade: string): string {
   const g = gradeToGpa10[grade] ?? 0
-  if (g >= 9) return 'bg-primary-100 dark:bg-[#00A88F]/10 text-primary-600 dark:text-[#00A88F]'
-  if (g >= 7) return 'bg-primary-100 dark:bg-[#00A88F]/10 text-primary-600 dark:text-[#00A88F]'
-  if (g >= 5) return 'bg-warning-100 dark:bg-[#F5A623]/10 text-warning-600 dark:text-[#F5A623]'
-  if (g >= 3) return 'bg-warning-100 dark:bg-[#F5A623]/10 text-warning-600 dark:text-[#F5A623]'
-  return 'bg-danger-100 dark:bg-[#F07068]/10 text-danger-600 dark:text-[#F07068]'
+  if (g >= 9) return 'bg-primary-100 dark:bg-[#7BA290]/10 text-primary-600 dark:text-[#7BA290]'
+  if (g >= 7) return 'bg-primary-100 dark:bg-[#7BA290]/10 text-primary-600 dark:text-[#7BA290]'
+  if (g >= 5) return 'bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]'
+  if (g >= 3) return 'bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]'
+  return 'bg-danger-100 dark:bg-[#F87171]/10 text-danger-600 dark:text-[#F87171]'
 }
 
 function gpaBarColor(gpa: number, maxScale: number): string {
@@ -239,7 +239,7 @@ export default function GradesPage() {
             </div>
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1a2530] transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1A242E] transition-colors"
             >
               <Upload size={14} /> Upload
             </button>
@@ -270,7 +270,7 @@ export default function GradesPage() {
             className={`px-3 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
               activeSemester === 'all'
                 ? 'bg-primary-500 text-white'
-                : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47]'
+                : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#232F3B]'
             }`}
           >
             All
@@ -282,7 +282,7 @@ export default function GradesPage() {
               className={`px-3 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
                 activeSemester === String(sem)
                   ? 'bg-primary-500 text-white'
-                  : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47]'
+                  : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#232F3B]'
               }`}
             >
               Sem {sem}
@@ -293,7 +293,7 @@ export default function GradesPage() {
               const nextSem = semesters.length > 0 ? Math.max(...semesters) + 1 : 1
               setActiveSemester(String(nextSem))
             }}
-            className="px-2 py-1 text-xs font-bold rounded-full bg-surface-100 dark:bg-night-600 text-surface-500 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors"
+            className="px-2 py-1 text-xs font-bold rounded-full bg-surface-100 dark:bg-night-600 text-surface-500 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#232F3B] transition-colors"
           >
             + New
           </button>
@@ -392,7 +392,7 @@ export default function GradesPage() {
                         />
                         <button
                           onClick={() => deleteCourse(course.id)}
-                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F07068]/10 transition-colors shrink-0"
+                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F87171]/10 transition-colors shrink-0"
                         >
                           <Trash2 size={16} />
                         </button>

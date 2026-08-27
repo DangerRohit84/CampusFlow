@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Zap, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -88,7 +88,7 @@ export default function AiManagerPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-primary-600 dark:text-[#00A88F]" size={32} />
+        <Loader2 className="animate-spin text-primary-600 dark:text-[#7BA290]" size={32} />
       </div>
     )
   }
@@ -106,7 +106,7 @@ export default function AiManagerPage() {
             <Zap size={16} /> Test All
           </button>
           <button onClick={() => { setEditing(null); setModalOpen(true) }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#00A88F] dark:hover:bg-[#00C49A] text-white">
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white">
             <Plus size={16} /> Add Provider
           </button>
         </div>

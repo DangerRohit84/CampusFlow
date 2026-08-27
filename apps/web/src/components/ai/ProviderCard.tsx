@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Zap, Pencil, Trash2, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react'
 import type { AiProvider } from '../../types/api'
@@ -55,7 +55,7 @@ export default function ProviderCard({ provider, onEdit, onToggle, onDelete, onT
         </div>
         <button
           onClick={() => onToggle(provider.id)}
-          className="text-surface-500 hover:text-primary-600 dark:text-night-300 dark:hover:text-[#00A88F]"
+          className="text-surface-500 hover:text-primary-600 dark:text-night-300 dark:hover:text-[#7BA290]"
         >
           {provider.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
         </button>

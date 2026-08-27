@@ -326,8 +326,8 @@ export default function Layout() {
         </div>
         {sidebarOpen && (
           <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
-            <span className="text-lg font-bold text-primary-600 dark:text-[#00A88F]">CampusFlow</span>
-            <p className="text-[10px] text-surface-400 dark:text-night-300 font-medium">AI Campus OS</p>
+            <span className="text-lg font-bold text-primary-600">CampusFlow</span>
+            <p className="text-[10px] text-surface-400 font-medium">AI Campus OS</p>
           </motion.div>
         )}
       </div>
@@ -361,8 +361,8 @@ export default function Layout() {
                       'w-full flex items-center gap-3 rounded-lg font-medium transition-all duration-200 group relative',
                       sidebarOpen ? 'px-3 py-2' : 'justify-center px-0 py-2.5',
                       isActive
-                        ? 'bg-primary-50 dark:bg-[rgba(0,112,96,0.15)] text-primary-700 dark:text-[#00A88F]'
-                        : 'text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 hover:text-surface-900 dark:hover:text-night-50'
+                        ? 'bg-primary-50 text-primary-600 border border-primary-100 shadow-sm'
+                        : 'text-surface-500 hover:bg-surface-100 hover:text-surface-700'
                     )}
                   >
                     {/* Active indicator - left accent bar */}
@@ -373,12 +373,12 @@ export default function Layout() {
                     <span className="relative inline-flex">
                       <Icon size={18} className={clsx(isActive && 'text-primary-600')} />
                       {!sidebarOpen && showRoomsBadge && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-red-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
                           {roomUnreadCount > 99 ? '99+' : roomUnreadCount}
                         </span>
                       )}
                       {!sidebarOpen && nearCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-[#DC2626] text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
                           {nearCount > 99 ? '99+' : nearCount}
                         </span>
                       )}
@@ -389,10 +389,10 @@ export default function Layout() {
                     )}
 
                     {sidebarOpen && nearCount > 0 && (
-                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-[#DC2626] text-white rounded-full text-[10px] font-bold">{nearCount}</span>
+                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>
                     )}
                     {sidebarOpen && showRoomsBadge && (
-                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white rounded-full text-[10px] font-bold">
+                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">
                         {roomUnreadCount > 99 ? '99+' : roomUnreadCount}
                       </span>
                     )}
@@ -407,17 +407,17 @@ export default function Layout() {
       {/* CampusFlow AI Card */}
       {sidebarOpen && (
           <div className="px-3 mb-3 shrink-0">
-          <div className="p-4 bg-[#FEF3E3] dark:bg-night-700 rounded-xl">
+          <div className="p-4 bg-accent-50 border border-accent-100 rounded-xl">
             <div className="flex items-center gap-2 mb-1.5">
-              <Sparkles size={16} className="text-amber-500" />
-              <span className="text-sm font-bold text-primary-700 dark:text-[#00A88F]">CampusFlow AI</span>
+              <Sparkles size={16} className="text-accent-600" />
+              <span className="text-sm font-bold text-primary-600">CampusFlow AI</span>
             </div>
-            <p className="text-[11px] text-surface-600 dark:text-night-200 mb-3 leading-relaxed">
+            <p className="text-[11px] text-surface-500 mb-3 leading-relaxed">
               Your intelligent assistant for campus operations
             </p>
             <button
               onClick={() => navigate('/chat')}
-              className="w-full px-3 py-2 bg-primary-500 hover:bg-primary-600 rounded-lg text-sm font-medium transition-all flex items-center justify-between text-white"
+              className="w-full px-3 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm font-medium transition-all flex items-center justify-between text-white shadow-sm"
             >
               <span>Ask AI Assistant</span>
               <span className="text-lg">→</span>

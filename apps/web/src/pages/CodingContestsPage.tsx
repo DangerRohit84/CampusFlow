@@ -459,7 +459,7 @@ export default function CodingContestsPage() {
                 'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 isActive
                   ? 'bg-primary-500 text-white shadow-md'
-                  : 'bg-surface-100 text-surface-600 hover:bg-surface-200 dark:bg-night-600 dark:text-night-200 dark:hover:bg-[#2A3A47]'
+                  : 'bg-surface-100 text-surface-600 hover:bg-surface-200 dark:bg-night-600 dark:text-night-200 dark:hover:bg-[#232F3B]'
               )}
             >
               {p === 'ALL' ? (
@@ -633,7 +633,7 @@ export default function CodingContestsPage() {
                                   <button
                                     onClick={() => handleAddSolution(c.id)}
                                     disabled={savingSolution}
-                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#00A88F] dark:hover:bg-[#00C49A] text-white rounded-lg disabled:opacity-50 flex items-center gap-1"
+                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white rounded-lg disabled:opacity-50 flex items-center gap-1"
                                   >
                                     {savingSolution ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
                                   </button>
@@ -807,7 +807,7 @@ export default function CodingContestsPage() {
                       isSelected
                         ? 'bg-primary-500 text-white'
                         : isToday
-                        ? 'bg-primary-50 text-primary-700 dark:bg-[#00A88F]/10 dark:text-[#00A88F]'
+                        ? 'bg-primary-50 text-primary-700 dark:bg-[#7BA290]/10 dark:text-[#7BA290]'
                         : item.hasContests
                         ? 'bg-surface-50 text-surface-900 hover:bg-surface-100 dark:bg-night-850 dark:text-night-50 dark:hover:bg-night-600'
                         : 'text-surface-600 hover:bg-surface-50 dark:text-night-200 dark:hover:bg-night-600'
@@ -945,7 +945,7 @@ export default function CodingContestsPage() {
               <div className="flex gap-3 mt-5">
                 <button
                   onClick={createModal.close}
-                  className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 dark:bg-night-600 dark:text-night-50 dark:hover:bg-[#2A3A47]"
+                  className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 dark:bg-night-600 dark:text-night-50 dark:hover:bg-[#232F3B]"
                 >
                   Cancel
                 </button>
