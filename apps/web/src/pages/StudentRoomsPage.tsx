@@ -79,7 +79,7 @@ export default function StudentRoomsPage() {
         </div>
         <button
           onClick={() => { setJoinCode(''); setShowJoin(true) }}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
         >
           <DoorOpen size={16} /> Join Room
         </button>
@@ -93,7 +93,7 @@ export default function StudentRoomsPage() {
           <p className="text-surface-400 mt-1 mb-4">Join a room using the code from your teacher</p>
           <button
             onClick={() => { setJoinCode(''); setShowJoin(true) }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
           >
             <DoorOpen size={16} /> Join Room
           </button>
@@ -109,7 +109,7 @@ export default function StudentRoomsPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center">
                     <BookOpen size={18} className="text-white" />
                   </div>
                   <div>
@@ -124,11 +124,11 @@ export default function StudentRoomsPage() {
               <div className="space-y-2 mb-4">
                 <div className="flex items-center gap-4 text-xs text-surface-500">
                   <span className="flex items-center gap-1">
-                    <Users size={12} className="text-green-500" />
+                    <Users size={12} className="text-primary-500" />
                     {room._count?.members ?? room.members?.length ?? 0} members
                   </span>
                   <span className="flex items-center gap-1">
-                    <FileText size={12} className="text-blue-500" />
+                    <FileText size={12} className="text-primary-500" />
                     {room._count?.resources ?? room.resources?.length ?? 0} resources
                   </span>
                 </div>
@@ -137,7 +137,7 @@ export default function StudentRoomsPage() {
               {/* Open Room Button */}
               <button
                 onClick={() => navigate(`/rooms/${room.id}`)}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
               >
                 Open Room <ChevronRight size={14} />
               </button>
@@ -182,7 +182,7 @@ export default function StudentRoomsPage() {
             <button
               onClick={handleJoin}
               disabled={joining || joinCode.length !== 6}
-              className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {joining && <Loader2 size={14} className="animate-spin" />}
               Join

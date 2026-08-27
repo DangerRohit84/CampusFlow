@@ -2,23 +2,12 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
-import Groq from 'groq-sdk'
-import OpenAI from 'openai'
-import { config } from '../config'
+import { chatCompletion } from '../ai/client'
 
 const router = Router()
 router.use(authenticate)
 
-const hasOpenCodeServe = config.openCodeServeUrl !== ''
-const hasGroq = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
-
-const openCodeServe = hasOpenCodeServe ? new OpenAI({
-  apiKey: 'no-key',
-  baseURL: config.openCodeServeUrl,
-}) : null
-const groq = hasGroq ? new Groq({ apiKey: config.groqApiKey }) : null
-
-const hasAI = hasOpenCodeServe || hasGroq
+// AI now uses AI Manager routing via src/ai/client.ts
 
 // GET / - List internships (filtered by eligibility for students)
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -81,32 +70,40 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 
     const page = parseInt(req.query.page as string) || 1
     const limit = parseInt(req.query.limit as string) || 20
+    const status = req.query.status as string | undefined
     const skip = (page - 1) * limit
 
-    const today = new Date().toISOString().slice(0, 10)
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const where: any = {
+      OR: [
+        { deadline: null },
+        { deadline: { gte: todayStr } },
+      ],
+    }
+    if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      // Items can be DRAFT (fetched), PENDING (admin-created), or ACTIVE (fetched external)
+      if (status === 'PENDING') {
+        where.status = { in: ['DRAFT', 'PENDING', 'ACTIVE'] }
+      } else {
+        where.status = status
+      }
+    }
+    // When listing for review, only show enriched items (have departments)
+    if (status === 'PENDING' || !status) {
+      where.targetDepartments = { not: '[]' }
+    }
+
     const [internships, total] = await Promise.all([
       prisma.internshipStaging.findMany({
         orderBy: [
           { deadline: 'asc' },
           { createdAt: 'desc' },
         ],
-        where: {
-          OR: [
-            { deadline: null },
-            { deadline: { gte: today } },
-          ],
-        },
+        where,
         skip,
         take: limit,
       }),
-      prisma.internshipStaging.count({
-        where: {
-          OR: [
-            { deadline: null },
-            { deadline: { gte: today } },
-          ],
-        },
-      }),
+      prisma.internshipStaging.count({ where }),
     ])
 
     res.json({
@@ -127,17 +124,26 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 // GET /staging/counts - Get staging counts (independent of pagination)
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
-    const all = await prisma.internshipStaging.findMany({ select: { targetDepartments: true, status: true } })
-    let total = 0, enriched = 0, pending = 0
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const all = await prisma.internshipStaging.findMany({
+      select: { targetDepartments: true, status: true },
+      where: {
+        OR: [
+          { deadline: null },
+          { deadline: { gte: todayStr } },
+        ],
+      },
+    })
+    let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
     for (const item of all) {
       const depts = JSON.parse(item.targetDepartments || '[]')
       total++
-      if (depts.length > 0) {
-        enriched++
-        if (item.status !== 'APPROVED' && item.status !== 'REJECTED') pending++
-      }
+      if (depts.length > 0) enriched++
+      if (item.status === 'APPROVED') approved++
+      else if (item.status === 'REJECTED') rejected++
+      else if (depts.length > 0) pending++
     }
-    res.json({ total, enriched, pending })
+    res.json({ total, enriched, pending, approved, rejected })
   } catch (error) {
     console.error('Error fetching internship staging counts:', error)
     res.status(500).json({ error: 'Failed to fetch counts' })
@@ -465,10 +471,7 @@ router.post('/fetch-details', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    if (!openCodeServe && !groq) {
-      res.status(503).json({ error: 'AI service not configured' })
-      return
-    }
+    // AI Manager handles provider resolution
 
     // Fetch page content
     let pageContent = ''
@@ -522,35 +525,14 @@ CRITICAL RULES:
 4. For targetYears: INFER from context. "fresher" → [1]. "2nd year" → [2]. "pre-final" → [3]. "final year" → [4]. "all years" → [1,2,3,4]. No info → [].
 5. Return ONLY the JSON object, no other text:`
 
-    // Try OpenCode Serve first, then Groq fallback
+    // Use AI Manager routing (fetch feature)
     let responseText = ''
-    if (openCodeServe) {
-      try {
-        const completion = await openCodeServe.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'big-pickle',
-          temperature: 0.1,
-          max_tokens: 1000,
-        })
-        responseText = completion.choices[0]?.message?.content || ''
-      } catch (serveErr) {
-        console.log('OpenCode Serve failed for internship fetch-details:', serveErr)
-      }
-    }
-
-    // Fallback to Groq if Serve failed or not available
-    if (!responseText && groq) {
-      try {
-        const completion = await groq.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'llama-3.3-70b-versatile',
-          temperature: 0.1,
-          max_tokens: 1000,
-        })
-        responseText = completion.choices[0]?.message?.content || ''
-      } catch (groqErr) {
-        console.log('Groq also failed for internship fetch-details:', groqErr)
-      }
+    try {
+      responseText = await chatCompletion('fetch', [
+        { role: 'user', content: prompt },
+      ], { temperature: 0.1, max_tokens: 1000 })
+    } catch (aiErr) {
+      console.log('AI fetch failed for internship details:', aiErr)
     }
 
     let details: any = null

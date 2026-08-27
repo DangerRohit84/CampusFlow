@@ -1,9 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
-import { getProviderForFeature } from '../services/ai-manager'
+import { getProvidersForFeature } from '../services/ai-manager'
 import { config } from '../config'
 
 export interface AIProvider {
+  id?: string
+  name?: string
   baseUrl: string
   apiKey: string
   model: string
@@ -16,21 +18,60 @@ export interface ChatMessage {
   content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
 }
 
+const NOT_CONFIGURED_MESSAGE = 'AI provider not configured. Please set up a provider in AI Manager.'
+
+function hasUsableKey(provider: AIProvider): boolean {
+  return Boolean(provider.apiKey) && provider.apiKey !== 'your-groq-api-key-here'
+}
+
 /**
- * Get provider for a feature. Falls back to Groq if no AI Manager provider configured.
+ * Get ordered failover candidates for a feature. Falls back to hardcoded Groq
+ * if no AI Manager provider is configured/routable.
  */
-async function resolveProvider(feature: string): Promise<AIProvider> {
-  const managed = await getProviderForFeature(feature).catch(() => null)
-  if (managed) return managed
+async function resolveProviders(feature: string): Promise<AIProvider[]> {
+  const managed = await getProvidersForFeature(feature).catch(() => [])
+  if (managed.length > 0) return managed
 
   // Fallback to hardcoded Groq
-  return {
+  return [{
     baseUrl: 'https://api.groq.com/openai/v1',
     apiKey: config.groqApiKey,
     model: 'openai/gpt-oss-120b',
     type: 'openai-compatible',
     headers: {},
+  }]
+}
+
+/**
+ * Try each candidate provider exactly once, in deterministic order, until one succeeds.
+ * Logs which provider ultimately served the request; when every candidate fails,
+ * rethrows the last error (same error shape as a single-provider call).
+ */
+async function executeWithFailover(
+  feature: string,
+  messages: ChatMessage[],
+  options?: { temperature?: number; max_tokens?: number },
+): Promise<string> {
+  const candidates = await resolveProviders(feature)
+  let lastError: unknown
+  let hadUsableKey = false
+
+  for (const provider of candidates) {
+    if (!hasUsableKey(provider)) continue
+    hadUsableKey = true
+    const label = provider.name || provider.baseUrl
+    try {
+      const result = await callProvider(provider, messages, options)
+      console.log(`AI request [${feature}] served by provider "${label}" (${provider.model})`)
+      return result
+    } catch (error: any) {
+      lastError = error
+      console.error(`AI provider "${label}" failed for [${feature}], trying next candidate:`, error?.message || error)
+    }
   }
+
+  if (!hadUsableKey) return NOT_CONFIGURED_MESSAGE
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'All AI providers failed'))
 }
 
 /**
@@ -123,19 +164,28 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
  */
 async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
   const baseUrl = provider.baseUrl.replace(/\/+$/, '')
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${provider.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      messages,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.max_tokens ?? 1024,
-    }),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        messages,
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.max_tokens ?? 1024,
+      }),
+      signal: AbortSignal.timeout(60000),
+    })
+  } catch (error: any) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new Error(`OpenAI-compatible API request timed out after 60000ms`)
+    }
+    throw error
+  }
 
   if (!response.ok) {
     const err = await response.text()
@@ -162,25 +212,14 @@ async function callProvider(provider: AIProvider, messages: ChatMessage[], optio
 }
 
 /**
- * Send chat completion request — auto-routes to correct provider.
+ * Send chat completion request — auto-routes to correct provider with graceful failover.
  */
 export async function chatCompletion(
   feature: string,
   messages: ChatMessage[],
   options?: { temperature?: number; max_tokens?: number },
 ): Promise<string> {
-  const provider = await resolveProvider(feature)
-
-  if (!provider.apiKey || provider.apiKey === 'your-groq-api-key-here') {
-    return 'AI provider not configured. Please set up a provider in AI Manager.'
-  }
-
-  try {
-    return await callProvider(provider, messages, options)
-  } catch (error: any) {
-    console.error(`AI error [${feature}]:`, error?.message || error)
-    throw error
-  }
+  return executeWithFailover(feature, messages, options)
 }
 
 /**
@@ -191,18 +230,7 @@ export async function visionCompletion(
   messages: ChatMessage[],
   options?: { temperature?: number; max_tokens?: number },
 ): Promise<string> {
-  const provider = await resolveProvider(feature)
-
-  if (!provider.apiKey || provider.apiKey === 'your-groq-api-key-here') {
-    return 'AI provider not configured. Please set up a provider in AI Manager.'
-  }
-
-  try {
-    return await callProvider(provider, messages, { temperature: 0.1, max_tokens: 16384, ...options })
-  } catch (error: any) {
-    console.error(`AI vision error [${feature}]:`, error?.message || error)
-    throw error
-  }
+  return executeWithFailover(feature, messages, { temperature: 0.1, max_tokens: 16384, ...options })
 }
 
 /**

@@ -117,10 +117,36 @@ export async function fetchYouTubeSolutions(contestTitle: string, platform: stri
     if (!response.ok) return [];
 
     const data = await response.json() as any;
-    return (data.items || []).map((item: any) => ({
+    const items = data.items || [];
+    if (items.length === 0) return [];
+
+    // Fetch durations for all found videos in one API call
+    const ids = items.map((i: any) => i.id?.videoId).filter(Boolean).join(',');
+    let durations: Record<string, number> = {};
+    try {
+      const vResp = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${ids}&key=${apiKey}`
+      );
+      if (vResp.ok) {
+        const vData = await vResp.json() as any;
+        const iso = (s?: string): number | null => {
+          if (!s) return null;
+          const m = s.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+          if (!m) return null;
+          return (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0));
+        };
+        for (const v of vData.items || []) {
+          const d = iso(v.contentDetails?.duration);
+          if (d) durations[v.id] = d;
+        }
+      }
+    } catch { /* durations optional */ }
+
+    return items.map((item: any) => ({
       title: item.snippet.title,
       url: `https://youtube.com/watch?v=${item.id.videoId}`,
       thumbnail: item.snippet.thumbnails?.default?.url || '',
+      duration: durations[item.id.videoId] ?? null,
     }));
   } catch (error) {
     console.error('YouTube fetch error:', error);

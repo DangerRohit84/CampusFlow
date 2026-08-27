@@ -1,0 +1,69 @@
+# Render Blueprint for CampusFlow
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  # Main API web service (embedded crons disabled; jobs run via Render Cron Jobs below)
+  - type: web
+    name: campusflow-api
+    runtime: node
+    # --include=dev: NODE_ENV=production (below) makes npm skip devDependencies,
+    # but the build needs tsc and the pinned prisma CLI from devDependencies.
+    buildCommand: npm install --include=dev && npx prisma generate --schema=packages/backend/prisma/schema.prisma && npm run build --workspace packages/backend
+    # Apply pending migrations before the new release goes live.
+    preDeployCommand: npx prisma migrate deploy --schema=packages/backend/prisma/schema.prisma
+    startCommand: node packages/backend/dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: DISABLE_EMBEDDED_CRON
+        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+  # Contest fetch - every 6 hours
+  - type: cron
+    name: campusflow-cron-contests
+    schedule: "0 */6 * * *"
+    command: curl -fsS -X POST https://campusflow-api.onrender.com/internal/cron/contests -H "x-cron-secret: $CRON_SECRET"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+
+  # Coding profile sync - hourly
+  - type: cron
+    name: campusflow-cron-profile-sync
+    schedule: "0 * * * *"
+    command: curl -fsS -X POST https://campusflow-api.onrender.com/internal/cron/profile-sync -H "x-cron-secret: $CRON_SECRET"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+
+  # Opportunity fetch + AI enrichment - every 12 hours
+  - type: cron
+    name: campusflow-cron-opportunities
+    schedule: "0 */12 * * *"
+    command: curl -fsS -X POST https://campusflow-api.onrender.com/internal/cron/opportunities -H "x-cron-secret: $CRON_SECRET"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+
+  # Cleanup old rejected items - Sundays at 3 AM UTC
+  - type: cron
+    name: campusflow-cron-cleanup
+    schedule: "0 3 * * 0"
+    command: curl -fsS -X POST https://campusflow-api.onrender.com/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"
+    envVars:
+      - key: CRON_SECRET
+        sync: false

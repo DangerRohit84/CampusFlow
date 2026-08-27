@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { codingProfileAPI } from '../lib/api'
 import { ArrowLeft, Trophy, Download, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import Pagination from '../components/shared/Pagination'
 
 function exportToCSV(data: any[], filename: string, headers: string[]) {
   const csvRows = [headers.join(',')]
@@ -22,6 +23,7 @@ export default function ContestLeaderboardPage() {
   const navigate = useNavigate()
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     codingProfileAPI.getLeaderboard()
@@ -57,6 +59,11 @@ export default function ContestLeaderboardPage() {
     )
   }
 
+  // ===== Pagination =====
+  const PAGE_SIZE = 20
+  const totalPages = Math.max(1, Math.ceil(leaderboard.length / PAGE_SIZE))
+  const pagedLeaderboard = leaderboard.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -78,7 +85,7 @@ export default function ContestLeaderboardPage() {
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-warning-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
         >
           <Download size={16} /> Export CSV
         </button>
@@ -105,16 +112,18 @@ export default function ContestLeaderboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-50">
-                {leaderboard.map((entry, idx) => (
+                {pagedLeaderboard.map((entry, idx) => {
+                  const rank = (page - 1) * PAGE_SIZE + idx + 1
+                  return (
                   <tr key={entry.userId} className="hover:bg-surface-50 transition-colors">
                     <td className="px-6 py-4">
                       <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        idx === 0 ? 'bg-yellow-100 text-yellow-700' :
-                        idx === 1 ? 'bg-gray-100 text-gray-700' :
-                        idx === 2 ? 'bg-orange-100 text-orange-700' :
+                        rank === 1 ? 'bg-yellow-100 text-yellow-700' :
+                        rank === 2 ? 'bg-gray-100 text-gray-700' :
+                        rank === 3 ? 'bg-warning-100 text-warning-700' :
                         'bg-surface-100 text-surface-600'
                       }`}>
-                        {idx + 1}
+                        {rank}
                       </span>
                     </td>
                     <td className="px-6 py-4 font-medium text-surface-900">{entry.name}</td>
@@ -122,10 +131,12 @@ export default function ContestLeaderboardPage() {
                     <td className="px-6 py-4 text-center font-semibold text-surface-900">{entry.totalContests}</td>
                     <td className="px-6 py-4 text-center font-bold text-primary-600">{entry.bestRating}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       )}
     </div>

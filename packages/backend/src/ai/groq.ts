@@ -1,7 +1,4 @@
-import Groq from 'groq-sdk'
-import { config } from '../config'
-
-const groq = new Groq({ apiKey: config.groqApiKey })
+import { aiChat } from './client'
 
 const SYSTEM_PROMPT = `You are CampusFlow, an AI-powered campus assistant for university students. You help with:
 - Class schedules and timetables
@@ -19,45 +16,28 @@ Always respond in a helpful, encouraging tone.`
 
 export async function chatWithAI(userMessage: string, context?: string): Promise<string> {
   try {
-    if (!config.groqApiKey || config.groqApiKey === 'your-groq-api-key-here') {
-      return getSmartResponse(userMessage)
-    }
+    const system = context
+      ? `${SYSTEM_PROMPT}\n\nStudent context: ${context}`
+      : SYSTEM_PROMPT
 
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...(context ? [{ role: 'system' as const, content: `Student context: ${context}` }] : []),
-        { role: 'user', content: userMessage },
-      ],
-      model: 'llama-3.3-70b-versatile',
+    return await aiChat('chat', system, userMessage, {
       temperature: 0.7,
       max_tokens: 1024,
     })
-
-    return completion.choices[0]?.message?.content || 'I could not generate a response. Please try again.'
   } catch (error) {
-    console.error('Groq API error:', error)
+    console.error('AI chat error:', error)
     return getSmartResponse(userMessage)
   }
 }
 
 export async function summarizeContent(content: string): Promise<string> {
   try {
-    if (!config.groqApiKey || config.groqApiKey === 'your-groq-api-key-here') {
-      return 'Key points:\n• ' + content.split('.').slice(0, 3).join('\n• ')
-    }
-
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'Summarize the following campus content in 3-5 concise bullet points. Focus on key dates, action items, and deadlines.' },
-        { role: 'user', content },
-      ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
-      max_tokens: 512,
-    })
-
-    return completion.choices[0]?.message?.content || 'Could not generate summary.'
+    return await aiChat(
+      'enrichment',
+      'Summarize the following campus content in 3-5 concise bullet points. Focus on key dates, action items, and deadlines.',
+      content,
+      { temperature: 0.3, max_tokens: 512 },
+    )
   } catch (error) {
     return 'Key points:\n• ' + content.split('.').slice(0, 3).join('\n• ')
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+﻿import { useState, useEffect, useMemo } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, internshipAPI } from '../lib/api'
 import { motion } from 'framer-motion'
@@ -83,7 +83,7 @@ export default function TeacherAssignedPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30">
+      <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
         </div>
@@ -92,7 +92,7 @@ export default function TeacherAssignedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30">
+    <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
       <PageHeader
         title="Assigned to Me"
         subtitle="Review and approve/reject opportunities assigned to you"
@@ -146,8 +146,8 @@ export default function TeacherAssignedPage() {
             className="bg-white rounded-2xl border border-surface-100 p-5"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center">
-                <Trophy size={20} className="text-orange-600" />
+              <div className="w-10 h-10 rounded-xl bg-warning-100 flex items-center justify-center">
+                <Trophy size={20} className="text-warning-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-surface-900">{hackathons.length}</p>
@@ -163,8 +163,8 @@ export default function TeacherAssignedPage() {
             className="bg-white rounded-2xl border border-surface-100 p-5"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                <Briefcase size={20} className="text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
+                <Briefcase size={20} className="text-primary-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-surface-900">{internships.length}</p>
@@ -204,8 +204,8 @@ export default function TeacherAssignedPage() {
                           className={clsx(
                             'px-2.5 py-1 rounded-full text-xs font-semibold',
                             item._type === 'HACKATHON'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-blue-100 text-blue-700'
+                              ? 'bg-warning-100 text-warning-700'
+                              : 'bg-primary-100 text-primary-700'
                           )}
                         >
                           {item._type === 'HACKATHON' ? (
@@ -245,7 +245,7 @@ export default function TeacherAssignedPage() {
                           {themes.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {themes.map((t: string) => (
-                                <span key={t} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-md text-[10px] font-semibold">
+                                <span key={t} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-md text-[10px] font-semibold">
                                   {t}
                                 </span>
                               ))}
@@ -253,7 +253,7 @@ export default function TeacherAssignedPage() {
                           )}
                           {item.organizer && (
                             <span className="flex items-center gap-1">
-                              <Building2 size={11} className="text-accent-500" />
+                              <Building2 size={11} className="text-primary-500" />
                               {item.organizer}
                             </span>
                           )}
@@ -268,7 +268,7 @@ export default function TeacherAssignedPage() {
                         <div className="flex flex-wrap items-center gap-3 text-xs text-surface-500 mb-2">
                           {item.company && (
                             <span className="flex items-center gap-1">
-                              <Building2 size={11} className="text-accent-500" />
+                              <Building2 size={11} className="text-primary-500" />
                               {item.company}
                             </span>
                           )}
@@ -279,7 +279,7 @@ export default function TeacherAssignedPage() {
                             </span>
                           )}
                           {item.stipend && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-medium">
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-primary-50 text-primary-700 rounded-md font-medium">
                               <IndianRupee size={10} />
                               {item.stipend}
                             </span>
@@ -297,22 +297,22 @@ export default function TeacherAssignedPage() {
                       {(depts.length > 0 || years.length > 0) && (
                         <div className="flex flex-wrap items-center gap-1.5 mb-2">
                           {depts.length > 0 && depts[0] !== 'ALL' && depts.map((d: string) => (
-                            <span key={d} className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md text-[10px] font-semibold">
+                            <span key={d} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-md text-[10px] font-semibold">
                               {d}
                             </span>
                           ))}
                           {depts.length > 0 && depts[0] === 'ALL' && (
-                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md text-[10px] font-semibold">
+                            <span className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-md text-[10px] font-semibold">
                               All Depts
                             </span>
                           )}
                           {years.length > 0 && years.length < 4 && years.map((y: number) => (
-                            <span key={y} className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-md text-[10px] font-semibold">
+                            <span key={y} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-md text-[10px] font-semibold">
                               Year {y}
                             </span>
                           ))}
                           {years.length === 4 && (
-                            <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-md text-[10px] font-semibold">
+                            <span className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-md text-[10px] font-semibold">
                               All Years
                             </span>
                           )}
@@ -348,14 +348,14 @@ export default function TeacherAssignedPage() {
                       )}
                       <button
                         onClick={() => handleApprove(item.id, item._type)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-green-500 text-white rounded-xl text-sm font-medium hover:bg-green-600 transition-all"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-primary-500 text-white rounded-xl text-sm font-medium hover:bg-primary-600 transition-all"
                       >
                         <CheckCircle2 size={14} />
                         Approve
                       </button>
                       <button
                         onClick={() => handleReject(item.id, item._type)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-all"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-danger-500 text-white rounded-xl text-sm font-medium hover:bg-danger-600 transition-all"
                       >
                         <XCircle size={14} />
                         Reject

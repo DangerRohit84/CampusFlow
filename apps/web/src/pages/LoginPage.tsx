@@ -29,11 +29,11 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-glow">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shadow-glow">
               <GraduationCap className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold gradient-text">CampusFlow</h1>
+              <h1 className="text-2xl font-bold gradient-text">CampusFlowAI</h1>
               <p className="text-xs text-surface-400 font-medium">AI Campus Operating System</p>
             </div>
           </div>
@@ -67,10 +67,10 @@ export default function LoginPage() {
         </motion.div>
       </div>
 
-      <div className="hidden lg:flex flex-1 relative overflow-hidden bg-gradient-to-br from-primary-600 via-accent-600 to-purple-600">
+      <div className="hidden lg:flex flex-1 relative overflow-hidden bg-gradient-to-br from-primary-600 via-primary-500 to-primary-400">
         <div className="absolute inset-0 dot-pattern opacity-10" />
         <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-float" />
-        <div className="absolute bottom-20 right-20 w-96 h-96 bg-accent-400/20 rounded-full blur-3xl animate-float-delayed" />
+        <div className="absolute bottom-20 right-20 w-96 h-96 bg-primary-400/20 rounded-full blur-3xl animate-float-delayed" />
         <div className="relative z-10 flex flex-col justify-center p-16 text-white">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur rounded-full text-sm font-medium mb-8 border border-white/20">

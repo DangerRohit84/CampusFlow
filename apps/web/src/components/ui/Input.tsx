@@ -38,7 +38,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                 'px-4 py-3': !icon,
                 'pl-11 pr-4 py-3': icon,
                 'pr-11': isPassword,
-                'border-red-300 focus:ring-red-500/20 focus:border-red-400': error,
+                'border-danger-300 focus:ring-danger-500/20 focus:border-danger-400': error,
               },
               className
             )}
@@ -54,7 +54,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             </button>
           )}
         </div>
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-sm text-danger-500">{error}</p>}
       </div>
     )
   }

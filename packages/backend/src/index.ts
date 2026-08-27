@@ -1,14 +1,12 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import path from 'path'
 import { createServer } from 'http'
 import cron from 'node-cron'
 import rateLimit from 'express-rate-limit'
 import { config } from './config'
 import { initSocket } from './services/socket'
-import { fetchAndStoreContests } from './services/contestFetcher'
-
-import { syncAllUsers } from './services/syncEngine'
 import { errorHandler } from './middleware/errorHandler'
 import authRoutes from './routes/auth'
 import scheduleRoutes from './routes/schedules'
@@ -25,14 +23,18 @@ import contestRoutes from './routes/contests'
 import formRoutes from './routes/forms'
 import adminRoutes from './routes/admin'
 import departmentRoutes from './routes/departments'
-import roomsRouter from './routes/rooms'
+import roomsRouter, { blockedUploadExtensions } from './routes/rooms'
 import internshipsRouter from './routes/internships'
 import codingProfileRoutes from './routes/codingProfile'
 import fetchRoutes from './routes/fetch'
 import aiManagerRoutes from './routes/ai-manager'
 import attendanceRoutes from './routes/attendance'
+import gradesRoutes from './routes/grades'
+import announcementsRoutes from './routes/announcements'
+import internalCronRoutes, { runContestsJob, runProfileSyncJob, runOpportunitiesJob, runCleanupJob } from './routes/internalCron'
 
 import prisma from './config/db'
+import { storageMode } from './config/storage'
 
 const app = express()
 const httpServer = createServer(app)
@@ -45,6 +47,19 @@ app.use(helmet({ crossOriginResourcePolicy: false }))
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map((o: string) => o.trim())
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
+
+// Serve uploaded files from local disk in local mode (production uses Cloudinary URLs).
+// Resolves to packages/backend/uploads, matching storage.ts's LOCAL_UPLOAD_ROOT.
+if (storageMode !== 'cloudinary') {
+  app.use('/uploads', express.static(path.resolve(__dirname, '../uploads'), {
+    // Force download for active-content extensions so a bad row cannot execute inline
+    setHeaders: (res, filePath) => {
+      if (blockedUploadExtensions.includes(path.extname(filePath).toLowerCase())) {
+        res.setHeader('Content-Disposition', 'attachment')
+      }
+    },
+  }))
+}
 
 // Rate limiting
 const generalLimiter = rateLimit({
@@ -63,6 +78,15 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please try again later' },
 })
 
+// Strict limiter for internal cron endpoints - each accepted POST runs a full
+// job synchronously (external fetches, bulk DB writes), so keep the budget tiny.
+const cronLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
 // Health check
 app.get('/api/health', async (_req, res) => {
   let dbStatus = 'ok'
@@ -77,7 +101,7 @@ app.get('/api/health', async (_req, res) => {
     service: 'CampusFlow API',
     version: '1.0.0',
     db: dbStatus,
-    features: ['auth', 'schedules', 'assignments', 'notifications', 'chat', 'ai', 'search', 'websocket', 'hackathons', 'rooms', 'internships'],
+    features: ['auth', 'schedules', 'assignments', 'notifications', 'chat', 'ai', 'search', 'websocket', 'hackathons', 'rooms', 'internships', 'announcements'],
   })
 })
 
@@ -154,6 +178,9 @@ app.get('/api/colleges/:id/departments', async (req, res) => {
   }
 })
 
+// Internal cron endpoints (triggered by Render Cron Jobs)
+app.use('/internal/cron', cronLimiter, internalCronRoutes)
+
 // API Routes
 app.use('/api/auth/login', authLimiter)
 app.use('/api/auth/register', authLimiter)
@@ -178,6 +205,8 @@ app.use('/api/coding-profile', generalLimiter, codingProfileRoutes)
 app.use('/api/fetch', fetchRoutes)
 app.use('/api/ai-manager', aiManagerRoutes)
 app.use('/api/attendance', generalLimiter, attendanceRoutes)
+app.use('/api/grades', generalLimiter, gradesRoutes)
+app.use('/api/announcements', generalLimiter, announcementsRoutes)
 
 
 // 404 handler
@@ -205,164 +234,48 @@ httpServer.listen(PORT, () => {
   `)
 })
 
-// Schedule contest fetch every 6 hours
-cron.schedule('0 */6 * * *', async () => {
-  console.log('[Cron] Running contest fetch...')
-  try {
-    await fetchAndStoreContests()
-  } catch (error) {
-    console.error('[Cron] Contest fetch failed:', error)
-  }
-})
-
-
-
-// Cron: sync contest participation every 6 hours
-setInterval(async () => {
-  try {
-    console.log('[CRON] Starting contest participation sync...')
-    const result = await syncAllUsers()
-    console.log(`[CRON] Synced ${result.totalSynced} records from ${result.totalUsers} users`)
-  } catch (err) {
-    console.error('[CRON] Sync failed:', err)
-  }
-}, 6 * 60 * 60 * 1000) // every 6 hours
-
-// Initial fetch on server start
-fetchAndStoreContests().catch(console.error)
-
-// Cron: fetch opportunities (hackathons + internships) every 12 hours
-cron.schedule('0 */12 * * *', async () => {
-  console.log('[Cron] Fetching opportunities from external sources...')
-  try {
-    const { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging } = await import('./services/opportunityAgent')
-
-    // Find an admin to own the staging records
-    const admin = await prisma.user.findFirst({
-      where: { role: { in: ['SUPER_ADMIN', 'COLLEGE_ADMIN'] } },
-    })
-    if (!admin) {
-      console.log('[Cron] No admin user found, skipping opportunity fetch')
-      return
+// Embedded background jobs (local dev fallback).
+// In production these run via Render Cron Jobs hitting /internal/cron/* endpoints,
+// so set DISABLE_EMBEDDED_CRON=true on the web service.
+if (process.env.DISABLE_EMBEDDED_CRON !== 'true') {
+  // Schedule contest fetch every 6 hours
+  cron.schedule('0 */6 * * *', async () => {
+    try {
+      await runContestsJob()
+    } catch (error) {
+      console.error('[Cron] Contest fetch failed:', error)
     }
+  })
 
-    const allOpps = await fetchFromAllSources()
-    let hackathonFetched = 0, hackathonSkipped = 0
-    let internshipFetched = 0, internshipSkipped = 0
-    const hackathonIdsToEnrich: string[] = []
-    const internshipIdsToEnrich: string[] = []
-
-    // Process hackathons
-    const hackathons = allOpps.filter(o => o.type === 'HACKATHON')
-    for (const opp of hackathons) {
-      if (!opp.url || !opp.title) { hackathonSkipped++; continue }
-      try {
-        const existing = await prisma.hackathonStaging.findFirst({
-          where: { title: opp.title, source: opp.source },
-        })
-        if (existing) { hackathonSkipped++; continue }
-
-        const created = await prisma.hackathonStaging.create({
-          data: {
-            title: opp.title,
-            description: opp.description || null,
-            url: opp.url,
-            organizer: opp.organizer || null,
-            deadline: opp.deadline ? new Date(opp.deadline) : null,
-            startDate: opp.startDate ? new Date(opp.startDate) : null,
-            duration: opp.duration || null,
-            location: opp.location || null,
-            mode: opp.mode || null,
-            prizePool: opp.prizePool || null,
-            themes: JSON.stringify(opp.themes || []),
-            website: opp.website || null,
-            discord: opp.discord || null,
-            participantsCount: opp.participantsCount || 0,
-            inviteOnly: opp.inviteOnly || false,
-            status: 'DRAFT',
-            source: opp.source,
-            creatorId: admin.id,
-            collegeId: admin.collegeId!,
-          },
-        })
-        hackathonFetched++
-        hackathonIdsToEnrich.push(created.id)
-      } catch { hackathonSkipped++ }
+  // Cron: sync contest participation every hour
+  setInterval(async () => {
+    try {
+      await runProfileSyncJob()
+    } catch (err) {
+      console.error('[CRON] Sync failed:', err)
     }
+  }, 60 * 60 * 1000) // every hour (per-user 1h throttle still applies inside syncAllUsers)
 
-    // Process internships
-    const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
-    for (const opp of internships) {
-      if (!opp.url || !opp.title) { internshipSkipped++; continue }
-      try {
-        const existing = await prisma.internshipStaging.findFirst({
-          where: { title: opp.title, source: opp.source },
-        })
-        if (existing) { internshipSkipped++; continue }
+  // Initial fetch on server start
+  runContestsJob().catch(console.error)
 
-        const created = await prisma.internshipStaging.create({
-          data: {
-            title: opp.title,
-            description: opp.description || 'No description available',
-            company: opp.company || opp.organizer || 'Unknown',
-            role: opp.role || opp.title,
-            url: opp.url,
-            stipend: opp.stipend || null,
-            duration: opp.duration || null,
-            mode: opp.mode || 'REMOTE',
-            deadline: opp.deadline || null,
-            startDate: opp.startDate || null,
-            status: 'ACTIVE',
-            source: opp.source,
-            creatorId: admin.id,
-            collegeId: admin.collegeId!,
-          },
-        })
-        internshipFetched++
-        internshipIdsToEnrich.push(created.id)
-      } catch { internshipSkipped++ }
+  // Cron: fetch opportunities (hackathons + internships) every 12 hours
+  cron.schedule('0 */12 * * *', async () => {
+    try {
+      await runOpportunitiesJob()
+    } catch (err) {
+      console.error('[Cron] Opportunity fetch failed:', err)
     }
+  })
 
-    console.log(`[Cron] Opportunities: ${hackathonFetched} hackathons + ${internshipFetched} internships fetched, ${hackathonSkipped + internshipSkipped} skipped`)
-
-    // Enrich sequentially with delay between each to avoid rate limits
-    const ENRICH_DELAY_MS = 12000
-
-    async function enrichSequentially(ids: string[], enrichFn: (id: string) => Promise<void>, label: string) {
-      for (let i = 0; i < ids.length; i++) {
-        console.log(`[Cron] Enriching ${label} ${i + 1}/${ids.length}`)
-        await enrichFn(ids[i]).catch(() => {})
-        if (i < ids.length - 1) {
-          await new Promise(r => setTimeout(r, ENRICH_DELAY_MS))
-        }
-      }
+  // Cron: cleanup old rejected items every Sunday at 3 AM
+  cron.schedule('0 3 * * 0', async () => {
+    try {
+      await runCleanupJob()
+    } catch (err) {
+      console.error('[Cron] Cleanup failed:', err)
     }
-
-    await enrichSequentially(hackathonIdsToEnrich, enrichHackathonStaging, 'hackathons')
-    await enrichSequentially(internshipIdsToEnrich, enrichInternshipStaging, 'internships')
-  } catch (err) {
-    console.error('[Cron] Opportunity fetch failed:', err)
-  }
-})
-
-// Cron: cleanup old rejected items every Sunday at 3 AM
-cron.schedule('0 3 * * 0', async () => {
-  console.log('[Cron] Cleaning up old rejected items...')
-  try {
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - 30)
-    const cutoffStr = cutoff.toISOString().slice(0, 10)
-
-    const hackDeleted = await prisma.hackathonStaging.deleteMany({
-      where: { status: 'REJECTED', updatedAt: { lt: cutoff } },
-    })
-    const intDeleted = await prisma.internshipStaging.deleteMany({
-      where: { status: 'REJECTED', updatedAt: { lt: cutoff } },
-    })
-    console.log(`[Cron] Cleanup: deleted ${hackDeleted.count} hackathons, ${intDeleted.count} internships older than 30 days`)
-  } catch (err) {
-    console.error('[Cron] Cleanup failed:', err)
-  }
-})
+  })
+}
 
 export { app, httpServer }

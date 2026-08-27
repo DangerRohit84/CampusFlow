@@ -41,16 +41,22 @@ export function initSocket(httpServer: HttpServer): Server {
 
     socket.on('auth:join', async () => {
       // Use verified userId from JWT — never trust client input
-      const user = await prisma.user.findUnique({ where: { id: userId } })
-      if (!user) {
-        socket.emit('error', { message: 'Invalid user' })
-        return
+      try {
+        const user = await prisma.user.findUnique({ where: { id: userId } })
+        if (!user) {
+          socket.emit('error', { message: 'Invalid user' })
+          return
+        }
+        socket.join(`user:${userId}`)
+        const sockets = userSockets.get(userId) || []
+        sockets.push(socket.id)
+        userSockets.set(userId, sockets)
+        console.log(`User ${userId} joined (${sockets.length} connections)`)
+      } catch (err: any) {
+        // A DB blip (e.g. Neon compute waking up) must never take down the
+        // server — skip joining gracefully; client can re-emit auth:join.
+        console.error('[Socket] auth:join failed:', err?.message || err)
       }
-      socket.join(`user:${userId}`)
-      const sockets = userSockets.get(userId) || []
-      sockets.push(socket.id)
-      userSockets.set(userId, sockets)
-      console.log(`User ${userId} joined (${sockets.length} connections)`)
     })
 
     socket.on('disconnect', () => {
@@ -95,4 +101,51 @@ export function emitScheduleUpdate(userId: string, schedule: any) {
 
 export function emitAssignmentUpdate(userId: string, assignment: any) {
   emitToUser(userId, 'assignment:update', assignment)
+}
+
+// Fan out a room chat message to every recipient's personal socket room
+export function emitRoomMessage(recipientIds: string[], message: any) {
+  const io = getIO()
+  for (const userId of recipientIds) {
+    io.to(`user:${userId}`).emit('room:message:new', message)
+  }
+}
+
+// Fan out a "deleted for everyone" tombstone notice to every recipient's personal socket room
+export function emitRoomMessageDeleted(recipientIds: string[], payload: { messageId: string; roomId: string }) {
+  const io = getIO()
+  for (const userId of recipientIds) {
+    io.to(`user:${userId}`).emit('room:message:deleted', payload)
+  }
+}
+
+export function emitRoomMessageEdited(
+  recipientIds: string[],
+  payload: { messageId: string; roomId: string; content: string; editedAt: Date },
+) {
+  const io = getIO()
+  for (const userId of recipientIds) {
+    io.to(`user:${userId}`).emit('room:message:edited', payload)
+  }
+}
+
+// Fan out a reaction change to every recipient's personal socket room
+export function emitRoomMessageReaction(
+  recipientIds: string[],
+  payload: {
+    messageId: string
+    roomId: string
+    userId: string
+    emoji: string
+    action: 'added' | 'removed'
+    reactions: Record<string, number>
+    myReactions: string[]
+    myReactionsByUser?: Record<string, string[]>
+  },
+) {
+  const io = getIO()
+  for (const userId of recipientIds) {
+    // Each recipient gets their own myReactions computed by the caller
+    io.to(`user:${userId}`).emit('room:message:reaction', payload)
+  }
 }

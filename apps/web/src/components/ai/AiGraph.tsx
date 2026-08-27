@@ -16,7 +16,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   'OpenCode Serve': '#A855F7',
 }
 
-const FEATURES = ['Chat', 'Fetch', 'Enrichment', 'Tasks', 'Timetable', 'Attendance']
+const FEATURES = ['Chat', 'Fetch', 'Enrichment', 'Tasks', 'Timetable', 'Attendance', 'Grades']
 
 export default function AiGraph({ providers, routing }: Props) {
   const allProviders = providers
@@ -27,7 +27,7 @@ export default function AiGraph({ providers, routing }: Props) {
   const lines = routing.map(r => {
     const provider = providers.find(p => p.id === r.providerId)
     if (!provider) return null
-    const featureIdx = ['chat', 'fetch', 'enrichment', 'tasks', 'timetable'].indexOf(r.feature)
+    const featureIdx = ['chat', 'fetch', 'enrichment', 'tasks', 'timetable', 'attendance', 'grades'].indexOf(r.feature)
     if (featureIdx < 0) return null
     return {
       provider,
@@ -38,9 +38,9 @@ export default function AiGraph({ providers, routing }: Props) {
   }).filter(Boolean) as { provider: AiProvider; feature: string; featureIdx: number; primary: boolean }[]
 
   return (
-    <div className="bg-surface-50 dark:bg-[#111920] rounded-xl border border-surface-200 dark:border-[#202C35] p-4 overflow-x-auto">
+    <div className="bg-surface-50 dark:bg-night-800 rounded-xl border border-surface-200 dark:border-night-600 p-4 overflow-x-auto">
       {allProviders.length === 0 ? (
-        <p className="text-center text-surface-500 dark:text-[#71808C] py-8">No providers configured</p>
+        <p className="text-center text-surface-500 dark:text-night-300 py-8">No providers configured</p>
       ) : (
         <svg viewBox={`0 0 600 ${totalHeight}`} className="w-full min-w-[500px]">
           {/* Provider nodes */}
@@ -98,7 +98,7 @@ export default function AiGraph({ providers, routing }: Props) {
           {/* Empty state */}
           {lines.length === 0 && allProviders.length > 0 && (
             <text x={300} y={totalHeight - 30} fill="#71808C" fontSize={11} textAnchor="middle">
-              No routes assigned yet — configure routing in the table below
+              No routes assigned yet  —  configure routing in the table below
             </text>
           )}
 

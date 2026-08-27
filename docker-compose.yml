@@ -1,4 +1,21 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=campusflow
+      - POSTGRES_PASSWORD=campusflow
+      - POSTGRES_DB=campusflow
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campusflow -d campusflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -7,13 +24,14 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-      - DATABASE_URL=file:./data/campusflow.db
+      - DATABASE_URL=postgresql://campusflow:campusflow@db:5432/campusflow
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - FRONTEND_URL=http://localhost:3000
-    volumes:
-      - backend-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
@@ -34,4 +52,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  backend-data:
+  postgres-data:

@@ -3,70 +3,66 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  LATE
-  EXCUSED
-}
-
-enum AttendanceSource {
-  UPLOAD
-  MANUAL
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id             String    @id @default(uuid())
-  email          String    @unique
+  id             String   @id @default(uuid())
+  email          String   @unique
   name           String
   passwordHash   String
-  role           String    @default("STUDENT")
+  role           String   @default("STUDENT")
   collegeId      String?
   collegeName    String?
-  studentId      String?   @unique
-  empNumber      String?   @unique
+  studentId      String?  @unique
+  empNumber      String?  @unique
   departmentId   String?
   departmentName String?
   incomingYear   Int?
   outgoingYear   Int?
   avatar         String?
-  preferences    String?   @default("{}")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  preferences    String?  @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  schedules      Schedule[]
-  notifications  Notification[]
-  assignments    Assignment[]
-  grades         Grade[]
-  attendance     Attendance[]
-  chatSessions   ChatSession[]
-  integrations   UserIntegration[]
-  tasks          Task[]
-  college        College?    @relation(fields: [collegeId], references: [id])
-  department     Department? @relation(fields: [departmentId], references: [id])
-  hackathonsCreated Hackathon[] @relation("HackathonCreator")
-  registrations     HackathonRegistration[]
-  formsCreated      Form[]
-  formResponses     FormResponse[]
-  teachingCourses   Course[]
-  enrollments       Enrollment[]
-  createdRooms      Room[]
-  joinedRooms       RoomMember[]
-  uploadedResources Resource[]
-  roomNotifications RoomNotification[]
-  internships         Internship[]
+  schedules     Schedule[]
+  notifications Notification[]
+  assignments   Assignment[]
+  grades        Grade[]
+
+  chatSessions            ChatSession[]
+  integrations            UserIntegration[]
+  tasks                   Task[]
+  college                 College?                 @relation(fields: [collegeId], references: [id])
+  department              Department?              @relation(fields: [departmentId], references: [id])
+  hackathonsCreated       Hackathon[]              @relation("HackathonCreator")
+  registrations           HackathonRegistration[]
+  formsCreated            Form[]
+  formResponses           FormResponse[]
+  teachingCourses         Course[]
+  enrollments             Enrollment[]
+  createdRooms            Room[]
+  joinedRooms             RoomMember[]
+  uploadedResources       Resource[]
+  roomNotifications       RoomNotification[]
+  roomMessages            RoomMessage[]
+  roomChatPermissions     RoomChatAllowedMember[]
+  messageHides            MessageHide[]
+  messageReactions        MessageReaction[]
+  internships             Internship[]
   internshipRegistrations InternshipRegistration[]
-  codingContests      CodingContest[]
-  codingProfile         CodingProfile?
-  contestParticipations ContestParticipation[]
-  hackathonStagings  HackathonStaging[] @relation("HackathonStagingCreator")
-  internshipStagings InternshipStaging[] @relation("InternshipStagingCreator")
-  attendanceRecords    AttendanceRecord[]
-  attendancePredictions AttendancePrediction[]
+  codingContests          CodingContest[]
+  codingProfile           CodingProfile?
+  contestParticipations   ContestParticipation[]
+  hackathonStagings       HackathonStaging[]       @relation("HackathonStagingCreator")
+  internshipStagings      InternshipStaging[]      @relation("InternshipStagingCreator")
+  attendanceData          AttendanceData?
+  gradeData               GradeData?
+   announcementsCreated    Announcement[]
+  announcementReads     AnnouncementRead[]
+  roomReads           RoomRead[]
 }
 
 model CodingProfile {
@@ -77,6 +73,7 @@ model CodingProfile {
   codechefHandle   String?
   hackerrankHandle String?
   gfgHandle        String?
+  platformStats    String?
   lastSyncedAt     DateTime?
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -102,21 +99,22 @@ model ContestParticipation {
 }
 
 model Schedule {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  course      String?
-  location    String?
-  teacher     String?
-  dayOfWeek   Int
-  startTime   String
-  endTime     String
-  type        String   @default("CLASS")
-  color       String?
-  recurring   Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  course    String?
+  location  String?
+  teacher   String?
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  type      String   @default("CLASS")
+  color     String?
+  recurring Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -138,7 +136,7 @@ model Notification {
 model Assignment {
   id          String   @id @default(uuid())
   userId      String
-  courseId     String
+  courseId    String
   title       String
   description String?
   dueDate     DateTime
@@ -156,7 +154,7 @@ model Assignment {
 model Grade {
   id         String   @id @default(uuid())
   userId     String
-  courseId    String?
+  courseId   String?
   courseName String
   semester   Int
   credits    Int
@@ -168,41 +166,37 @@ model Grade {
   course Course? @relation(fields: [courseId], references: [id])
 }
 
-model Attendance {
-  id         String   @id @default(uuid())
-  userId     String
-  courseId    String?
-  courseName String
-  date       DateTime
-  status     String
-  createdAt  DateTime @default(now())
+model GradeData {
+  id        String @id @default(uuid())
+  studentId String @unique
+  subjects  String @default("[]")
+  scale     String @default("10")
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course? @relation(fields: [courseId], references: [id])
+  user User @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model Course {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  credits   Int      @default(3)
-  teacherId String
-  collegeId String?
-  semester  String?
-  teacher   User     @relation(fields: [teacherId], references: [id])
-  college   College? @relation(fields: [collegeId], references: [id])
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  credits     Int          @default(3)
+  teacherId   String
+  collegeId   String?
+  semester    String?
+  teacher     User         @relation(fields: [teacherId], references: [id])
+  college     College?     @relation(fields: [collegeId], references: [id])
   enrollments Enrollment[]
-  grades     Grade[]
-  attendances Attendance[]
-  createdAt  DateTime @default(now())
+  grades      Grade[]
+
+  createdAt DateTime @default(now())
 }
 
 model Enrollment {
-  id        String   @id @default(uuid())
-  studentId String
+  id         String   @id @default(uuid())
+  studentId  String
   courseId   String
-  student   User     @relation(fields: [studentId], references: [id])
-  course    Course   @relation(fields: [courseId], references: [id])
+  student    User     @relation(fields: [studentId], references: [id])
+  course     Course   @relation(fields: [courseId], references: [id])
   enrolledAt DateTime @default(now())
 
   @@unique([studentId, courseId])
@@ -223,7 +217,7 @@ model Task {
   completed   Boolean  @default(false)
   color       String?
   isClass     Boolean  @default(false)
-  courseId     String?
+  courseId    String?
   location    String?
   recurrence  String?
   createdAt   DateTime @default(now())
@@ -271,27 +265,29 @@ model UserIntegration {
 }
 
 model College {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  code        String   @unique
-  address     String?
-  phone       String?
-  website     String?
-  logo        String?
-  adminEmail  String?
-  status      String   @default("PENDING")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  name       String   @unique
+  code       String   @unique
+  address    String?
+  phone      String?
+  website    String?
+  logo       String?
+  adminEmail String?
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  users       User[]
-  hackathons  Hackathon[]
-  forms       Form[]
-  courses     Course[]
-  departments Department[]
-  internships         Internship[]
-  codingContests      CodingContest[]
-  hackathonStagings   HackathonStaging[]
-  internshipStagings  InternshipStaging[]
+  users              User[]
+  hackathons         Hackathon[]
+  forms              Form[]
+  courses            Course[]
+  departments        Department[]
+  internships        Internship[]
+  codingContests     CodingContest[]
+  hackathonStagings  HackathonStaging[]
+  internshipStagings InternshipStaging[]
+  announcements      Announcement[]
+  announcementColleges AnnouncementCollege[]
 }
 
 model Department {
@@ -300,48 +296,49 @@ model Department {
   collegeId String
   createdAt DateTime @default(now())
 
-  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
-  users   User[]
+  college              College                  @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  users                User[]
+  announcements        AnnouncementDepartment[]
 
   @@unique([collegeId, name])
 }
 
 model Hackathon {
-  id              String   @id @default(uuid())
-  creatorId       String
-  collegeId       String?
-  title           String
-  description     String?
-  url             String?
-  organizer       String?
-  registrationUrl String?
-  startDate       DateTime?
-  endDate         DateTime?
-  deadline        DateTime?
-  teamSize        Int?
-  themes          String?   @default("[]")
-  location        String?
-  mode            String?   @default("OFFLINE")
-  eligibility     String?   @default("{}")
-  prizePool       String?
-  duration        String?
-  schedule        String?
-  bootcamps       String?   @default("[]")
-  highlights      String?   @default("[]")
-  targetDepartments  String?  @default("[]")
-  targetYears        String?  @default("[]")
-  eligibilityEnabled Boolean  @default(false)
-  website         String?
-  discord         String?
-  participantsCount Int      @default(0)
-  inviteOnly      Boolean  @default(false)
-  status          String   @default("DRAFT")
-  source          String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  url                String?
+  organizer          String?
+  registrationUrl    String?
+  startDate          DateTime?
+  endDate            DateTime?
+  deadline           DateTime?
+  teamSize           Int?
+  themes             String?   @default("[]")
+  location           String?
+  mode               String?   @default("OFFLINE")
+  eligibility        String?   @default("{}")
+  prizePool          String?
+  duration           String?
+  schedule           String?
+  bootcamps          String?   @default("[]")
+  highlights         String?   @default("[]")
+  targetDepartments  String?   @default("[]")
+  targetYears        String?   @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  website            String?
+  discord            String?
+  participantsCount  Int       @default(0)
+  inviteOnly         Boolean   @default(false)
+  status             String    @default("DRAFT")
+  source             String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  creator       User                   @relation("HackathonCreator", fields: [creatorId], references: [id])
-  college       College?               @relation(fields: [collegeId], references: [id])
+  creator       User                    @relation("HackathonCreator", fields: [creatorId], references: [id])
+  college       College?                @relation(fields: [collegeId], references: [id])
   registrations HackathonRegistration[]
   rounds        HackathonRound[]
 }
@@ -355,8 +352,8 @@ model HackathonRegistration {
   projectIdea  String?
   status       String   @default("REGISTERED")
   currentRound Int      @default(0)
-  winPosition  String?  // 1st, 2nd, 3rd, or "Completed" if no position
-  review       String?  // Student's review after final round
+  winPosition  String? // 1st, 2nd, 3rd, or "Completed" if no position
+  review       String? // Student's review after final round
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -367,15 +364,15 @@ model HackathonRegistration {
 }
 
 model HackathonRound {
-  id           String   @id @default(uuid())
-  hackathonId  String
-  roundNumber  Int
-  title        String
-  description  String?
-  date         DateTime?
-  resultDate   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String    @id @default(uuid())
+  hackathonId String
+  roundNumber Int
+  title       String
+  description String?
+  date        DateTime?
+  resultDate  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
 
@@ -383,40 +380,40 @@ model HackathonRound {
 }
 
 model HackathonStaging {
-  id              String   @id @default(uuid())
-  creatorId       String
-  collegeId       String?
-  title           String
-  description     String?
-  url             String?
-  organizer       String?
-  registrationUrl String?
-  startDate       DateTime?
-  endDate         DateTime?
-  deadline        DateTime?
-  teamSize        Int?
-  themes          String?   @default("[]")
-  location        String?
-  mode            String?   @default("OFFLINE")
-  eligibility     String?   @default("{}")
-  prizePool       String?
-  duration        String?
-  schedule        String?
-  bootcamps       String?   @default("[]")
-  highlights      String?   @default("[]")
-  targetDepartments  String?  @default("[]")
-  targetYears        String?  @default("[]")
-  eligibilityEnabled Boolean  @default(false)
-  website         String?
-  discord         String?
-  participantsCount Int      @default(0)
-  inviteOnly      Boolean  @default(false)
-  status          String   @default("DRAFT")
-  source          String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  url                String?
+  organizer          String?
+  registrationUrl    String?
+  startDate          DateTime?
+  endDate            DateTime?
+  deadline           DateTime?
+  teamSize           Int?
+  themes             String?   @default("[]")
+  location           String?
+  mode               String?   @default("OFFLINE")
+  eligibility        String?   @default("{}")
+  prizePool          String?
+  duration           String?
+  schedule           String?
+  bootcamps          String?   @default("[]")
+  highlights         String?   @default("[]")
+  targetDepartments  String?   @default("[]")
+  targetYears        String?   @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  website            String?
+  discord            String?
+  participantsCount  Int       @default(0)
+  inviteOnly         Boolean   @default(false)
+  status             String    @default("DRAFT")
+  source             String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  creator User    @relation("HackathonStagingCreator", fields: [creatorId], references: [id])
+  creator User     @relation("HackathonStagingCreator", fields: [creatorId], references: [id])
   college College? @relation(fields: [collegeId], references: [id])
 }
 
@@ -446,10 +443,8 @@ model InternshipStaging {
   college College? @relation(fields: [collegeId], references: [id])
 }
 
-
-
 model Internship {
-  id                 String   @id @default(uuid())
+  id                 String                   @id @default(uuid())
   creatorId          String
   collegeId          String
   title              String
@@ -459,17 +454,17 @@ model Internship {
   url                String
   stipend            String?
   duration           String?
-  mode               String   @default("REMOTE")
+  mode               String                   @default("REMOTE")
   startDate          String?
   deadline           String?
-  targetDepartments  String   @default("[]")
-  targetYears        String   @default("[]")
-  eligibilityEnabled Boolean  @default(false)
-  status             String   @default("ACTIVE")
+  targetDepartments  String                   @default("[]")
+  targetYears        String                   @default("[]")
+  eligibilityEnabled Boolean                  @default(false)
+  status             String                   @default("ACTIVE")
   source             String?
-  createdAt          DateTime @default(now())
-  creator            User     @relation(fields: [creatorId], references: [id])
-  college            College  @relation(fields: [collegeId], references: [id])
+  createdAt          DateTime                 @default(now())
+  creator            User                     @relation(fields: [creatorId], references: [id])
+  college            College                  @relation(fields: [collegeId], references: [id])
   registrations      InternshipRegistration[]
 }
 
@@ -481,6 +476,7 @@ model InternshipRegistration {
   reportedAt   DateTime?
   internship   Internship @relation(fields: [internshipId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
+
   @@unique([internshipId, userId])
 }
 
@@ -503,25 +499,25 @@ model CodingContest {
 }
 
 model Form {
-  id                  String    @id @default(uuid())
-  creatorId           String
-  collegeId           String?
-  title               String
-  description         String?
-  status              String    @default("ACTIVE")
-  allowEdit           Boolean   @default(false)
-  expiresAt           DateTime?
-  targetDepartments   String    @default("[]")
-  targetYears         String    @default("[]")
-  eligibilityEnabled  Boolean   @default(false)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  status             String    @default("ACTIVE")
+  allowEdit          Boolean   @default(false)
+  expiresAt          DateTime?
+  targetDepartments  String    @default("[]")
+  targetYears        String    @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  creator    User           @relation(fields: [creatorId], references: [id])
-  college    College?       @relation(fields: [collegeId], references: [id])
-  fields     FormField[]
-  responses  FormResponse[]
-  formRooms  FormRoom[]
+  creator   User           @relation(fields: [creatorId], references: [id])
+  college   College?       @relation(fields: [collegeId], references: [id])
+  fields    FormField[]
+  responses FormResponse[]
+  formRooms FormRoom[]
 }
 
 model FormRoom {
@@ -529,33 +525,33 @@ model FormRoom {
   formId    String
   roomId    String
   createdAt DateTime @default(now())
-  
+
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  
+
   @@unique([formId, roomId])
   @@index([formId])
   @@index([roomId])
 }
 
 model FormField {
-  id          String   @id @default(uuid())
-  formId      String
-  label       String
-  type        String   @default("TEXT")
-  required    Boolean  @default(false)
-  options     String?   @default("[]")
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  formId    String
+  label     String
+  type      String   @default("TEXT")
+  required  Boolean  @default(false)
+  options   String?  @default("[]")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
 
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
 }
 
 model FormResponse {
-  id         String   @id @default(uuid())
-  formId     String
-  userId     String
-  answers    String   @default("{}")
+  id          String   @id @default(uuid())
+  formId      String
+  userId      String
+  answers     String   @default("{}")
   submittedAt DateTime @default(now())
 
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
@@ -565,19 +561,23 @@ model FormResponse {
 }
 
 model Room {
-  id            String   @id @default(uuid())
-  name          String
-  description   String   @default("")
-  joinCode      String   @unique
-  teacherId     String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  description String   @default("")
+  joinCode    String   @unique
+  teacherId   String
+  chatMode    String   @default("EVERYONE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  teacher     User          @relation(fields: [teacherId], references: [id])
-  members     RoomMember[]
-  resources   Resource[]
-  notifications RoomNotification[]
-  formRooms   FormRoom[]
+  teacher            User                    @relation(fields: [teacherId], references: [id])
+  members            RoomMember[]
+  resources          Resource[]
+  notifications      RoomNotification[]
+  formRooms          FormRoom[]
+  messages           RoomMessage[]
+  chatAllowedMembers RoomChatAllowedMember[]
+  reads              RoomRead[]
 
   @@index([teacherId])
   @@index([joinCode])
@@ -598,16 +598,88 @@ model RoomMember {
   @@index([studentId])
 }
 
-model Resource {
-  id          String   @id @default(uuid())
-  title       String
-  description String   @default("")
-  fileUrl     String
-  fileType    String   @default("other") // pdf, ppt, link, other
-  category    String   @default("other") // lecture, assignment, reference, other
+model RoomMessage {
+  id          String    @id @default(uuid())
   roomId      String
-  uploadedBy  String
-  createdAt   DateTime @default(now())
+  senderId    String
+  content     String
+  fileUrl     String?
+  fileName    String?
+  fileType    String?
+  fileSize    Int?
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  isForwarded Boolean   @default(false)
+  replyToId   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender   User              @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo  RoomMessage?      @relation("RoomMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies  RoomMessage[]     @relation("RoomMessageReplies")
+  hides    MessageHide[]
+  reactions MessageReaction[]
+
+  @@index([roomId, createdAt])
+  @@index([senderId])
+  @@index([replyToId])
+}
+
+model MessageHide {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message RoomMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String   @db.VarChar(8)
+  createdAt DateTime @default(now())
+
+  message RoomMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model RoomChatAllowedMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model Resource {
+  id              String   @id @default(uuid())
+  title           String
+  description     String   @default("")
+  fileUrl         String
+  fileType        String   @default("other") // pdf, ppt, link, other
+  category        String   @default("other") // lecture, assignment, reference, other
+  fileSize        Int?
+  sourceMessageId String?  // set when the resource was shared via a room chat attachment
+  roomId          String
+  uploadedBy      String
+  createdAt       DateTime @default(now())
 
   room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   uploader User @relation(fields: [uploadedBy], references: [id])
@@ -617,13 +689,13 @@ model Resource {
 }
 
 model RoomNotification {
-  id         String   @id @default(uuid())
-  roomId     String
-  studentId  String
-  message    String
+  id          String   @id @default(uuid())
+  roomId      String
+  studentId   String
+  message     String
   resourceUrl String?
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   room    Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -631,35 +703,6 @@ model RoomNotification {
   @@index([roomId])
   @@index([studentId])
   @@index([isRead])
-}
-
-model AttendanceRecord {
-  id            String            @id @default(cuid())
-  studentId     String
-  student       User              @relation(fields: [studentId], references: [id])
-  subject       String
-  date          DateTime
-  status        AttendanceStatus
-  source        AttendanceSource
-  createdAt     DateTime          @default(now())
-
-  @@index([studentId, subject])
-  @@index([studentId, createdAt])
-}
-
-model AttendancePrediction {
-  id               String   @id @default(cuid())
-  studentId        String
-  student          User     @relation(fields: [studentId], references: [id])
-  subject          String
-  totalClasses     Int
-  presentClasses   Int
-  classesPerWeek   Int
-  weeksRemaining   Int
-  targetPercentage Float    @default(75)
-  createdAt        DateTime @default(now())
-
-  @@index([studentId])
 }
 
 model PlatformSettings {
@@ -675,33 +718,134 @@ model PlatformSettings {
   @@map("platform_settings")
 }
 
-model AiProvider {
-  id            String   @id @default(cuid())
-  name          String
-  baseUrl       String
-  apiKey        String
-  model         String
-  type          String   @default("openai-compatible")
-  headers       String?
-  enabled       Boolean  @default(true)
-  isBuiltIn     Boolean  @default(false)
-  collegeId     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model AttendanceData {
+  id          String   @id @default(cuid())
+  studentId   String   @unique
+  subjects    String   @default("[]")
+  requiredPct Int      @default(75)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  routings      AiRouting[]
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+}
+
+enum AnnouncementTarget {
+  ALL_DEPARTMENTS
+  SPECIFIC_DEPARTMENTS
+}
+
+enum AnnouncementTargetScope {
+  ALL_COLLEGES
+  SPECIFIC_COLLEGES
+  MY_COLLEGES
+}
+
+model Announcement {
+  id          String                  @id @default(uuid())
+  title       String                  @db.VarChar(200)
+  content     String                  @db.Text
+  target      AnnouncementTarget      @default(ALL_DEPARTMENTS)
+  targetScope AnnouncementTargetScope @default(MY_COLLEGES)
+  creatorId   String
+  collegeId   String?
+  publishAt   DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  creator      User                     @relation(fields: [creatorId], references: [id])
+  college      College?                 @relation(fields: [collegeId], references: [id])
+  departments  AnnouncementDepartment[]
+  colleges     AnnouncementCollege[]
+  reads        AnnouncementRead[]
+
+  @@index([collegeId, createdAt])
+  @@index([targetScope, createdAt])
+}
+
+model AnnouncementDepartment {
+  id             String       @id @default(uuid())
+  announcementId String
+  departmentId   String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, departmentId])
+  @@index([announcementId])
+  @@index([departmentId])
+}
+
+model AnnouncementCollege {
+  id             String   @id @default(uuid())
+  announcementId String
+  collegeId      String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  college      College      @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, collegeId])
+  @@index([announcementId])
+  @@index([collegeId])
+}
+
+model AnnouncementRead {
+  id             String       @id @default(uuid())
+  announcementId String
+  userId         String
+  createdAt      DateTime     @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+  @@index([announcementId])
+}
+
+model RoomRead {
+  id         String   @id @default(uuid())
+  roomId     String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId])
+}
+
+model AiProvider {
+  id        String   @id @default(cuid())
+  name      String
+  baseUrl   String
+  apiKey    String
+  model     String
+  type      String   @default("openai-compatible")
+  headers   String?
+  enabled   Boolean  @default(true)
+  isBuiltIn Boolean  @default(false)
+  collegeId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  routings AiRouting[]
 
   @@unique([name, collegeId])
 }
 
 model AiRouting {
-  id            String   @id @default(cuid())
+  id            String     @id @default(cuid())
   feature       String
   providerId    String
   provider      AiProvider @relation(fields: [providerId], references: [id])
   fallbackOrder Int
   collegeId     String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime   @default(now())
 
   @@unique([feature, fallbackOrder, collegeId])
 }

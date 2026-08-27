@@ -69,9 +69,9 @@ export default function AssignmentsPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total', value: stats.total, icon: FileText, color: 'text-surface-600', bg: 'bg-surface-100' },
-          { label: 'Pending', value: stats.pending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Pending', value: stats.pending, icon: Clock, color: 'text-warning-600', bg: 'bg-warning-50' },
           { label: 'Submitted', value: stats.submitted, icon: CheckCircle, color: 'text-primary-600', bg: 'bg-primary-50' },
-          { label: 'Graded', value: stats.graded, icon: BookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Graded', value: stats.graded, icon: BookOpen, color: 'text-primary-600', bg: 'bg-primary-50' },
         ].map((s) => (
           <Card key={s.label} hover className="flex items-center gap-4">
             <div className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center`}><s.icon size={22} className={s.color} /></div>
@@ -92,7 +92,7 @@ export default function AssignmentsPage() {
           return (
             <Card key={a.id} hover className="group">
               <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className={`w-1 h-16 sm:h-12 rounded-full shrink-0 ${a.priority === 'HIGH' ? 'bg-red-500' : a.priority === 'MEDIUM' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                <div className={`w-1 h-16 sm:h-12 rounded-full shrink-0 ${a.priority === 'HIGH' ? 'bg-danger-500' : a.priority === 'MEDIUM' ? 'bg-warning-500' : 'bg-primary-500'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -106,14 +106,14 @@ export default function AssignmentsPage() {
                       {a.description && <p className="text-xs text-surface-400 mt-1 line-clamp-1">{a.description}</p>}
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`text-sm font-semibold ${due === 'Tomorrow' || due === 'Overdue' || due === 'Today' ? 'text-red-600' : due.includes('days') && parseInt(due) <= 3 ? 'text-amber-600' : 'text-surface-600'}`}>{due}</p>
+                      <p className={`text-sm font-semibold ${due === 'Tomorrow' || due === 'Overdue' || due === 'Today' ? 'text-danger-600' : due.includes('days') && parseInt(due) <= 3 ? 'text-warning-600' : 'text-surface-600'}`}>{due}</p>
                       <p className="text-xs text-surface-400 mt-0.5">{new Date(a.dueDate).toLocaleDateString()}</p>
                     </div>
                   </div>
                   {a.status === 'PENDING' && (
                     <div className="mt-3 flex items-center gap-3">
                       <div className="flex-1 h-2 bg-surface-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-500 ${a.progress >= 75 ? 'bg-emerald-500' : a.progress >= 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${a.progress}%` }} />
+                        <div className={`h-full rounded-full transition-all duration-500 ${a.progress >= 75 ? 'bg-primary-500' : a.progress >= 40 ? 'bg-warning-500' : 'bg-danger-500'}`} style={{ width: `${a.progress}%` }} />
                       </div>
                       <span className="text-xs font-semibold text-surface-500">{a.progress}%</span>
                     </div>
@@ -122,7 +122,7 @@ export default function AssignmentsPage() {
                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   {a.status === 'PENDING' && <Button size="sm" onClick={() => handleSubmit(a.id)}>Submit</Button>}
                   <button onClick={() => openEdit(a)} className="p-2 rounded-lg text-surface-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"><Edit3 size={14} /></button>
-                  <button onClick={() => handleDelete(a.id)} className="p-2 rounded-lg text-surface-400 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={14} /></button>
+                  <button onClick={() => handleDelete(a.id)} className="p-2 rounded-lg text-surface-400 hover:text-danger-600 hover:bg-danger-50 transition-colors"><Trash2 size={14} /></button>
                 </div>
               </div>
             </Card>
@@ -138,7 +138,7 @@ export default function AssignmentsPage() {
           <div><label className="block text-sm font-semibold text-surface-700 mb-1.5">Description</label><textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} rows={3} className="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all resize-none" placeholder="Assignment details..." /></div>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Due Date" type="date" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
-            <div><label className="block text-sm font-semibold text-surface-700 mb-1.5">Priority</label><div className="flex gap-2">{priorities.map((p) => (<button key={p} onClick={() => setForm((prev) => ({ ...prev, priority: p }))} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${form.priority === p ? (p === 'HIGH' ? 'bg-red-500 text-white' : p === 'MEDIUM' ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white') : 'bg-surface-100 text-surface-600 hover:bg-surface-200'}`}>{p}</button>))}</div></div>
+            <div><label className="block text-sm font-semibold text-surface-700 mb-1.5">Priority</label><div className="flex gap-2">{priorities.map((p) => (<button key={p} onClick={() => setForm((prev) => ({ ...prev, priority: p }))} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${form.priority === p ? (p === 'HIGH' ? 'bg-danger-500 text-white' : p === 'MEDIUM' ? 'bg-warning-500 text-white' : 'bg-primary-500 text-white') : 'bg-surface-100 text-surface-600 hover:bg-surface-200'}`}>{p}</button>))}</div></div>
           </div>
           {editing && (
             <div><label className="block text-sm font-semibold text-surface-700 mb-1.5">Progress: {form.progress}%</label><input type="range" min={0} max={100} value={form.progress} onChange={(e) => setForm((p) => ({ ...p, progress: parseInt(e.target.value) }))} className="w-full accent-primary-600" /></div>

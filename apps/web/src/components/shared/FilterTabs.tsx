@@ -32,8 +32,8 @@ export default function FilterTabs({ tabs, activeTab, onTabChange }: FilterTabsP
           {label}
           {count !== undefined && (
             <span className={clsx(
-              'ml-1 px-1.5 py-0.5 rounded-full text-xs',
-              activeTab === key ? 'bg-white/20' : 'bg-surface-200'
+              'ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold',
+              activeTab === key ? 'bg-white text-primary-600' : 'bg-surface-200 text-surface-600'
             )}>
               {count}
             </span>

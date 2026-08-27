@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs'
 const router = Router()
 router.use(authenticate)
 
-// Get all hackathons (admin)
+// Get all hackathons (admin — supports ?collegeId= filter for super admin)
 router.get('/hackathons', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -15,8 +15,15 @@ router.get('/hackathons', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'Admin access required' })
       return
     }
+    let where: any = {}
+    if (user.role === 'SUPER_ADMIN') {
+      const collegeId = req.query.collegeId as string | undefined
+      if (collegeId) where = { collegeId }
+    } else {
+      where = { collegeId: user.collegeId }
+    }
     const hackathons = await prisma.hackathon.findMany({
-      where: user.role === 'SUPER_ADMIN' ? {} : { collegeId: user.collegeId },
+      where,
       include: { creator: { select: { name: true } }, registrations: true },
       orderBy: { createdAt: 'desc' },
     })
@@ -26,7 +33,7 @@ router.get('/hackathons', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get all forms (admin)
+// Get all forms (admin — supports ?collegeId= filter for super admin)
 router.get('/forms', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -34,8 +41,15 @@ router.get('/forms', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'Admin access required' })
       return
     }
+    let where: any = {}
+    if (user.role === 'SUPER_ADMIN') {
+      const collegeId = req.query.collegeId as string | undefined
+      if (collegeId) where = { collegeId }
+    } else {
+      where = { collegeId: user.collegeId }
+    }
     const forms = await prisma.form.findMany({
-      where: user.role === 'SUPER_ADMIN' ? {} : { collegeId: user.collegeId },
+      where,
       include: { creator: { select: { name: true } }, responses: true },
       orderBy: { createdAt: 'desc' },
     })
@@ -103,7 +117,7 @@ router.delete('/forms/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get analytics
+// Get analytics (supports ?collegeId= filter for super admin)
 router.get('/analytics', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -112,7 +126,13 @@ router.get('/analytics', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const where = user.role === 'SUPER_ADMIN' ? {} : { collegeId: user.collegeId }
+    let where: any = {}
+    if (user.role === 'SUPER_ADMIN') {
+      const collegeId = req.query.collegeId as string | undefined
+      if (collegeId) where = { collegeId }
+    } else {
+      where = { collegeId: user.collegeId }
+    }
 
     const [totalStudents, totalTeachers, hackathons, forms, registrations] = await Promise.all([
       prisma.user.count({ where: { ...where, role: 'STUDENT' } }),
@@ -264,7 +284,7 @@ router.delete('/colleges/:id', async (req: AuthRequest, res: Response) => {
 
 // ==================== USER MANAGEMENT ====================
 
-// Get all users in college
+// Get all users in college (supports ?collegeId= filter for super admin)
 router.get('/users', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -273,7 +293,13 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const where = user.role === 'SUPER_ADMIN' ? {} : { collegeId: user.collegeId }
+    let where: any = {}
+    if (user.role === 'SUPER_ADMIN') {
+      const collegeId = req.query.collegeId as string | undefined
+      if (collegeId) where = { collegeId }
+    } else {
+      where = { collegeId: user.collegeId }
+    }
 
     const users = await prisma.user.findMany({
       where,
@@ -289,6 +315,7 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
         incomingYear: true,
         outgoingYear: true,
         collegeId: true,
+        college: { select: { name: true } },
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -304,8 +331,14 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
 router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'Only college admins can add teachers' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+
+    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    if (!collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
       return
     }
 
@@ -320,7 +353,7 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
     // Validate departmentId if provided
     if (departmentId) {
       const dept = await prisma.department.findUnique({ where: { id: departmentId } })
-      if (!dept || dept.collegeId !== user.collegeId) {
+      if (!dept || dept.collegeId !== collegeId) {
         res.status(400).json({ error: 'Invalid department' })
         return
       }
@@ -335,7 +368,7 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
         name,
         passwordHash,
         role: 'TEACHER',
-        collegeId: user.collegeId,
+        collegeId,
         departmentId: departmentId || undefined,
         empNumber,
       },
@@ -358,8 +391,14 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
 router.post('/users/student', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'Only college admins can add students' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+
+    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    if (!collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
       return
     }
 
@@ -374,7 +413,7 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
     // Validate departmentId if provided
     if (departmentId) {
       const dept = await prisma.department.findUnique({ where: { id: departmentId } })
-      if (!dept || dept.collegeId !== user.collegeId) {
+      if (!dept || dept.collegeId !== collegeId) {
         res.status(400).json({ error: 'Invalid department' })
         return
       }
@@ -394,7 +433,7 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
         name,
         passwordHash,
         role: 'STUDENT',
-        collegeId: user.collegeId,
+        collegeId,
         departmentId: departmentId || undefined,
         studentId,
         incomingYear: incoming,
@@ -419,8 +458,14 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
 router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'Only college admins can add teachers' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+
+    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    if (!collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
       return
     }
 
@@ -439,7 +484,7 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
         // Validate departmentId if provided
         if (t.departmentId) {
           const dept = await prisma.department.findUnique({ where: { id: t.departmentId } })
-          if (!dept || dept.collegeId !== user.collegeId) {
+          if (!dept || dept.collegeId !== collegeId) {
             results.failed++
             results.errors.push(`${t.email}: Invalid department`)
             continue
@@ -454,7 +499,7 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
             name: t.name,
             passwordHash,
             role: 'TEACHER',
-            collegeId: user.collegeId,
+            collegeId,
             departmentId: t.departmentId || undefined,
             empNumber: t.empNumber,
           },
@@ -476,8 +521,14 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
 router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'Only college admins can add students' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+
+    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    if (!collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
       return
     }
 
@@ -496,7 +547,7 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
         // Validate departmentId if provided
         if (s.departmentId) {
           const dept = await prisma.department.findUnique({ where: { id: s.departmentId } })
-          if (!dept || dept.collegeId !== user.collegeId) {
+          if (!dept || dept.collegeId !== collegeId) {
             results.failed++
             results.errors.push(`${s.email}: Invalid department`)
             continue
@@ -517,7 +568,7 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
             name: s.name,
             passwordHash,
             role: 'STUDENT',
-            collegeId: user.collegeId,
+            collegeId,
             departmentId: s.departmentId || undefined,
             studentId: s.studentId,
             incomingYear: incoming,
@@ -559,6 +610,12 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
 
     const { name, email, departmentId, role, incomingYear } = req.body
 
+    // Only Super Admin can assign Super Admin role
+    if (role === 'SUPER_ADMIN' && user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'Only Super Admin can assign Super Admin role' })
+      return
+    }
+
     // Validate departmentId if provided
     if (departmentId) {
       const dept = await prisma.department.findUnique({ where: { id: departmentId } })
@@ -578,8 +635,9 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
       data: {
         name,
         email,
-        departmentId: departmentId || undefined,
+        departmentId: role === 'SUPER_ADMIN' ? null : (departmentId || undefined),
         role,
+        collegeId: role === 'SUPER_ADMIN' ? null : undefined,
         incomingYear: incoming,
         outgoingYear: incoming ? incoming + 4 : undefined,
       },

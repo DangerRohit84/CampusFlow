@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import Groq from 'groq-sdk'
+import { chatCompletion, visionCompletion, ChatMessage } from '../ai/client'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { config } from '../config'
@@ -20,21 +20,14 @@ const upload = multer({
   },
 })
 
-const hasAI = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
-const groq = hasAI ? new Groq({ apiKey: config.groqApiKey }) : null
-
-async function parseWithGroq(prompt: string): Promise<string> {
-  if (!groq) return '[]'
+// AI Manager handles provider resolution
+async function parseWithAI(prompt: string): Promise<string> {
   try {
-    const completion = await groq.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.1,
-      max_tokens: 2048,
-    })
-    return completion.choices[0]?.message?.content || '[]'
+    return await chatCompletion('timetable', [
+      { role: 'user', content: prompt },
+    ], { temperature: 0.1, max_tokens: 2048 })
   } catch (err) {
-    console.error('Groq timetable parse error:', err)
+    console.error('AI timetable parse error:', err)
     return '[]'
   }
 }
@@ -113,78 +106,82 @@ Return ONLY the JSON array:`
 
     let response = '[]'
 
-    // Try provider from Settings first (OpenAI, Gemini, etc.)
-    if (provider?.apiKey && provider?.baseUrl && !provider.apiKey.includes('gsk_')) {
-      try {
-        const GroqClient = (await import('groq-sdk')).default
-        const client = new GroqClient({ apiKey: provider.apiKey, baseURL: provider.baseUrl })
-        const completion = await client.chat.completions.create({
-          model: provider.model || 'gpt-4o',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-            ],
-          }],
-          max_tokens: 4096,
-          temperature: 0.1,
-        })
-        response = completion.choices[0]?.message?.content || '[]'
-        console.log('[Timetable Upload] Settings provider responded')
-      } catch (err: any) {
-        console.error('[Timetable Upload] Settings provider error:', err?.message)
-      }
+    // Use AI Manager routing (timetable feature) for vision
+    try {
+      console.log('[Timetable Upload] Using AI Manager vision routing')
+      response = await visionCompletion('timetable', [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+        ],
+      }], { temperature: 0.1, max_tokens: 16384 })
+      console.log('[Timetable Upload] AI Manager vision responded, length:', response.length)
+    } catch (err: any) {
+      console.error('[Timetable Upload] AI Manager vision error:', err?.message)
     }
 
-    // If no response, try Groq vision
-    if (response === '[]' && groq) {
-      try {
-        console.log('[Timetable Upload] Trying Groq vision with qwen/qwen3.6-27b')
-        const completion = await groq.chat.completions.create({
-          model: 'qwen/qwen3.6-27b',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-            ],
-          }],
-          max_tokens: 16384,
-          temperature: 0.1,
-        })
-        response = completion.choices[0]?.message?.content || '[]'
-        console.log('[Timetable Upload] Groq vision responded, length:', response.length)
-      } catch (err: any) {
-        console.error('[Timetable Upload] Groq vision error:', err?.message)
-      }
-    }
-
-    // Strip <think>...</think> tags from thinking models
+    // Strip <think>...</think> tags from thinking models (handles closed, unclosed, and embedded JSON)
     let cleanResponse = response
-    const lastThinkClose = cleanResponse.indexOf('</think>')
-    if (lastThinkClose !== -1) {
-      cleanResponse = cleanResponse.substring(lastThinkClose + 8).trim()
+    // Remove closed think blocks
+    cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    // If response still starts with <think> (unclosed), find first [ after it
+    if (cleanResponse.toLowerCase().startsWith('<think>')) {
+      const firstBracket = cleanResponse.indexOf('[')
+      if (firstBracket !== -1) {
+        cleanResponse = cleanResponse.substring(firstBracket).trim()
+      } else {
+        // No JSON found after unclosed think — try raw response
+        const rawBracket = response.indexOf('[')
+        if (rawBracket !== -1) cleanResponse = response.substring(rawBracket).trim()
+      }
     }
+    // Strip markdown code fences
+    cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
     console.log('[Timetable Upload] Cleaned response (first 300):', cleanResponse.substring(0, 300))
 
     let classes: any[] = []
     try {
+      // Debug: log first few char codes
+      if (cleanResponse.length > 0) {
+        const codes = Array.from(cleanResponse.substring(0, 10)).map(c => c.charCodeAt(0))
+        console.log('[Timetable Upload] First 10 char codes:', codes.join(','), 'total len:', cleanResponse.length, 'ends:', cleanResponse.substring(cleanResponse.length - 20))
+      }
+
       // Try cleaned response first, then full response
       for (const src of [cleanResponse, response]) {
         if (classes.length > 0) break
-        const jsonMatch = src.match(/\[[\s\S]*\]/)
-        if (jsonMatch) {
+
+        // Try direct parse first
+        try {
+          classes = JSON.parse(src)
+          if (Array.isArray(classes) && classes.length > 0 && classes[0].title) {
+            console.log('[Timetable Upload] Direct parse OK, count:', classes.length)
+            break
+          }
+          classes = []
+        } catch (directErr: any) {
+          console.log('[Timetable Upload] Direct parse failed:', directErr.message?.substring(0, 100))
+        }
+
+        // Try extracting JSON array substring
+        const firstBracket = src.indexOf('[')
+        const lastBracket = src.lastIndexOf(']')
+        console.log('[Timetable Upload] Bracket search: first=[', firstBracket, 'last=]', lastBracket, 'srcLen:', src.length)
+        if (firstBracket !== -1 && lastBracket > firstBracket) {
+          const jsonStr = src.substring(firstBracket, lastBracket + 1)
           try {
-            classes = JSON.parse(jsonMatch[0])
-            if (classes.length > 0 && classes[0].title) break
+            classes = JSON.parse(jsonStr)
+            if (Array.isArray(classes) && classes.length > 0 && classes[0].title) break
             classes = []
-          } catch {}
+          } catch (extractErr: any) {
+            console.log('[Timetable Upload] Extract parse failed:', extractErr.message?.substring(0, 100))
+          }
         }
       }
-      console.log('[Timetable Upload] Parsed', classes.length, 'classes')
+      console.log('[Timetable Upload] Final parsed', classes.length, 'classes')
     } catch (e: any) {
-      console.error('[Timetable Upload] JSON parse error:', e.message)
+      console.error('[Timetable Upload] Outer error:', e.message)
     }
 
     res.json({
@@ -211,8 +208,8 @@ router.post('/parse-text', async (req: AuthRequest, res: Response) => {
     // Try local parser first (always works, no API key needed)
     let classes = parseLocalTimetable(text)
 
-      // If local parser found nothing and AI is available, try AI
-      if (classes.length === 0 && hasAI) {
+      // If local parser found nothing, try AI Manager routing
+      if (classes.length === 0) {
         const prompt = `Parse this timetable text. Extract every class. Return ONLY a valid JSON array.
 
 Text:
@@ -227,7 +224,7 @@ teacher: professor/instructor name (empty string if not present)
 
 Return ONLY the JSON array:`
 
-        const response = await parseWithGroq(prompt)
+        const response = await parseWithAI(prompt)
       try {
         const jsonMatch = response.match(/\[[\s\S]*\]/)
         if (jsonMatch) classes = JSON.parse(jsonMatch[0])

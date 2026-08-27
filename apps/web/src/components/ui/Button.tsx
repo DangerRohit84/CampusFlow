@@ -17,10 +17,10 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={clsx(
           'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-300 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
           {
-            'bg-gradient-to-r from-primary-600 to-accent-600 text-white hover:from-primary-700 hover:to-accent-700 shadow-lg hover:shadow-xl hover:shadow-primary-500/25': variant === 'primary',
+            'bg-gradient-to-r from-primary-600 to-primary-600 text-white hover:from-primary-700 hover:to-primary-700 shadow-lg hover:shadow-xl hover:shadow-primary-500/25': variant === 'primary',
             'bg-white border border-surface-200 text-surface-700 hover:bg-surface-50 hover:border-surface-300 shadow-sm hover:shadow-md': variant === 'secondary',
             'text-surface-600 hover:bg-surface-100 hover:text-surface-900': variant === 'ghost',
-            'bg-red-500 text-white hover:bg-red-600 shadow-lg hover:shadow-xl hover:shadow-red-500/25': variant === 'danger',
+            'bg-danger-500 text-white hover:bg-danger-600 shadow-lg hover:shadow-xl hover:shadow-danger-500/25': variant === 'danger',
           },
           {
             'px-3 py-1.5 text-sm gap-1.5': size === 'sm',

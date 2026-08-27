@@ -3,8 +3,15 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
+import { emitToUser } from '../services/socket'
 
 const router = Router()
+
+// Per-user manual-sync throttle for POST /sync (in-memory; resets on server
+// restart, which is acceptable for abuse prevention). Allows at most one
+// background scrape job per user per 5-minute window.
+const SYNC_THROTTLE_MS = 5 * 60 * 1000
+const syncThrottle = new Map<string, number>()
 
 // GET /coding-profile — get own profile
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
@@ -17,28 +24,132 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 })
 
 // PUT /coding-profile — update handles
+// If a platform's handle changes, purge that platform's stale participation
+// rows and stats so History/leaderboard only reflect the CURRENT handles.
 router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle } = req.body
+    const raw = {
+      leetcode: req.body.leetcodeHandle,
+      codeforces: req.body.codeforcesHandle,
+      codechef: req.body.codechefHandle,
+      hackerrank: req.body.hackerrankHandle,
+      gfg: req.body.gfgHandle,
+    }
+    const handles: Record<string, string | null> = {}
+    for (const [k, v] of Object.entries(raw)) handles[k] = typeof v === 'string' && v.trim() ? v.trim() : null
+
+    const existing = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+    let cleanedStats: any[] | undefined
+
+    if (existing) {
+      const oldHandles: Record<string, string | null> = {
+        leetcode: existing.leetcodeHandle,
+        codeforces: existing.codeforcesHandle,
+        codechef: existing.codechefHandle,
+        hackerrank: existing.hackerrankHandle,
+        gfg: existing.gfgHandle,
+      }
+      const changed = Object.keys(handles).filter(
+        (p) => (oldHandles[p] || null) !== handles[p] && !!oldHandles[p]
+      )
+
+      if (changed.length > 0) {
+        await prisma.contestParticipation.deleteMany({
+          where: { userId: req.userId!, platform: { in: changed } },
+        })
+        let stats: any[] = []
+        try { stats = JSON.parse(existing.platformStats || '[]') } catch { stats = [] }
+        cleanedStats = stats.filter((s: any) => !changed.includes(s.platform))
+      }
+    }
+
     const profile = await prisma.codingProfile.upsert({
       where: { userId: req.userId! },
-      update: { leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle },
+      update: {
+        leetcodeHandle: handles.leetcode,
+        codeforcesHandle: handles.codeforces,
+        codechefHandle: handles.codechef,
+        hackerrankHandle: handles.hackerrank,
+        gfgHandle: handles.gfg,
+        ...(cleanedStats !== undefined && { platformStats: JSON.stringify(cleanedStats) }),
+      },
       create: {
         userId: req.userId!,
-        leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle,
+        leetcodeHandle: handles.leetcode,
+        codeforcesHandle: handles.codeforces,
+        codechefHandle: handles.codechef,
+        hackerrankHandle: handles.hackerrank,
+        gfgHandle: handles.gfg,
       },
     })
     res.json(profile)
   } catch (error) {
+    console.error('Update coding profile error:', error)
     res.status(500).json({ error: 'Failed to update coding profile' })
   }
 })
 
-// POST /coding-profile/sync — sync own data
+// POST /coding-profile/sync — kick off own sync (non-blocking)
+// ?auto=true → skip if synced within last 10 minutes (used by page-open background sync)
+// Scraping up to 5 external platforms takes seconds, so the request is acknowledged
+// immediately (202) and the sync runs in the background; completion is pushed to the
+// user's socket room so other tabs/devices can react.
 router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const result = await syncUserContests(req.userId!)
-    res.json(result)
+    const profile = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+
+    if (req.query.auto === 'true') {
+      if (profile?.lastSyncedAt && Date.now() - profile.lastSyncedAt.getTime() < 10 * 60 * 1000) {
+        res.json({ skipped: true, synced: 0, platforms: [] })
+        return
+      }
+    }
+
+    // Without at least one handle the background sync would no-op without advancing
+    // lastSyncedAt (syncEngine early-returns), leaving clients polling until timeout.
+    // Answer immediately instead of starting a pointless job.
+    const hasHandles = !!profile && !!(
+      profile.leetcodeHandle ||
+      profile.codeforcesHandle ||
+      profile.codechefHandle ||
+      profile.hackerrankHandle ||
+      profile.gfgHandle
+    )
+    if (!hasHandles) {
+      res.status(200).json({
+        skipped: true,
+        reason: 'no-handles',
+        message: 'Add at least one coding platform handle first',
+      })
+      return
+    }
+
+    // Per-user throttle (checked after auto-skip and no-handles guards): reject
+    // if this user already started a sync within the throttle window.
+    const userId = req.userId!
+    const lastStart = syncThrottle.get(userId)
+    if (lastStart !== undefined && Date.now() - lastStart < SYNC_THROTTLE_MS) {
+      res.status(429).json({ error: 'Sync already started recently. Try again in a few minutes.' })
+      return
+    }
+
+    // Record the start timestamp only after all guards pass, so rejected/skipped
+    // requests never consume the user's throttle slot.
+    syncThrottle.set(userId, Date.now())
+    syncUserContests(userId)
+      .then((result) => {
+        try {
+          emitToUser(userId, 'profile-sync', {
+            userId,
+            status: 'completed',
+            synced: result.synced,
+            platforms: result.platforms,
+            completedAt: new Date().toISOString(),
+          })
+        } catch { /* socket.io not initialized — push is best-effort */ }
+      })
+      .catch((err) => console.error(`Background coding-profile sync failed for ${userId}:`, err))
+    res.status(202).json({ message: 'Sync started', userId, startedAt: new Date().toISOString() })
   } catch (error) {
     res.status(500).json({ error: 'Failed to sync' })
   }

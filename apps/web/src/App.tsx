@@ -23,14 +23,18 @@ import TeacherAssignedPage from './pages/TeacherAssignedPage'
 import CodingContestsPage from './pages/CodingContestsPage'
 import ContestLeaderboardPage from './pages/ContestLeaderboardPage'
 import CodingProfilePage from './pages/CodingProfilePage'
-
+import TasksPage from './pages/TasksPage'
 import InternshipDetailPage from './pages/InternshipDetailPage'
 import FormsPage from './pages/FormsPage'
 import FormDetailPage from './pages/FormDetailPage'
+import CalendarPage from './pages/CalendarPage'
 import AdminPage from './pages/AdminPage'
 import CollegeRegistrationPage from './pages/CollegeRegistrationPage'
 import AddTeacherPage from './pages/AddTeacherPage'
 import AddStudentPage from './pages/AddStudentPage'
+import FetchPage from './pages/FetchPage'
+import AiManagerPage from './pages/AiManagerPage'
+import AnnouncementsPage from './pages/AnnouncementsPage'
 import RoomsPage from './pages/RoomsPage'
 import RoomDetailPage from './pages/RoomDetailPage'
 import StudentRoomsPage from './pages/StudentRoomsPage'
@@ -83,6 +87,8 @@ export default function App() {
             <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="grades" element={<GradesPage />} />
             <Route path="attendance" element={<AttendancePage />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="calendar" element={<CalendarPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="insights" element={<InsightsPage />} />
@@ -105,6 +111,9 @@ export default function App() {
             <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
             <Route path="admin/add-teachers" element={<AddTeacherPage />} />
             <Route path="admin/add-students" element={<AddStudentPage />} />
+            <Route path="admin/fetch" element={<FetchPage />} />
+            <Route path="admin/ai-manager" element={<AiManagerPage />} />
+            <Route path="announcements" element={<AnnouncementsPage />} />
           </Route>
         </Routes>
       </ErrorBoundary>

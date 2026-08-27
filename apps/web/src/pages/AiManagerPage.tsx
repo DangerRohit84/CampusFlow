@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Plus, Zap, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -97,12 +97,12 @@ export default function AiManagerPage() {
     <div className="p-4 lg:p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-surface-900 dark:text-[#F4F7F8]">AI Manager</h1>
-          <p className="text-surface-600 dark:text-[#71808C]">Manage AI providers and feature routing</p>
+          <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">AI Manager</h1>
+          <p className="text-surface-600 dark:text-night-300">Manage AI providers and feature routing</p>
         </div>
         <div className="flex gap-3">
           <button onClick={handleTestAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-surface-200 dark:border-[#202C35] text-surface-700 dark:text-[#A6B3BE] hover:bg-surface-100 dark:hover:bg-[#151F27]">
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700">
             <Zap size={16} /> Test All
           </button>
           <button onClick={() => { setEditing(null); setModalOpen(true) }}
@@ -127,15 +127,15 @@ export default function AiManagerPage() {
 
       {/* Routing Table */}
       <div className="mb-8">
-        <h2 className="text-lg font-semibold text-surface-900 dark:text-[#F4F7F8] mb-4">Feature Routing</h2>
-        <div className="bg-surface-50 dark:bg-[#111920] rounded-xl border border-surface-200 dark:border-[#202C35] overflow-hidden">
+        <h2 className="text-lg font-semibold text-surface-900 dark:text-night-50 mb-4">Feature Routing</h2>
+        <div className="bg-surface-50 dark:bg-night-800 rounded-xl border border-surface-200 dark:border-night-600 overflow-hidden">
           <RoutingTable providers={providers} routing={routing} onSave={handleRoutingSave} />
         </div>
       </div>
 
       {/* Visual Graph */}
       <div className="mb-8">
-        <h2 className="text-lg font-semibold text-surface-900 dark:text-[#F4F7F8] mb-4">Visual Graph</h2>
+        <h2 className="text-lg font-semibold text-surface-900 dark:text-night-50 mb-4">Visual Graph</h2>
         <AiGraph providers={providers} routing={routing} />
       </div>
 

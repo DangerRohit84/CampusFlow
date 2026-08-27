@@ -5,13 +5,16 @@ import { internshipAPI, departmentAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Briefcase, Calendar, Users, Download,
-  Trash2, Loader2, ChevronRight,
-  Clock, CheckCircle2, Filter, ExternalLink, Building2, Sparkles
+  Trash2, Loader2, ChevronRight, Timer,
+  Clock, CheckCircle2, Filter, ExternalLink, Building2, Sparkles, MapPin
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
+import Badge from '../components/ui/Badge'
+import Card from '../components/ui/Card'
 import FilterTabs from '../components/shared/FilterTabs'
 import EmptyState from '../components/shared/EmptyState'
+import Pagination from '../components/shared/Pagination'
 import PageHeader from '../components/shared/PageHeader'
 import StatCard from '../components/shared/StatCard'
 import { useFilteredItems } from '../hooks/useFilteredItems'
@@ -42,6 +45,7 @@ export default function InternshipsPage() {
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
   const [fetching, setFetching] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const createModal = useModal()
 
@@ -70,15 +74,12 @@ export default function InternshipsPage() {
 
     if (i.status === 'ENDED' || i.status === 'INACTIVE') return 'ended'
 
-    // Has deadline → use it
     if (deadline) {
       if (now > deadline) return 'ended'
     }
 
-    // Has startDate → compare with now
     if (startDate) {
       if (now < startDate) return 'upcoming'
-      // Active if within 6 months of start
       const sixMonthsMs = 180 * 24 * 60 * 60 * 1000
       if (now.getTime() - startDate.getTime() > sixMonthsMs) return 'ended'
       return 'active'
@@ -96,7 +97,42 @@ export default function InternshipsPage() {
       { key: 'ended', label: 'Ended' },
     ],
     filterFn: (i, tab) => tab === 'all' || getInternshipStatus(i) === tab,
+    defaultTab: 'upcoming',
   })
+
+  const searchedInternships = useMemo(() => {
+    const items = !searchQuery.trim() ? filteredInternships : filteredInternships.filter((i: any) =>
+      i.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      i.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      i.role?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    return [...items].sort((a: any, b: any) => {
+      const statusA = getInternshipStatus(a)
+      const statusB = getInternshipStatus(b)
+      // Upcoming: sort by registration deadline (nearest first)
+      if (statusA === 'upcoming' && statusB === 'upcoming') {
+        if (!a.deadline && !b.deadline) return 0
+        if (!a.deadline) return 1
+        if (!b.deadline) return -1
+        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
+      }
+      // Active: sort by nearest deadline
+      if (statusA === 'active' && statusB === 'active') {
+        if (!a.deadline && !b.deadline) return 0
+        if (!a.deadline) return 1
+        if (!b.deadline) return -1
+        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
+      }
+      return 0
+    })
+  }, [filteredInternships, searchQuery])
+
+  // ===== Pagination =====
+  const [page, setPage] = useState(1)
+  const INTERNSHIPS_PER_PAGE = 10
+  const intTotalPages = Math.max(1, Math.ceil(searchedInternships.length / INTERNSHIPS_PER_PAGE))
+  const pagedInternships = searchedInternships.slice((page - 1) * INTERNSHIPS_PER_PAGE, page * INTERNSHIPS_PER_PAGE)
+  useEffect(() => { setPage(1) }, [activeTab, searchQuery])
 
   const tabCounts = useMemo(() => ({
     all: internships.length,
@@ -105,17 +141,26 @@ export default function InternshipsPage() {
     ended: internships.filter((i) => getInternshipStatus(i) === 'ended').length,
   }), [internships])
 
-  const statCounts = useMemo(() => ({
-    total: internships.length,
-    upcoming: internships.filter((i) => getInternshipStatus(i) === 'upcoming').length,
-    active: internships.filter((i) => getInternshipStatus(i) === 'active').length,
-    registrations: internships.reduce((sum, i) => sum + (i.registrations?.length || i._count?.registrations || 0), 0),
-  }), [internships])
-
   const isNearDeadline = (dateStr: string) => {
     if (!dateStr) return false
     const diff = new Date(dateStr).getTime() - Date.now()
     return diff > 0 && diff <= 3 * 24 * 60 * 60 * 1000
+  }
+
+  const getStatusBadgeVariant = (status: InternshipStatus): 'primary' | 'warning' | 'default' => {
+    switch (status) {
+      case 'upcoming': return 'primary'
+      case 'active': return 'warning'
+      case 'ended': return 'default'
+    }
+  }
+
+  const getStatusLabel = (status: InternshipStatus) => {
+    switch (status) {
+      case 'active': return 'Active'
+      case 'upcoming': return 'Upcoming'
+      case 'ended': return 'Ended'
+    }
   }
 
   const handleFetchDetails = async () => {
@@ -195,6 +240,10 @@ export default function InternshipsPage() {
         subtitle="Discover and track internship opportunities"
         action={
           <div className="flex items-center gap-3">
+            <div className="relative hidden sm:block">
+              <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-64 pl-4 pr-4 py-2 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all" />
+            </div>
             <button
               onClick={() => internshipAPI.exportAll().then(() => toast.success('Exported!')).catch(() => toast.error('Export failed'))}
               className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all text-sm font-medium"
@@ -204,7 +253,7 @@ export default function InternshipsPage() {
             {isTeacher && (
               <button
                 onClick={createModal.open}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
               >
                 <Plus size={16} /> Post Internship
               </button>
@@ -212,38 +261,6 @@ export default function InternshipsPage() {
           </div>
         }
       />
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Internships"
-          value={statCounts.total}
-          icon={Briefcase}
-          color="from-blue-500 to-blue-600"
-          bg="bg-blue-100"
-        />
-        <StatCard
-          label="Upcoming"
-          value={statCounts.upcoming}
-          icon={Clock}
-          color="from-amber-500 to-amber-600"
-          bg="bg-amber-100"
-        />
-        <StatCard
-          label="Active"
-          value={statCounts.active}
-          icon={CheckCircle2}
-          color="from-green-500 to-green-600"
-          bg="bg-green-100"
-        />
-        <StatCard
-          label="Registrations"
-          value={statCounts.registrations}
-          icon={Users}
-          color="from-purple-500 to-purple-600"
-          bg="bg-purple-100"
-        />
-      </div>
 
       {/* Filter Tabs */}
       <FilterTabs
@@ -258,94 +275,134 @@ export default function InternshipsPage() {
       />
 
       {/* Internship Grid */}
-      {filteredInternships.length === 0 ? (
+      {searchedInternships.length === 0 ? (
         <EmptyState
           icon={Briefcase}
-          title="No internships"
-          description={isTeacher ? 'Post your first internship to get started' : 'No internships available yet'}
+          title="No internships found"
+          description={
+            isTeacher
+              ? 'Post your first internship to get started'
+              : 'No internships available yet'
+          }
+          action={
+            isTeacher ? (
+              <button
+                onClick={createModal.open}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium"
+              >
+                <Plus size={16} /> Post Internship
+              </button>
+            ) : undefined
+          }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredInternships.map((i) => {
+        <>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {pagedInternships.map((i) => {
             const status = getInternshipStatus(i)
-            const statusConfig = {
-              upcoming: { color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
-              active: { color: 'bg-green-100 text-green-700', dot: 'bg-green-500' },
-              ended: { color: 'bg-surface-100 text-surface-500', dot: 'bg-surface-400' },
-            }
-            const cfg = statusConfig[status]
 
             return (
               <motion.div
                 key={i.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-surface-100 p-5 hover:shadow-lg transition-all cursor-pointer group"
-                onClick={() => navigate(`/internships/${i.id}`)}
+                transition={{ duration: 0.2 }}
               >
-                <div className="flex items-start justify-between mb-3">
-                  <span className={clsx('px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5', cfg.color)}>
-                    <span className={clsx('w-1.5 h-1.5 rounded-full', cfg.dot)} />
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </span>
-                  {i.creatorId === user?.id && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(i.id) }}
-                      className="p-1 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                <Card hover padding="none" className="h-full flex flex-col group">
+                  {/* Card Content */}
+                  <div className="p-5 flex-1 flex flex-col">
+                    {/* Status Badge + Mode */}
+                    <div className="flex items-center justify-between mb-3">
+                      <Badge variant={getStatusBadgeVariant(status)} dot>
+                        {getStatusLabel(status)}
+                      </Badge>
+                      {i.mode && (
+                        <Badge variant="default">
+                          {i.mode}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Title */}
+                    <h3
+                      className="text-lg font-bold text-surface-900 mb-1 line-clamp-1 group-hover:text-primary-600 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/internships/${i.id}`)}
                     >
-                      <Trash2 size={14} />
+                      {i.title}
+                    </h3>
+
+                    {/* Company */}
+                    {i.company && (
+                      <p className="text-sm font-medium text-primary-600 mb-2 flex items-center gap-1.5">
+                        <Building2 size={13} /> {i.company}
+                      </p>
+                    )}
+
+                    {/* Description */}
+                    {i.description && (
+                      <p className="text-surface-500 text-sm mb-4 line-clamp-2 flex-1">
+                        {i.description}
+                      </p>
+                    )}
+
+                    {/* Meta Row */}
+                    <div className="flex items-center gap-3 text-xs text-surface-500 mb-4 flex-wrap">
+                      {i.stipend && (
+                        <span className="px-2 py-0.5 bg-success-50 text-success-700 rounded-md font-medium">
+                          {i.stipend}
+                        </span>
+                      )}
+                      {i.duration && (
+                        <span className="flex items-center gap-1">
+                          <Timer size={12} className="text-surface-400" />
+                          {i.duration}
+                        </span>
+                      )}
+                      {i.deadline && (
+                        <span className={clsx(
+                          'flex items-center gap-1',
+                          isNearDeadline(i.deadline) && 'text-danger-600 font-semibold'
+                        )}>
+                          <Calendar size={12} className={isNearDeadline(i.deadline) ? 'text-danger-500' : 'text-surface-400'} />
+                          {new Date(i.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Row */}
+                  <div className="flex items-center justify-between px-5 pb-4 pt-2">
+                    <div className="flex items-center gap-3 text-xs text-surface-500">
+                      <span className="flex items-center gap-1.5">
+                        <Users size={13} className="text-surface-400" />
+                        {i.registrations?.length || 0} Registered
+                      </span>
+                      {i.role && (
+                        <span className="flex items-center gap-1.5">
+                          <Briefcase size={13} className="text-surface-400" />
+                          {i.role}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => navigate(`/internships/${i.id}`)}
+                      className={clsx(
+                        'w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                        status === 'ended'
+                          ? 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                          : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                      )}
+                    >
+                      <ChevronRight size={16} />
                     </button>
-                  )}
-                </div>
-
-                <h3 className="font-bold text-surface-900 mb-1 line-clamp-1">{i.title}</h3>
-                {i.company && (
-                  <p className="text-xs font-medium text-primary-600 mb-1 flex items-center gap-1">
-                    <Building2 size={11} /> {i.company}
-                  </p>
-                )}
-                {i.role && <p className="text-surface-500 text-xs mb-2">{i.role}</p>}
-
-                <div className="flex items-center gap-3 text-xs text-surface-500 flex-wrap">
-                  {i.stipend && (
-                    <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-md font-medium">
-                      {i.stipend}
-                    </span>
-                  )}
-                  {i.duration && (
-                    <span className="px-2 py-0.5 bg-surface-50 rounded-md">{i.duration}</span>
-                  )}
-                  {i.mode && (
-                    <span className="px-2 py-0.5 bg-surface-50 rounded-md">{i.mode}</span>
-                  )}
-                  {i.deadline && (
-                    <span className={clsx('flex items-center gap-1', isNearDeadline(i.deadline) && 'text-red-600 font-semibold')}>
-                      <Calendar size={11} className={isNearDeadline(i.deadline) ? 'text-red-500' : 'text-accent-500'} />
-                      {new Date(i.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </span>
-                  )}
-                  {i.registrations?.length > 0 && (
-                    <span className="flex items-center gap-1">
-                      <Users size={11} className="text-green-500" />
-                      {i.registrations.length}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-3 pt-3 border-t border-surface-100 flex items-center justify-between">
-                  {i.url ? (
-                    <span className="text-xs text-primary-500 flex items-center gap-1">
-                      <ExternalLink size={11} /> Apply
-                    </span>
-                  ) : (
-                    <span />
-                  )}
-                  <ChevronRight size={14} className="text-surface-400 group-hover:text-primary-500 transition-colors" />
-                </div>
+                  </div>
+                </Card>
               </motion.div>
             )
           })}
         </div>
+        <Pagination page={page} totalPages={intTotalPages} onChange={setPage} />
+        </>
       )}
 
       {/* Create Modal */}
@@ -570,7 +627,7 @@ export default function InternshipsPage() {
                 <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
-                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg">
+                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg">
                   Post
                 </button>
               </div>

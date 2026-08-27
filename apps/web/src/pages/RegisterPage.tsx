@@ -50,14 +50,14 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex">
-      <div className="hidden lg:flex flex-1 relative overflow-hidden bg-gradient-to-br from-accent-600 via-primary-600 to-blue-600">
+      <div className="hidden lg:flex flex-1 relative overflow-hidden bg-gradient-to-br from-primary-600 via-primary-600 to-primary-400">
         <div className="absolute inset-0 dot-pattern opacity-10" />
         <div className="absolute top-32 right-16 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-float" />
-        <div className="absolute bottom-16 left-16 w-64 h-64 bg-pink-400/20 rounded-full blur-3xl animate-float-delayed" />
+        <div className="absolute bottom-16 left-16 w-64 h-64 bg-primary-400/20 rounded-full blur-3xl animate-float-delayed" />
         <div className="relative z-10 flex flex-col justify-center p-16 text-white">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <h2 className="text-5xl font-bold mb-6 leading-tight">Join <span className="text-white/80">Thousands</span> of<br />Smart Students</h2>
-            <p className="text-xl text-white/70 max-w-lg mb-12">Start your journey with CampusFlow. Organize your academic life with the power of AI.</p>
+            <p className="text-xl text-white/70 max-w-lg mb-12">Start your journey with CampusFlowAI. Organize your academic life with the power of AI.</p>
             <div className="space-y-6">
               {[{ num: '10K+', label: 'Active Students' }, { num: '50+', label: 'Partner Universities' }, { num: '99.9%', label: 'Uptime' }].map((stat, i) => (
                 <motion.div key={stat.label} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 + i * 0.1 }} className="flex items-center gap-4">
@@ -73,11 +73,11 @@ export default function RegisterPage() {
       <div className="flex-1 flex items-center justify-center p-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-glow">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shadow-glow">
               <GraduationCap className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold gradient-text">CampusFlow</h1>
+              <h1 className="text-2xl font-bold gradient-text">CampusFlowAI</h1>
               <p className="text-xs text-surface-400 font-medium">AI Campus Operating System</p>
             </div>
           </div>

@@ -17,8 +17,16 @@ const pages = [
   { path: '/settings', label: 'Settings', icon: '⚙️' },
 ]
 
-export default function CommandPalette() {
-  const [open, setOpen] = useState(false)
+export default function CommandPalette({ open: externalOpen, onClose }: { open?: boolean; onClose?: () => void } = {}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = externalOpen !== undefined ? externalOpen : internalOpen
+  const setOpen = (val: boolean) => {
+    if (externalOpen !== undefined) {
+      onClose?.()
+    } else {
+      setInternalOpen(val)
+    }
+  }
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
   const navigate = useNavigate()

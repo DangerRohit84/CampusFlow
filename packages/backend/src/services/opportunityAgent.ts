@@ -1,16 +1,10 @@
 import prisma from '../config/db'
-import { config } from '../config'
 import { searchDetails, parseSearchDate } from '../utils/search'
-import Groq from 'groq-sdk'
-import OpenAI from 'openai'
+import { chatCompletion } from '../ai/client'
+import NodeCache from 'node-cache'
 
-// AI provider setup: OpenCode Serve only (Zen and Groq disabled for testing)
-const hasOpenCodeServe = config.openCodeServeUrl !== ''
-
-const openCodeServe = hasOpenCodeServe ? new OpenAI({
-  apiKey: 'no-key',
-  baseURL: config.openCodeServeUrl,
-}) : null
+// Cache for scraped content (6 hour TTL)
+const scrapeCache = new NodeCache({ stdTTL: 6 * 60 * 60 })
 
 export interface NormalizedOpportunity {
   type: string
@@ -165,13 +159,14 @@ async function fetchDevfolioPage(page: number, seen: Set<string>): Promise<Norma
   }
 }
 
-async function fetchDevfolio(): Promise<NormalizedOpportunity[]> {
+async function fetchDevfolio(limit?: number): Promise<NormalizedOpportunity[]> {
   const seen = new Set<string>()
   const all: NormalizedOpportunity[] = []
   for (let page = 1; page <= 5; page++) {
     const results = await fetchDevfolioPage(page, seen)
     all.push(...results)
-    if (results.length === 0) break // no more pages
+    if (results.length === 0) break
+    if (limit && all.length >= limit) break
   }
   console.log(`[Devfolio] Fetched ${all.length} hackathons across pages`)
   return all
@@ -278,7 +273,7 @@ async function fetchInternshalaPage(page: number, seen: Set<string>): Promise<No
   }
 }
 
-async function fetchInternshala(): Promise<NormalizedOpportunity[]> {
+async function fetchInternshala(limit?: number): Promise<NormalizedOpportunity[]> {
   const seen = new Set<string>()
   const all: NormalizedOpportunity[] = []
 
@@ -287,10 +282,11 @@ async function fetchInternshala(): Promise<NormalizedOpportunity[]> {
     const results = await fetchInternshalaPage(page, seen)
     all.push(...results)
     if (results.length === 0) break
+    if (limit && all.length >= limit) break
   }
 
   // Enrich with detail pages (fetch in batches of 5 to avoid overwhelming)
-  const toEnrich = all.slice(0, 50) // Enrich up to 50 entries
+  const toEnrich = limit ? all.slice(0, Math.min(limit, 50)) : all.slice(0, 50)
   for (let i = 0; i < toEnrich.length; i += 5) {
     const batch = toEnrich.slice(i, i + 5)
     const results = await Promise.allSettled(
@@ -469,20 +465,21 @@ function parseDevpostDate(dateStr: string): string {
   return ''
 }
 
-async function fetchDevpost(): Promise<NormalizedOpportunity[]> {
+async function fetchDevpost(limit?: number): Promise<NormalizedOpportunity[]> {
   const seen = new Set<string>()
   const all: NormalizedOpportunity[] = []
   for (let page = 1; page <= 5; page++) {
     const results = await fetchDevpostPage(page, seen)
     all.push(...results)
     if (results.length === 0) break
+    if (limit && all.length >= limit) break
   }
   console.log(`[Devpost] Fetched ${all.length} hackathons across pages`)
   return all
 }
 
 // ─── MLH: upcoming hackathons ────────────────────────────────────
-async function fetchMLH(): Promise<NormalizedOpportunity[]> {
+async function fetchMLH(limit?: number): Promise<NormalizedOpportunity[]> {
   try {
     const response = await fetch('https://mlh.io/seasons/2026/events', {
       headers: { 'User-Agent': UA },
@@ -499,6 +496,7 @@ async function fetchMLH(): Promise<NormalizedOpportunity[]> {
 
     let match
     while ((match = eventRegex.exec(html)) !== null) {
+      if (limit && opportunities.length >= limit) break
       // Find the full object by counting braces
       const start = match.index
       let depth = 0
@@ -581,10 +579,11 @@ async function fetchMLH(): Promise<NormalizedOpportunity[]> {
 }
 
 // ─── Unstop: JSON API for hackathons ──────────────────────────────
-async function fetchUnstop(): Promise<NormalizedOpportunity[]> {
+async function fetchUnstop(limit?: number): Promise<NormalizedOpportunity[]> {
   try {
+    const max = limit || 20
     const opportunities: NormalizedOpportunity[] = []
-    for (let page = 1; page <= 5 && opportunities.length < 20; page++) {
+    for (let page = 1; page <= 5 && opportunities.length < max; page++) {
       const url = `https://unstop.com/api/public/opportunity/search-result?opportunity=hackathons&per_page=18&oppstatus=open&page=${page}`
       const response = await fetch(url, {
         headers: { 'User-Agent': UA, 'Accept': 'application/json' },
@@ -596,7 +595,7 @@ async function fetchUnstop(): Promise<NormalizedOpportunity[]> {
       if (items.length === 0) break
 
       for (const h of items) {
-        if (opportunities.length >= 20) break
+        if (opportunities.length >= max) break
         const link = `https://unstop.com/${h.public_url || ''}`
         const regnReqs = h.regnRequirements || {}
         const address = h.address_with_country_logo || {}
@@ -642,7 +641,90 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
     const record = await prisma.hackathonStaging.findUnique({ where: { id } })
     if (!record) return
 
-    const content = record.description || ''
+    // Fetch multiple pages from the hackathon site for complete data
+    let allContent = ''
+    if (record.url) {
+      const baseUrl = record.url.replace(/\/$/, '')
+      
+      // Determine which pages to fetch based on platform
+      const pagesToFetch: string[] = []
+      const src = record.source || ''
+      
+      if (src === 'DEVFOLIO' || baseUrl.includes('.devfolio.co')) {
+        // Devfolio hackathons: /overview, /schedule, /prizes, /judges
+        pagesToFetch.push('', '/schedule', '/prizes', '/judges')
+      } else if (src === 'DEVPOST' || baseUrl.includes('devpost.com')) {
+        // Devpost hackathons: /overview, /rules, /prizes, /judges
+        pagesToFetch.push('', '/rules', '/prizes', '/judges')
+      } else if (src === 'MLH' || baseUrl.includes('mlh.io')) {
+        // MLH: /overview, /schedule, /faq
+        pagesToFetch.push('', '/schedule', '/faq')
+      } else if (src === 'UNSTOP' || baseUrl.includes('unstop.com')) {
+        // Unstop: /about, /problem-statement, /timeline, /prizes
+        pagesToFetch.push('', '/problem-statement', '/timeline', '/prizes')
+      } else if (src === 'INTERNSHALA' || baseUrl.includes('internshala.com')) {
+        // Internshala: /overview, /perks, /company
+        pagesToFetch.push('', '/perks')
+      } else {
+        // Other sites - just fetch main page
+        pagesToFetch.push('')
+      }
+
+      const fetchPage = async (path: string): Promise<string> => {
+        try {
+          const url = path ? `${baseUrl}${path}` : baseUrl
+          
+          // Check cache first
+          const cached = scrapeCache.get<string>(url)
+          if (cached) {
+            console.log(`[Cache HIT] ${url}`)
+            return cached
+          }
+          
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 10000)
+          const response = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'User-Agent': UA },
+          })
+          clearTimeout(timeout)
+          if (!response.ok) return ''
+          const html = await response.text()
+          const content = html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .substring(0, 6000)
+          
+          // Cache the result
+          if (content.length > 100) {
+            scrapeCache.set(url, content)
+          }
+          
+          return content
+        } catch {
+          return ''
+        }
+      }
+
+      // Fetch pages in parallel
+      const results = await Promise.allSettled(pagesToFetch.map(p => fetchPage(p)))
+      const pageContents = results
+        .map((r, i) => {
+          if (r.status === 'fulfilled' && r.value.length > 100) {
+            const pageName = pagesToFetch[i] || 'overview'
+            return `\n--- ${pageName.toUpperCase()} PAGE ---\n${r.value}`
+          }
+          return ''
+        })
+        .filter(Boolean)
+      
+      allContent = pageContents.join('\n')
+      console.log(`[Enrichment] Fetched ${pageContents.length} pages for ${record.title} (${allContent.length} chars)`)
+    }
+
     const scrapedHints = [
       record.title ? `Title: ${record.title}` : '',
       record.themes && record.themes !== '[]' ? `Themes: ${record.themes}` : '',
@@ -654,13 +736,30 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
       record.duration ? `Duration: ${record.duration}` : '',
     ].filter(Boolean).join('\n')
 
-    const prompt = `Enrich this hackathon with full details. Extract ALL available information.
+    // If content is empty (SPA), try DuckDuckGo search fallback
+    if (allContent.length < 300 && record.title) {
+      console.log(`[Enrichment] Content too short for ${record.title}, trying search fallback...`)
+      const searchQuery = `${record.title} hackathon details rounds prizes eligibility schedule`
+      const searchResults = await searchDetails(searchQuery)
+      if (searchResults && searchResults.length > 50) {
+        allContent = `\n--- SEARCH RESULTS ---\n${searchResults}`
+        console.log(`[Enrichment] Search fallback found ${searchResults.length} chars for ${record.title}`)
+      }
+    }
 
-${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${content ? `\nDescription:\n${content}\n` : '\n(No description available)\n'}
+    const contentSection = allContent.length > 300
+      ? `\nPage content from ${record.url} (multiple pages scraped):\n${allContent}`
+      : record.description
+        ? `\nDescription:\n${record.description}`
+        : '\n(No description available)'
+
+    const prompt = `Enrich this hackathon with full details. Extract ALL available information from the scraped pages.
+
+${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${contentSection}
 Extract and return a JSON object with ALL of these fields:
 
 {
-  "description": "enhanced brief description (2-3 sentences, summarize what the hackathon is about)",
+  "description": "enhanced brief description (2-3 sentences)",
   "targetDepartments": ["CSE", "IT", ...],
   "targetYears": [1, 2, 3, 4],
   "eligibility": "free text eligibility criteria",
@@ -710,23 +809,18 @@ YEAR ANALYSIS (INFER from context):
 
 CRITICAL RULES:
 1. NEVER fabricate dates. Only use dates EXPLICITLY found. If none, set to null.
-2. Extract rounds/phases/stages from the selection process flow.
-3. Analyze the TOPIC to infer departments, not just extract text.
-4. Return ONLY the JSON object, no other text.`
+2. Extract rounds/phases/stages from the SCHEDULE page if available.
+3. Extract prize breakdown from the PRIZES page if available.
+4. Analyze the TOPIC to infer departments, not just extract text.
+5. Return ONLY the JSON object, no other text.`
 
     let responseText = ''
-    if (openCodeServe) {
-      try {
-        const completion = await openCodeServe.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'big-pickle',
-          temperature: 0.1,
-          max_tokens: 4000,
-        })
-        responseText = completion.choices[0]?.message?.content || ''
-      } catch (serveErr) {
-        console.log('OpenCode Serve failed for hackathon staging enrichment:', serveErr)
-      }
+    try {
+      responseText = await chatCompletion('enrichment', [
+        { role: 'user', content: prompt },
+      ], { temperature: 0.1, max_tokens: 4000 })
+    } catch (aiErr) {
+      console.log('AI Manager enrichment failed for hackathon staging:', aiErr)
     }
 
     if (!responseText) return
@@ -775,7 +869,14 @@ export async function enrichInternshipStaging(id: string): Promise<void> {
     const record = await prisma.internshipStaging.findUnique({ where: { id } })
     if (!record) return
 
-    const content = record.description || ''
+    // Strip HTML from description for clean AI input
+    const rawContent = record.description || ''
+    const content = rawContent
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
     const scrapedHints = [
       record.title ? `Title: ${record.title}` : '',
       record.company ? `Company: ${record.company}` : '',
@@ -828,18 +929,12 @@ CRITICAL RULES:
 3. Return ONLY the JSON object, no other text.`
 
     let responseText = ''
-    if (openCodeServe) {
-      try {
-        const completion = await openCodeServe.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'big-pickle',
-          temperature: 0.1,
-          max_tokens: 1000,
-        })
-        responseText = completion.choices[0]?.message?.content || ''
-      } catch (serveErr) {
-        console.log('OpenCode Serve failed for internship staging enrichment:', serveErr)
-      }
+    try {
+      responseText = await chatCompletion('enrichment', [
+        { role: 'user', content: prompt },
+      ], { temperature: 0.1, max_tokens: 1000 })
+    } catch (aiErr) {
+      console.log('AI Manager enrichment failed for internship staging:', aiErr)
     }
 
     if (!responseText) return
@@ -891,4 +986,19 @@ export async function fetchFromAllSources(): Promise<NormalizedOpportunity[]> {
     fetchUnstop(),
   ])
   return results.flat().filter(opp => !opp.deadline || !isEnded(opp.deadline))
+}
+
+const platformFetchers: Record<string, (limit?: number) => Promise<NormalizedOpportunity[]>> = {
+  DEVFOLIO: fetchDevfolio,
+  DEVPOST: fetchDevpost,
+  INTERNSHALA: fetchInternshala,
+  MLH: fetchMLH,
+  UNSTOP: fetchUnstop,
+}
+
+export async function fetchFromPlatform(platform: string, limit?: number): Promise<NormalizedOpportunity[]> {
+  const fn = platformFetchers[platform.toUpperCase()]
+  if (!fn) throw new Error(`Unknown platform: ${platform}`)
+  const results = await fn(limit)
+  return results.filter(opp => !opp.deadline || !isEnded(opp.deadline))
 }

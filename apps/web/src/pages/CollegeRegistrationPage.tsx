@@ -62,15 +62,15 @@ export default function CollegeRegistrationPage() {
       <div className="min-h-screen flex items-center justify-center bg-surface-50">
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
           className="bg-white rounded-2xl border border-surface-100 p-8 w-full max-w-md text-center">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-500" />
+          <div className="w-16 h-16 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-primary-500" />
           </div>
           <h1 className="text-xl font-bold text-surface-900 mb-2">College Registered!</h1>
           <p className="text-sm text-surface-500 mb-6">
             Your college has been submitted for approval. Once the Super Admin approves, you can log in with your credentials.
           </p>
           <Link to="/login"
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium text-sm">
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm">
             Go to Login
           </Link>
         </motion.div>
@@ -87,7 +87,7 @@ export default function CollegeRegistrationPage() {
         </Link>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center">
             <GraduationCap className="w-7 h-7 text-white" />
           </div>
           <div>
@@ -157,7 +157,7 @@ export default function CollegeRegistrationPage() {
         </div>
 
         <button onClick={handleSubmit} disabled={loading}
-          className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
+          className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle size={16} />}
           {loading ? 'Submitting...' : 'Register College'}
         </button>

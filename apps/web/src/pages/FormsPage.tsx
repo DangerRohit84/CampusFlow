@@ -5,10 +5,12 @@ import { formAPI, departmentAPI, roomAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
-  Filter, Clock, CheckCircle2
+  Filter, Clock, CheckCircle2, FileEdit
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
+import Badge from '../components/ui/Badge'
+import Card from '../components/ui/Card'
 import FilterTabs from '../components/shared/FilterTabs'
 import EmptyState from '../components/shared/EmptyState'
 import PageHeader from '../components/shared/PageHeader'
@@ -78,20 +80,24 @@ export default function FormsPage() {
     tabs: [
       { key: 'all', label: 'All' },
       { key: 'active', label: 'Active' },
-      { key: 'expired', label: 'Expired' },
+      { key: 'draft', label: 'Draft' },
+      { key: 'closed', label: 'Closed' },
     ],
     defaultTab: 'active',
     filterFn: (f, tab) => {
       if (tab === 'all') return true
-      if (tab === 'active') return getFormStatus(f) !== 'expired'
-      return getFormStatus(f) === tab
+      if (tab === 'active') return getFormStatus(f) === 'active' || getFormStatus(f) === 'expiring'
+      if (tab === 'draft') return !f.status || f.status === 'draft'
+      if (tab === 'closed') return getFormStatus(f) === 'expired'
+      return true
     },
   })
 
   const tabCounts = useMemo(() => ({
     all: forms.length,
-    active: forms.filter(f => getFormStatus(f) !== 'expired').length,
-    expired: forms.filter(f => getFormStatus(f) === 'expired').length,
+    active: forms.filter(f => getFormStatus(f) === 'active' || getFormStatus(f) === 'expiring').length,
+    draft: forms.filter(f => !f.status || f.status === 'draft').length,
+    closed: forms.filter(f => getFormStatus(f) === 'expired').length,
   }), [forms])
 
   useEffect(() => {
@@ -223,13 +229,25 @@ export default function FormsPage() {
       case 'TEXT': return '📝'
       case 'TEXTAREA': return '📄'
       case 'SELECT': return '📋'
-      case 'RADIO': return '🔘'
+      case 'RADIO': return '⚪'
       case 'CHECKBOX': return '☑️'
       case 'NUMBER': return '🔢'
       case 'EMAIL': return '📧'
       case 'DATE': return '📅'
-      default: return '📝'
+      default: return "📝";
     }
+  }
+
+  const getStatusBadge = (f: any) => {
+    const status = getFormStatus(f)
+    if (status === 'expired') return <Badge variant="default" dot>Closed</Badge>
+    if (status === 'expiring') return <Badge variant="danger" dot>Expiring Soon</Badge>
+    if (!f.status || f.status === 'draft') return <Badge variant="warning" dot>Draft</Badge>
+    return <Badge variant="success" dot>Active</Badge>
+  }
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
   if (loading) {
@@ -245,12 +263,12 @@ export default function FormsPage() {
       {/* Header */}
       <PageHeader
         title="Forms"
-        subtitle="Create and manage custom forms"
+        subtitle="Create and manage custom forms for feedback, surveys, and more"
         action={
           canCreate && (
             <button
               onClick={createModal.open}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium shadow-sm"
             >
               <Plus size={16} /> Create Form
             </button>
@@ -263,13 +281,14 @@ export default function FormsPage() {
         tabs={[
           { key: 'all', label: 'All', icon: Filter, count: tabCounts.all },
           { key: 'active', label: 'Active', icon: CheckCircle2, count: tabCounts.active },
-          { key: 'expired', label: 'Expired', icon: Clock, count: tabCounts.expired },
+          { key: 'draft', label: 'Draft', icon: FileEdit, count: tabCounts.draft },
+          { key: 'closed', label: 'Closed', icon: Clock, count: tabCounts.closed },
         ]}
         activeTab={activeTab}
         onTabChange={(key) => setActiveTab(key)}
       />
 
-      {/* Forms Grid */}
+      {/* Forms List */}
       {forms.length === 0 ? (
         <EmptyState
           icon={FileText}
@@ -282,34 +301,58 @@ export default function FormsPage() {
           title={`No ${activeTab} forms`}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredForms.map((f) => {
-            const isExpired = f.expiresAt && new Date(f.expiresAt) < new Date()
-
-            return (
-              <motion.div
-                key={f.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={clsx(
-                  'bg-white rounded-2xl border p-5 hover:shadow-lg transition-all cursor-pointer group',
-                  getFormStatus(f) === 'expiring' ? 'border-red-200 bg-red-50/30' : 'border-surface-100'
-                )}
+        <div className="space-y-2">
+          {filteredForms.map((f, index) => (
+            <motion.div
+              key={f.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.03, duration: 0.2 }}
+            >
+              <Card
+                hover
+                padding="none"
                 onClick={() => navigate(`/forms/${f.id}`)}
+                className="group"
               >
-                <div className="flex items-start justify-between mb-3">
-                  {isExpired ? (
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-surface-100 text-surface-500">Expired</span>
-                  ) : getFormStatus(f) === 'expiring' ? (
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Expiring Soon</span>
-                  ) : (
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">{f.status || 'Active'}</span>
-                  )}
-                  <div className="flex gap-1">
+                <div className="flex items-center gap-4 p-4">
+                  {/* Form Icon */}
+                  <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
+                    <FileText size={18} className="text-primary-500" />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h3 className="font-bold text-surface-900 truncate">{f.title}</h3>
+                      {getStatusBadge(f)}
+                    </div>
+                    {f.description && (
+                      <p className="text-sm text-surface-500 truncate">{f.description}</p>
+                    )}
+                    <div className="flex items-center gap-4 mt-1.5 text-xs text-surface-400">
+                      {f.expiresAt && (
+                        <span className="flex items-center gap-1">
+                          <Calendar size={12} />
+                          Due {formatDate(f.expiresAt)}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <Users size={12} />
+                        {f.responses?.length || 0} responses
+                      </span>
+                      {f.creator?.name && (
+                        <span className="text-surface-400">by {f.creator.name}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {isTeacher && (
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditModal(f) }}
-                        className="p-1 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 opacity-0 group-hover:opacity-100 transition-all"
+                        className="p-1.5 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
                       >
                         <Pencil size={14} />
                       </button>
@@ -317,45 +360,19 @@ export default function FormsPage() {
                     {f.creatorId === user?.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(f.id) }}
-                        className="p-1 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                        className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>
                     )}
                   </div>
-                </div>
 
-                <h3 className="font-bold text-surface-900 mb-1 line-clamp-1">{f.title}</h3>
-                {f.creator?.name && <p className="text-surface-500 text-xs mb-2">by {f.creator.name}</p>}
-
-                <div className="flex items-center gap-3 text-xs text-surface-500">
-                  <span className="flex items-center gap-1">
-                    <FileText size={11} className="text-primary-500" />
-                    {f.fields?.length || 0} fields
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Users size={11} className="text-accent-500" />
-                    {f.responses?.length || 0}
-                  </span>
-                  {f.expiresAt && (
-                    <span className="flex items-center gap-1">
-                      <Calendar size={11} className={clsx(getFormStatus(f) === 'expiring' ? 'text-red-400' : 'text-surface-400')} />
-                      <span className={clsx(getFormStatus(f) === 'expiring' ? 'text-red-500 font-medium' : '')}>
-                        {new Date(f.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </span>
-                  )}
+                  {/* Chevron */}
+                  <ChevronRight size={18} className="text-surface-300 group-hover:text-primary-500 transition-colors shrink-0" />
                 </div>
-
-                <div className="mt-3 pt-3 border-t border-surface-100 flex items-center justify-between">
-                  <span className="text-xs text-surface-400">
-                    {f.expiresAt ? `Due ${new Date(f.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No deadline'}
-                  </span>
-                  <ChevronRight size={14} className="text-surface-400 group-hover:text-primary-500 transition-colors" />
-                </div>
-              </motion.div>
-            )
-          })}
+              </Card>
+            </motion.div>
+          ))}
         </div>
       )}
 
@@ -373,78 +390,78 @@ export default function FormsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Create Form</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Create Form</h2>
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Title *</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Title *</label>
                   <input
                     type="text"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                     placeholder="Form title"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
                   <textarea
                     value={formDesc}
                     onChange={(e) => setFormDesc(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                     placeholder="What is this form for?"
                   />
                 </div>
 
                 {/* Allow Edit Toggle */}
-                <div className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
+                <div className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-850 rounded-xl">
                   <div>
-                    <p className="text-sm font-medium text-surface-700">Allow editing responses</p>
-                    <p className="text-xs text-surface-400">Students can change their submission after submitting</p>
+                    <p className="text-sm font-medium text-surface-700 dark:text-night-200">Allow editing responses</p>
+                    <p className="text-xs text-surface-400 dark:text-night-200/70">Students can change their submission after submitting</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setAllowEdit(!allowEdit)}
-                    className={clsx('relative w-11 h-6 rounded-full transition-colors', allowEdit ? 'bg-primary-500' : 'bg-surface-300')}
+                    className={clsx('relative w-11 h-6 rounded-full transition-colors', allowEdit ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
                   >
-                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', allowEdit && 'translate-x-5')} />
+                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', allowEdit && 'translate-x-5')} />
                   </button>
                 </div>
 
                 {/* Expiration */}
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Expiration (optional)</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Expiration (optional)</label>
                   <input
                     type="datetime-local"
                     value={expiresAt}
                     onChange={(e) => setExpiresAt(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                   />
-                  <p className="text-xs text-surface-400 mt-1">Leave empty for no expiration</p>
+                  <p className="text-xs text-surface-400 dark:text-night-200/70 mt-1">Leave empty for no expiration</p>
                 </div>
 
                 {/* Fields */}
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-2 block">Fields</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-2 block">Fields</label>
                   <div className="space-y-3">
                     {fields.map((field, i) => (
-                      <div key={i} className="p-3 bg-surface-50 rounded-xl border border-surface-100">
+                      <div key={i} className="p-3 bg-surface-50 dark:bg-night-850 rounded-xl border border-surface-100 dark:border-night-600">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-lg">{getFieldIcon(field.type)}</span>
                           <input
                             type="text"
                             value={field.label}
                             onChange={(e) => updateField(i, { label: e.target.value })}
-                            className="flex-1 px-2 py-1 bg-white border border-surface-200 rounded-lg text-sm"
+                            className="flex-1 px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-900 dark:text-night-50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             placeholder="Field label"
                           />
                           <select
                             value={field.type}
                             onChange={(e) => updateField(i, { type: e.target.value })}
-                            className="px-2 py-1 bg-white border border-surface-200 rounded-lg text-sm"
+                            className="px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-900 dark:text-night-50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                           >
                             <option value="TEXT">Text</option>
                             <option value="TEXTAREA">Long Text</option>
@@ -467,9 +484,9 @@ export default function FormsPage() {
                           {fields.length > 1 && (
                             <button
                               onClick={() => removeField(i)}
-                              className="text-red-400 hover:text-red-600 text-xs"
+                              className="text-danger-400 hover:text-danger-600 text-xs"
                             >
-                              ✕
+                ✕
                             </button>
                           )}
                         </div>
@@ -478,7 +495,7 @@ export default function FormsPage() {
                             type="text"
                             value={field.options?.join(', ') || ''}
                             onChange={(e) => updateField(i, { options: e.target.value.split(',').map((o) => o.trim()) })}
-                            className="w-full px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
+                            className="w-full px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-900 dark:text-night-50 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             placeholder="Options (comma separated)"
                           />
                         )}
@@ -495,10 +512,10 @@ export default function FormsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium">
+                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">
                   Create
                 </button>
               </div>
@@ -521,65 +538,65 @@ export default function FormsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Edit Form</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Edit Form</h2>
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Title</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Title</label>
                   <input
                     type="text"
                     value={editFormTitle}
                     onChange={(e) => setEditFormTitle(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                     placeholder="Form title"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
                   <textarea
                     value={editFormDesc}
                     onChange={(e) => setEditFormDesc(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                     placeholder="What is this form for?"
                   />
                 </div>
 
                 {/* Allow Edit Toggle */}
-                <div className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
+                <div className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-850 rounded-xl">
                   <div>
-                    <p className="text-sm font-medium text-surface-700">Allow editing responses</p>
-                    <p className="text-xs text-surface-400">Students can change their submission after submitting</p>
+                    <p className="text-sm font-medium text-surface-700 dark:text-night-200">Allow editing responses</p>
+                    <p className="text-xs text-surface-400 dark:text-night-200/70">Students can change their submission after submitting</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setEditAllowEdit(!editAllowEdit)}
-                    className={clsx('relative w-11 h-6 rounded-full transition-colors', editAllowEdit ? 'bg-primary-500' : 'bg-surface-300')}
+                    className={clsx('relative w-11 h-6 rounded-full transition-colors', editAllowEdit ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
                   >
-                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', editAllowEdit && 'translate-x-5')} />
+                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', editAllowEdit && 'translate-x-5')} />
                   </button>
                 </div>
 
                 {/* Expiration */}
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Expiration (optional)</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Expiration (optional)</label>
                   <input
                     type="datetime-local"
                     value={editExpiresAt}
                     onChange={(e) => setEditExpiresAt(e.target.value)}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                   />
-                  <p className="text-xs text-surface-400 mt-1">Leave empty for no expiration</p>
+                  <p className="text-xs text-surface-400 dark:text-night-200/70 mt-1">Leave empty for no expiration</p>
                 </div>
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">
+                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleEdit} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium">
+                <button onClick={handleEdit} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">
                   Update
                 </button>
               </div>

@@ -272,15 +272,15 @@ export default function FormDetailPage() {
             /* Student View: Fill Form */
             <div className="bg-white rounded-2xl border border-surface-100 p-6">
               {submitted && (
-                <div className="mb-4 p-3 bg-green-50 rounded-xl border border-green-200 flex items-center gap-2">
-                  <CheckCircle size={18} className="text-green-500" />
-                  <span className="text-sm text-green-700 font-medium">You've already submitted. You can update your response.</span>
+                <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-200 flex items-center gap-2">
+                  <CheckCircle size={18} className="text-primary-500" />
+                  <span className="text-sm text-primary-700 font-medium">You've already submitted. You can update your response.</span>
                 </div>
               )}
 
               {!isEligible && (
-                <div className="mb-4 p-3 bg-red-50 rounded-xl border border-red-200 flex items-center gap-2">
-                  <span className="text-sm text-red-700 font-medium">You are not eligible to respond to this form.</span>
+                <div className="mb-4 p-3 bg-danger-50 rounded-xl border border-danger-200 flex items-center gap-2">
+                  <span className="text-sm text-danger-700 font-medium">You are not eligible to respond to this form.</span>
                 </div>
               )}
 
@@ -289,7 +289,7 @@ export default function FormDetailPage() {
                   <div key={field.id}>
                     <label className="text-sm font-medium text-surface-700 mb-1 block">
                       {field.label}
-                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                      {field.required && <span className="text-danger-500 ml-1">*</span>}
                     </label>
                     
                     {field.type === 'TEXT' && (
@@ -397,27 +397,27 @@ export default function FormDetailPage() {
               </div>
 
               {isExpired && !submitted ? (
-                <div className="mt-6 p-4 bg-red-50 rounded-xl text-center">
-                  <Clock size={24} className="mx-auto text-red-500 mb-2" />
-                  <p className="text-sm font-medium text-red-700">Form has expired</p>
-                  <p className="text-xs text-red-500">Expired on {new Date(form.expiresAt).toLocaleString()}</p>
+                <div className="mt-6 p-4 bg-danger-50 rounded-xl text-center">
+                  <Clock size={24} className="mx-auto text-danger-500 mb-2" />
+                  <p className="text-sm font-medium text-danger-700">Form has expired</p>
+                  <p className="text-xs text-danger-500">Expired on {new Date(form.expiresAt).toLocaleString()}</p>
                 </div>
               ) : !isEligible ? (
-                <div className="mt-6 p-4 bg-red-50 rounded-xl text-center">
-                  <p className="text-sm font-medium text-red-700">You are not eligible to respond to this form</p>
+                <div className="mt-6 p-4 bg-danger-50 rounded-xl text-center">
+                  <p className="text-sm font-medium text-danger-700">You are not eligible to respond to this form</p>
                 </div>
               ) : !submitted || form.allowEdit ? (
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || isExpired}
-                  className="mt-6 w-full py-3 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="mt-6 w-full py-3 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                   {submitted ? 'Update Response' : 'Submit Response'}
                 </button>
               ) : (
                 <div className="mt-6 p-4 bg-surface-50 rounded-xl text-center">
-                  <CheckCircle size={24} className="mx-auto text-green-500 mb-2" />
+                  <CheckCircle size={24} className="mx-auto text-primary-500 mb-2" />
                   <p className="text-sm font-medium text-surface-700">You've already submitted</p>
                   <p className="text-xs text-surface-400">Editing is not allowed for this form</p>
                 </div>
@@ -449,14 +449,14 @@ export default function FormDetailPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-surface-500">Edit responses</span>
-                <span className={clsx('font-medium', form.allowEdit ? 'text-green-600' : 'text-red-500')}>
+                <span className={clsx('font-medium', form.allowEdit ? 'text-primary-600' : 'text-danger-500')}>
                   {form.allowEdit ? 'Allowed' : 'Locked'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-surface-500">Expires</span>
                 {form.expiresAt ? (
-                  <span className={clsx('font-medium text-xs', isExpired ? 'text-red-500' : 'text-amber-600')}>
+                  <span className={clsx('font-medium text-xs', isExpired ? 'text-danger-500' : 'text-warning-600')}>
                     {isExpired ? 'Expired' : new Date(form.expiresAt).toLocaleDateString()}
                   </span>
                 ) : (
@@ -473,19 +473,19 @@ export default function FormDetailPage() {
               <div className="space-y-3">
                 {targetDeptNames.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <GraduationCap size={14} className="text-violet-500 shrink-0" />
+                    <GraduationCap size={14} className="text-accent-500 shrink-0" />
                     <span className="text-xs font-semibold text-surface-500">Departments:</span>
                     {targetDeptNames.map(name => (
-                      <span key={name} className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-bold">{name}</span>
+                      <span key={name} className="px-2 py-0.5 bg-accent-100 text-accent-700 rounded-lg text-xs font-bold">{name}</span>
                     ))}
                   </div>
                 )}
                 {targetYearsList.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <BookOpen size={14} className="text-purple-500 shrink-0" />
+                    <BookOpen size={14} className="text-primary-500 shrink-0" />
                     <span className="text-xs font-semibold text-surface-500">Years:</span>
                     {targetYearsList.sort().map(y => (
-                      <span key={y} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold">Year {y}</span>
+                      <span key={y} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-lg text-xs font-bold">Year {y}</span>
                     ))}
                   </div>
                 )}
@@ -501,7 +501,7 @@ export default function FormDetailPage() {
               <h3 className="font-bold text-surface-900 mb-3">Linked Rooms</h3>
               <div className="flex flex-wrap gap-2">
                 {form.formRooms.map((fr: any) => (
-                  <span key={fr.room.id} className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                  <span key={fr.room.id} className="px-3 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
                     🏠 {fr.room.name}
                   </span>
                 ))}
@@ -538,7 +538,7 @@ export default function FormDetailPage() {
                           className="flex-1 px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
                           placeholder="Field label"
                         />
-                        <button onClick={() => removeEditField(i)} disabled={editFields.length <= 1} className="text-red-400 hover:text-red-600 text-xs disabled:opacity-30">✕</button>
+                        <button onClick={() => removeEditField(i)} disabled={editFields.length <= 1} className="text-danger-400 hover:text-danger-600 text-xs disabled:opacity-30">✕</button>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <select
@@ -588,7 +588,7 @@ export default function FormDetailPage() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs">{getFieldIcon(field.type)}</span>
                         <span className="text-surface-600">{field.label}</span>
-                        {field.required && <span className="text-red-500 text-xs">*</span>}
+                        {field.required && <span className="text-danger-500 text-xs">*</span>}
                       </div>
                       <span className="text-xs text-surface-400">{field.type}</span>
                     </div>

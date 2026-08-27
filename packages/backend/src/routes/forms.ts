@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
+import { notifyUsers } from '../services/notificationService'
 
 const router = Router()
 router.use(authenticate)
@@ -23,6 +24,55 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN' && !isCR)) {
       res.status(403).json({ error: 'Only teachers or CRs can create forms' })
       return
+    }
+
+    // SECURITY: validate authority over EVERY requested room before creating the form.
+    // The isCR gate above only proves CR status in at least one room; without this
+    // per-room check a single CR membership would authorize linking arbitrary rooms,
+    // and teachers/admins could target rooms outside their ownership/college.
+    let authorizedRoomIds: string[] = []
+    if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+      const requestedRoomIds = [...new Set<string>(roomIds)]
+
+      const rooms = await prisma.room.findMany({
+        where: { id: { in: requestedRoomIds } },
+        select: { id: true, teacherId: true, teacher: { select: { collegeId: true } } },
+      })
+      const roomById = new Map(rooms.map(r => [r.id, r]))
+
+      // Batch-fetch CR memberships once instead of querying per room
+      let crRoomIds: string[] = []
+      if (user.role === 'STUDENT') {
+        crRoomIds = (await prisma.roomMember.findMany({
+          where: { studentId: req.userId!, isCR: true, roomId: { in: requestedRoomIds } },
+          select: { roomId: true },
+        })).map(m => m.roomId)
+      }
+
+      authorizedRoomIds = requestedRoomIds.filter((roomId) => {
+        const room = roomById.get(roomId)
+        if (!room) return false // requested room does not exist
+        switch (user.role) {
+          case 'SUPER_ADMIN':
+            return true
+          case 'TEACHER':
+            return room.teacherId === user.id
+          case 'COLLEGE_ADMIN':
+            return room.teacher?.collegeId === user.collegeId
+          case 'STUDENT':
+            return crRoomIds.includes(roomId)
+          default:
+            return false
+        }
+      })
+
+      if (authorizedRoomIds.length !== requestedRoomIds.length) {
+        res.status(403).json({
+          error: 'You are not authorized to post to one or more selected rooms',
+          unauthorizedCount: requestedRoomIds.length - authorizedRoomIds.length,
+        })
+        return
+      }
     }
 
     const form = await prisma.form.create({
@@ -50,13 +100,50 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { fields: { orderBy: { order: 'asc' } } },
     })
 
-    // Link rooms to form if provided
-    if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
-      for (const roomId of roomIds) {
+    // Link rooms to form if provided (only authority-validated rooms)
+    if (authorizedRoomIds.length > 0) {
+      for (const roomId of authorizedRoomIds) {
         await prisma.formRoom.create({
           data: { formId: form.id, roomId }
         })
       }
+    }
+
+    // Notify target students (fire-and-forget)
+    try {
+      const creatorName = user.name
+      let targetUserIds: string[] = []
+
+      if (authorizedRoomIds.length > 0) {
+        // Form linked to rooms — notify all members of those rooms, excluding creator
+        const members = await prisma.roomMember.findMany({
+          where: { roomId: { in: authorizedRoomIds }, studentId: { not: req.userId! } },
+          select: { studentId: true },
+        })
+        targetUserIds = members.map((m: any) => m.studentId)
+      } else {
+        // No rooms — notify all STUDENT users of the same college, excluding creator.
+        // If the creator has no college (e.g., SUPER_ADMIN), skip the broadcast entirely
+        // rather than notifying every student platform-wide.
+        const students = user.collegeId
+          ? await prisma.user.findMany({
+              where: { role: 'STUDENT', collegeId: user.collegeId, id: { not: req.userId! } },
+              select: { id: true },
+            })
+          : []
+        targetUserIds = students.map((s: any) => s.id)
+      }
+
+      if (targetUserIds.length > 0) {
+        await notifyUsers(targetUserIds, {
+          title: 'New Form Posted',
+          message: `${creatorName} posted a new form: ${title}`,
+          type: 'FORM',
+          source: form.id,
+        })
+      }
+    } catch (err) {
+      console.error('Form notification error:', err)
     }
 
     res.status(201).json(form)
@@ -89,11 +176,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         select: { id: true },
       })).map(r => r.id)
 
+      // SECURITY: scope the department branch to the same college and require
+      // both departments to be set, so cross-college forms cannot leak through
+      // a bare creator.departmentId match.
+      const deptBranch = user.collegeId && user.departmentId
+        ? [{ collegeId: user.collegeId, creator: { departmentId: user.departmentId } }]
+        : []
+
       forms = await prisma.form.findMany({
         where: {
           OR: [
             { creatorId: req.userId },
-            { creator: { departmentId: user.departmentId } },
+            ...deptBranch,
             { formRooms: { some: { roomId: { in: teacherRoomIds } } } },
           ],
         },
@@ -107,13 +201,26 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         select: { roomId: true },
       })).map(m => m.roomId)
 
+      // SECURITY: scope the department branch to the same college and require
+      // both departments to be set, so cross-college forms cannot leak through
+      // a bare creator.departmentId match.
+      const deptBranch = user.collegeId && user.departmentId
+        ? [{ collegeId: user.collegeId, creator: { departmentId: user.departmentId } }]
+        : []
+      const studentClauses = [
+        ...deptBranch,
+        { formRooms: { some: { roomId: { in: studentRoomIds } } } },
+      ]
+      if (studentClauses.length === 0) {
+        // Nothing can match — never send an empty OR (Prisma treats it as match-all)
+        res.json([])
+        return
+      }
+
       forms = await prisma.form.findMany({
         where: {
           status: 'ACTIVE',
-          OR: [
-            { creator: { departmentId: user.departmentId } },
-            { formRooms: { some: { roomId: { in: studentRoomIds } } } },
-          ],
+          OR: studentClauses,
         },
         include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
         orderBy: { createdAt: 'desc' },
@@ -139,6 +246,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const existingForm = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!existingForm) {
       res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    // SECURITY: tenant isolation — edits are limited to the form's own college
+    // (creator / same-college admin / SUPER_ADMIN).
+    if (existingForm.collegeId && user.collegeId && existingForm.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'You do not have permission to edit this form' })
       return
     }
 
@@ -188,6 +302,13 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
     const existingForm = await prisma.form.findUnique({ where: { id: req.params.id as string } })
     if (!existingForm) {
       res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    // SECURITY: tenant isolation — edits are limited to the form's own college
+    // (creator / same-college admin / SUPER_ADMIN).
+    if (existingForm.collegeId && user.collegeId && existingForm.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'You do not have permission to edit this form' })
       return
     }
 
@@ -297,7 +418,13 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         const targetDepts = JSON.parse(form.targetDepartments || '[]')
         sameDept = Array.isArray(targetDepts) && targetDepts.includes(user.departmentId)
       } catch {}
-      const noRestrictions = !form.eligibilityEnabled && (!form.targetDepartments || form.targetDepartments === '[]')
+      // SECURITY: an "open" form is only open within its own college —
+      // never platform-wide. (This branch is STUDENT-only; SUPER_ADMIN
+      // bypasses it entirely above.)
+      const noRestrictions =
+        !form.eligibilityEnabled &&
+        (!form.targetDepartments || form.targetDepartments === '[]') &&
+        form.collegeId === user.collegeId
       if (!linkedToMyRoom && !sameDept && !noRestrictions) {
         res.status(403).json({ error: 'Access denied' })
         return
@@ -346,6 +473,14 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'You are not eligible for this form' })
         return
       }
+    }
+
+    // SECURITY: a form with no room links and no eligibility rules is open to
+    // every student *within its college* — never platform-wide. (This handler
+    // is STUDENT-only; SUPER_ADMIN is rejected above.)
+    if (formRooms.length === 0 && !form.eligibilityEnabled && form.collegeId !== user.collegeId) {
+      res.status(403).json({ error: 'You are not eligible for this form' })
+      return
     }
 
     // Check eligibility if enabled
@@ -437,6 +572,12 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    // SECURITY: tenant isolation — cross-college admins may not manage this form.
+    if (user.collegeId && form.collegeId && form.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'Not authorized' })
+      return
+    }
+
     // Check ownership for TEACHER role
     if (user.role === 'TEACHER' && form.creatorId !== req.userId) {
       res.status(403).json({ error: 'Can only extend your own forms' })
@@ -476,6 +617,13 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
 
     if (!form) {
       res.status(404).json({ error: 'Form not found' })
+      return
+    }
+
+    // SECURITY: tenant isolation — responses may only be exported within the
+    // form's own college (SUPER_ADMIN exempt).
+    if (!(form.collegeId === user.collegeId || user.role === 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Access denied' })
       return
     }
 
@@ -552,6 +700,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (user?.collegeId && form.collegeId && form.collegeId !== user.collegeId && user?.role !== 'SUPER_ADMIN') {
+      // SECURITY: tenant isolation — deletions are limited to the form's own
+      // college (creator / same-college admin / SUPER_ADMIN).
+      res.status(403).json({ error: 'You do not have permission to delete this form' })
+      return
+    }
     const isOwner = form.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
     const isCRofLinkedRoom = user?.role === 'STUDENT' && await prisma.formRoom.findFirst({

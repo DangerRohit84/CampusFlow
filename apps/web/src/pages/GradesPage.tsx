@@ -1,141 +1,569 @@
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { GraduationCap, TrendingUp, Award, BookOpen, BarChart3 } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Plus, Trash2, Upload, CheckCircle, Loader2,
+  X, Save, Award
+} from 'lucide-react'
+import toast from 'react-hot-toast'
 import Card from '../components/ui/Card'
-import Badge from '../components/ui/Badge'
-import { userAPI } from '../lib/api'
+import Button from '../components/ui/Button'
+import { gradesAPI } from '../lib/api'
+
+interface Course {
+  id: string
+  name: string
+  code: string
+  credits: number
+  grade: string
+  semester: number
+}
+
+const GRADES = ['O', 'A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'P', 'F'] as const
+
+const gradeToGpa10: Record<string, number> = {
+  'O': 10, 'A+': 9, 'A': 8, 'A-': 7.5,
+  'B+': 7, 'B': 6, 'B-': 5.5,
+  'C+': 5, 'C': 4, 'C-': 3.5,
+  'D': 4, 'P': 4, 'F': 0,
+}
+
+const gradeToGpa4: Record<string, number> = {
+  'O': 4.0, 'A+': 4.0, 'A': 3.5, 'A-': 3.3,
+  'B+': 3.0, 'B': 2.7, 'B-': 2.3,
+  'C+': 2.0, 'C': 1.7, 'C-': 1.3,
+  'D': 1.0, 'P': 1.0, 'F': 0,
+}
+
+function gradeToGpa(grade: string, scale: string): number {
+  return scale === '10' ? (gradeToGpa10[grade] ?? 0) : (gradeToGpa4[grade] ?? 0)
+}
+
+function gradeColor(grade: string): string {
+  const g = gradeToGpa10[grade] ?? 0
+  if (g >= 9) return 'bg-primary-100 dark:bg-[#00A88F]/10 text-primary-600 dark:text-[#00A88F]'
+  if (g >= 7) return 'bg-primary-100 dark:bg-[#00A88F]/10 text-primary-600 dark:text-[#00A88F]'
+  if (g >= 5) return 'bg-warning-100 dark:bg-[#F5A623]/10 text-warning-600 dark:text-[#F5A623]'
+  if (g >= 3) return 'bg-warning-100 dark:bg-[#F5A623]/10 text-warning-600 dark:text-[#F5A623]'
+  return 'bg-danger-100 dark:bg-[#F07068]/10 text-danger-600 dark:text-[#F07068]'
+}
+
+function gpaBarColor(gpa: number, maxScale: number): string {
+  const ratio = gpa / maxScale
+  if (ratio >= 0.7) return 'bg-primary-500'
+  if (ratio >= 0.5) return 'bg-warning-500'
+  return 'bg-danger-500'
+}
 
 export default function GradesPage() {
-  const [grades, setGrades] = useState<any[]>([])
-  const [stats, setStats] = useState<any>(null)
+  const [courses, setCourses] = useState<Course[]>([])
+  const [scale, setScale] = useState<string>('10')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
+  const [uploadImage, setUploadImage] = useState<string | null>(null)
+  const [parsing, setParsing] = useState(false)
+  const [parsedResults, setParsedResults] = useState<any[]>([])
+  const [activeSemester, setActiveSemester] = useState<string>('all')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    Promise.all([userAPI.getGrades(), userAPI.getGradeStats()])
-      .then(([g, s]) => { setGrades(g); setStats(s) })
+    gradesAPI.getData()
+      .then((data) => {
+        setCourses(data.subjects?.map((s: any, i: number) => ({
+          id: s.id || `c-${i}`,
+          name: s.name || '',
+          code: s.code || '',
+          credits: s.credits || 0,
+          grade: s.grade || '',
+          semester: s.semester || 1,
+        })) || [])
+        if (data.scale) setScale(data.scale)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
 
-  const gradeColors: Record<string, string> = {
-    'A+': 'bg-emerald-100 text-emerald-700', 'A': 'bg-emerald-100 text-emerald-700',
-    'A-': 'bg-green-100 text-green-700', 'B+': 'bg-blue-100 text-blue-700',
-    'B': 'bg-blue-100 text-blue-700', 'B-': 'bg-cyan-100 text-cyan-700',
-    'C+': 'bg-amber-100 text-amber-700', 'C': 'bg-amber-100 text-amber-700',
-    'F': 'bg-red-100 text-red-700',
+  const updateCourse = (id: string, field: keyof Course, value: any) => {
+    setCourses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+  }
+
+  const addCourse = () => {
+    setCourses(prev => [...prev, {
+      id: `c-${Date.now()}`,
+      name: '',
+      code: '',
+      credits: 0,
+      grade: '',
+      semester: activeSemester === 'all' ? 1 : Number(activeSemester),
+    }])
+  }
+
+  const deleteCourse = (id: string) => {
+    setCourses(prev => prev.filter(c => c.id !== id))
+  }
+
+  // Semester filtering
+  const semesters = [...new Set(courses.map(c => c.semester))].sort((a, b) => a - b)
+  const filteredCourses = activeSemester === 'all'
+    ? courses
+    : courses.filter(c => c.semester === Number(activeSemester))
+
+  // Computed values
+  const maxScale = scale === '10' ? 10 : 4
+  const coursesWithGpa = filteredCourses.map(c => ({
+    ...c,
+    gpa: c.grade ? gradeToGpa(c.grade, scale) : 0,
+  }))
+  const totalCredits = coursesWithGpa.reduce((sum, c) => sum + c.credits, 0)
+  const cgpa = totalCredits > 0
+    ? coursesWithGpa.reduce((sum, c) => sum + c.gpa * c.credits, 0) / totalCredits
+    : 0
+  const cgpaDisplay = cgpa.toFixed(2)
+
+  // Overall stats (all semesters)
+  const overallCredits = courses.reduce((sum, c) => sum + c.credits, 0)
+  const overallCgpa = overallCredits > 0
+    ? courses.reduce((sum, c) => sum + (c.grade ? gradeToGpa(c.grade, scale) : 0) * c.credits, 0) / overallCredits
+    : 0
+
+  const gradeDistribution: Record<string, number> = {}
+  filteredCourses.forEach(c => {
+    if (c.grade) {
+      gradeDistribution[c.grade] = (gradeDistribution[c.grade] || 0) + 1
+    }
+  })
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await gradesAPI.saveData(courses, scale)
+      toast.success('Grades saved!')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file')
+      return
+    }
+    setParsedResults([])
+    setShowUpload(true)
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const base64 = e.target?.result as string
+      setUploadImage(base64)
+      try {
+        setParsing(true)
+        const parsed = await gradesAPI.parse(base64)
+        if (parsed?.subjects?.length) {
+          setParsedResults(parsed.subjects)
+        } else {
+          toast.error('Could not parse grades from image')
+        }
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error || 'Failed to parse image')
+      } finally {
+        setParsing(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }, [])
+
+  const handleImport = async () => {
+    const sem = activeSemester === 'all' ? 1 : Number(activeSemester)
+    const imported = parsedResults.map((s: any, i: number) => ({
+      id: `imported-${Date.now()}-${i}`,
+      name: s.name || '',
+      code: s.code || '',
+      credits: s.credits || 0,
+      grade: s.grade || '',
+      semester: sem,
+    }))
+    const updated = [...courses.filter(c => c.semester !== sem), ...imported]
+    setCourses(updated)
+    setShowUpload(false)
+    setUploadImage(null)
+    setParsedResults([])
+    try {
+      await gradesAPI.saveData(updated, scale)
+      toast.success('Grades imported & saved!')
+    } catch {
+      toast.error('Imported but failed to save')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+      </div>
+    )
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold text-surface-900">Grades</h1>
-        <p className="text-surface-500 mt-1">Your academic performance overview</p>
-      </motion.div>
-
-      {/* Stats Row */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card hover className="relative overflow-hidden">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-surface-500">CGPA</p>
-              <p className="text-4xl font-bold text-surface-900 mt-1">{loading ? '—' : stats?.cgpa?.toFixed(2) || '0.00'}</p>
-              <p className="text-xs text-surface-400 mt-1">out of 10.0</p>
-            </div>
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white shadow-lg"><TrendingUp size={22} /></div>
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-surface-900 dark:text-night-50">Grades</h1>
+            <p className="text-surface-500 dark:text-night-200 mt-1">Calculate your CGPA</p>
           </div>
-          <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-emerald-50 rounded-full opacity-50" />
-        </Card>
-
-        <Card hover className="relative overflow-hidden">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-surface-500">Total Credits</p>
-              <p className="text-4xl font-bold text-surface-900 mt-1">{loading ? '—' : stats?.totalCredits || 0}</p>
-              <p className="text-xs text-surface-400 mt-1">across {stats?.courseCount || 0} courses</p>
+          <div className="flex items-center gap-2">
+            {/* Scale Toggle */}
+            <div className="flex items-center rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 overflow-hidden">
+              <button
+                onClick={() => setScale('10')}
+                className={`px-2.5 py-1.5 text-sm font-bold transition-colors ${
+                  scale === '10'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600'
+                }`}
+              >
+                10
+              </button>
+              <button
+                onClick={() => setScale('4')}
+                className={`px-2.5 py-1.5 text-sm font-bold transition-colors ${
+                  scale === '4'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600'
+                }`}
+              >
+                4
+              </button>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white shadow-lg"><BookOpen size={22} /></div>
-          </div>
-          <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-primary-50 rounded-full opacity-50" />
-        </Card>
-
-        <Card hover className="relative overflow-hidden">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-surface-500">Highest Grade</p>
-              <p className="text-4xl font-bold text-surface-900 mt-1">
-                {loading ? '—' : grades.reduce((best, g) => g.gpa > (best?.gpa || 0) ? g : best, null)?.grade || '—'}
-              </p>
-              <p className="text-xs text-surface-400 mt-1">keep it up!</p>
-            </div>
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 flex items-center justify-center text-white shadow-lg"><Award size={22} /></div>
-          </div>
-          <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-accent-50 rounded-full opacity-50" />
-        </Card>
-      </motion.div>
-
-      {/* GPA Visual Bar */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card hover>
-          <h3 className="font-bold text-surface-900 mb-4">GPA Scale</h3>
-          <div className="relative h-8 bg-surface-100 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${((stats?.cgpa || 0) / 10) * 100}%` }}
-              transition={{ duration: 1, delay: 0.5 }}
-              className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary-500 to-accent-500 rounded-full"
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1a2530] transition-colors"
+            >
+              <Upload size={14} /> Upload
+            </button>
+            <button
+              onClick={addCourse}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-primary-500 text-white hover:bg-primary-600 transition-colors"
+            >
+              <Plus size={14} /> Add
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleFile(file)
+                e.target.value = ''
+              }}
             />
-            <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-surface-900">
-              {stats?.cgpa?.toFixed(2) || '0.00'} / 10.00
+          </div>
+        </div>
+
+        {/* Semester Tabs */}
+        <div className="flex items-center gap-1.5 mt-3 overflow-x-auto pb-1">
+          <button
+            onClick={() => setActiveSemester('all')}
+            className={`px-3 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
+              activeSemester === 'all'
+                ? 'bg-primary-500 text-white'
+                : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47]'
+            }`}
+          >
+            All
+          </button>
+          {semesters.map((sem) => (
+            <button
+              key={sem}
+              onClick={() => setActiveSemester(String(sem))}
+              className={`px-3 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
+                activeSemester === String(sem)
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47]'
+              }`}
+            >
+              Sem {sem}
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              const nextSem = semesters.length > 0 ? Math.max(...semesters) + 1 : 1
+              setActiveSemester(String(nextSem))
+            }}
+            className="px-2 py-1 text-xs font-bold rounded-full bg-surface-100 dark:bg-night-600 text-surface-500 dark:text-night-200 hover:bg-surface-200 dark:hover:bg-[#2A3A47] transition-colors"
+          >
+            + New
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        {/* CGPA Summary Card */}
+        <Card className="relative overflow-hidden mb-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <p className="text-sm font-medium text-surface-500 dark:text-night-200">
+                {activeSemester === 'all' ? 'Overall CGPA' : `Sem ${activeSemester} CGPA`}
+              </p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-4xl font-bold text-surface-900 dark:text-night-50">{cgpaDisplay}</span>
+                <span className="text-sm text-surface-500 dark:text-night-200">/ {maxScale}.00</span>
+              </div>
+              <p className="text-sm text-surface-500 dark:text-night-200 mt-1">
+                {totalCredits} credits &middot; {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''}
+              </p>
+              {activeSemester !== 'all' && overallCredits > 0 && (
+                <p className="text-xs text-surface-400 dark:text-night-200 mt-1">
+                  Overall: {overallCgpa.toFixed(2)} / {maxScale}.00 ({overallCredits} credits)
+                </p>
+              )}
+            </div>
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white shadow-lg">
+              <Award size={22} />
             </div>
           </div>
-          <div className="flex justify-between mt-2 text-xs text-surface-400">
-            <span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span>
-          </div>
-        </Card>
-      </motion.div>
 
-      {/* Grades Table */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <Card padding="none" hover>
-          <div className="p-6 pb-3">
-            <h3 className="font-bold text-surface-900">Course Grades</h3>
+          {/* GPA Bar */}
+          <div className="h-3 bg-surface-100 dark:bg-night-600 rounded-full overflow-hidden mb-2">
+            <motion.div
+              animate={{ width: `${totalCredits > 0 ? (cgpa / maxScale) * 100 : 0}%` }}
+              transition={{ duration: 0.4 }}
+              className={`h-full rounded-full ${gpaBarColor(cgpa, maxScale)}`}
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-t border-surface-100">
-                  <th className="text-left text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">Course</th>
-                  <th className="text-left text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">Code</th>
-                  <th className="text-center text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">Credits</th>
-                  <th className="text-center text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">Grade</th>
-                  <th className="text-center text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">GPA</th>
-                  <th className="text-center text-xs font-semibold text-surface-500 uppercase tracking-wider px-6 py-3">Performance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-100">
-                {loading ? (
-                  <tr><td colSpan={6} className="text-center py-12 text-surface-400">Loading...</td></tr>
-                ) : grades.map((g) => (
-                  <tr key={g.id} className="hover:bg-surface-50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-surface-900">{g.courseName}</td>
-                    <td className="px-6 py-4 text-surface-500 text-sm">{g.courseId}</td>
-                    <td className="px-6 py-4 text-center text-surface-600">{g.credits}</td>
-                    <td className="px-6 py-4 text-center">
-                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${gradeColors[g.grade] || 'bg-surface-100 text-surface-600'}`}>{g.grade}</span>
-                    </td>
-                    <td className="px-6 py-4 text-center font-bold text-surface-900">{g.gpa.toFixed(1)}</td>
-                    <td className="px-6 py-4">
-                      <div className="w-full h-2 bg-surface-100 rounded-full overflow-hidden max-w-[120px] mx-auto">
-                        <div className={`h-full rounded-full ${g.gpa >= 9 ? 'bg-emerald-500' : g.gpa >= 8 ? 'bg-blue-500' : g.gpa >= 7 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${(g.gpa / 10) * 100}%` }} />
-                      </div>
-                    </td>
-                  </tr>
+
+          {/* Grade Distribution */}
+          {Object.keys(gradeDistribution).length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {Object.entries(gradeDistribution)
+                .sort(([a], [b]) => {
+                  const order = GRADES.indexOf(a as any) - GRADES.indexOf(b as any)
+                  return order
+                })
+                .map(([grade, count]) => (
+                  <span
+                    key={grade}
+                    className={`text-xs font-bold px-2 py-0.5 rounded-full ${gradeColor(grade)}`}
+                  >
+                    {grade}: {count}
+                  </span>
                 ))}
-              </tbody>
-            </table>
-          </div>
+            </div>
+          )}
         </Card>
-      </motion.div>
-    </motion.div>
+
+        {/* Course Cards  —  2-column grid */}
+        {filteredCourses.length === 0 ? (
+          <Card>
+            <div className="text-center py-8">
+              <Award className="w-10 h-10 text-surface-300 dark:text-night-200 mx-auto mb-3" />
+              <p className="text-surface-500 dark:text-night-200">
+                {courses.length > 0
+                  ? 'No courses in this semester. Add one or switch to All.'
+                  : 'No courses yet. Add one or upload an image.'}
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <AnimatePresence>
+              {coursesWithGpa.map((course) => {
+                const barPct = course.grade ? (course.gpa / maxScale) * 100 : 0
+                return (
+                  <motion.div
+                    key={course.id}
+                    layout
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12 }}
+                    className="h-full"
+                  >
+                    <Card className="relative h-full">
+                      {/* Course name + delete */}
+                      <div className="flex items-start gap-2 mb-3">
+                        <input
+                          type="text"
+                          value={course.name}
+                          onChange={(e) => updateCourse(course.id, 'name', e.target.value)}
+                          placeholder="Course name"
+                          className="flex-1 min-w-0 text-lg font-bold text-surface-900 dark:text-night-50 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-surface-400 dark:placeholder:text-night-200"
+                        />
+                        <button
+                          onClick={() => deleteCourse(course.id)}
+                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F07068]/10 transition-colors shrink-0"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      {/* Course code */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <input
+                          type="text"
+                          value={course.code}
+                          onChange={(e) => updateCourse(course.id, 'code', e.target.value)}
+                          placeholder="Course code (optional)"
+                          className="flex-1 min-w-0 text-sm text-surface-600 dark:text-night-200 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-surface-400 dark:placeholder:text-night-200"
+                        />
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-surface-100 dark:bg-night-600 text-surface-500 dark:text-night-200 shrink-0">
+                          Sem {course.semester}
+                        </span>
+                      </div>
+
+                      {/* Credits + Grade */}
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-medium text-surface-500 dark:text-night-200">Credits</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={course.credits}
+                            onChange={(e) => updateCourse(course.id, 'credits', Math.max(0, Number(e.target.value)))}
+                            className="w-16 px-2 py-1 text-sm font-bold text-center rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-medium text-surface-500 dark:text-night-200">Grade</label>
+                          <select
+                            value={course.grade}
+                            onChange={(e) => updateCourse(course.id, 'grade', e.target.value)}
+                            className="px-2 py-1 text-sm font-bold rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          >
+                            <option value="">--</option>
+                            {GRADES.map((g) => (
+                              <option key={g} value={g}>{g}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="h-2.5 bg-surface-100 dark:bg-night-600 rounded-full overflow-hidden mb-2">
+                        <motion.div
+                          animate={{ width: `${barPct}%` }}
+                          transition={{ duration: 0.4 }}
+                          className={`h-full rounded-full ${course.grade ? gpaBarColor(course.gpa, maxScale) : 'bg-surface-200'}`}
+                        />
+                      </div>
+
+                      {/* Computed GPA */}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className={`font-bold ${course.grade ? 'text-surface-900 dark:text-night-50' : 'text-surface-400 dark:text-night-200'}`}>
+                          {course.grade ? `GPA: ${course.gpa.toFixed(1)}` : 'No grade'}
+                        </span>
+                        <span className="text-surface-500 dark:text-night-200">
+                          {course.credits > 0 ? `${course.credits} cr` : ''}
+                        </span>
+                      </div>
+                    </Card>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Bottom spacer so content isn't hidden behind the fixed save bar */}
+        {filteredCourses.length > 0 && <div className="h-16" />}
+      </div>
+
+      {/* Fixed Bottom Save Bar */}
+      {filteredCourses.length > 0 && (
+        <div className="sticky bottom-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-t border-surface-200 dark:border-night-600 px-6 py-3">
+          <div className="flex justify-center">
+            <Button
+              variant="primary"
+              loading={saving}
+              onClick={handleSave}
+              icon={<Save size={16} />}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      <AnimatePresence>
+        {showUpload && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => { setShowUpload(false); setUploadImage(null); setParsedResults([]) }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 shadow-xl w-full max-w-lg p-6 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Upload Grades Image</h2>
+                <button
+                  onClick={() => { setShowUpload(false); setUploadImage(null); setParsedResults([]) }}
+                  className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100 dark:hover:bg-night-600"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {!uploadImage ? (
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  className="border-2 border-dashed border-surface-200 dark:border-night-600 rounded-xl p-8 text-center cursor-pointer hover:border-primary-400 transition-colors"
+                >
+                  <Upload className="w-8 h-8 text-surface-400 mx-auto mb-2" />
+                  <p className="text-sm font-medium text-surface-600 dark:text-night-200">Click to choose image</p>
+                  <p className="text-xs text-surface-400 dark:text-night-200 mt-1">PNG, JPG, JPEG</p>
+                </div>
+              ) : parsing ? (
+                <div className="flex flex-col items-center gap-3 py-8">
+                  <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                  <p className="text-sm text-surface-600 dark:text-night-200">AI is reading your image...</p>
+                </div>
+              ) : parsedResults.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
+                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                  </div>
+                  <p className="text-sm font-medium text-surface-700 dark:text-night-50">Parsed {parsedResults.length} courses:</p>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {parsedResults.map((s: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-sm py-1 px-2 rounded-lg bg-surface-50 dark:bg-night-900">
+                        <span className="text-surface-700 dark:text-night-50">{s.name}</span>
+                        <span className="text-surface-500 dark:text-night-200">{s.grade} ({s.credits} cr)</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="primary" onClick={handleImport} icon={<CheckCircle size={16} />}>
+                      Import
+                    </Button>
+                    <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
+                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                  </div>
+                  <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
+                    Choose different image
+                  </Button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }

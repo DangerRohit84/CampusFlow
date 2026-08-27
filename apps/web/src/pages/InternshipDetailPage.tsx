@@ -7,7 +7,7 @@ import {
   Loader2, CheckCircle, Clock, Plus,
   Edit, Trash2, MapPin, Timer, DollarSign,
   Target, GraduationCap, BookOpen, CircleDot, Rocket, Printer,
-  Lightbulb, Star, Zap, XCircle, Building2
+  Lightbulb, Star, Zap, XCircle, Building2, Info, Shield, Link2, List
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -24,6 +24,7 @@ export default function InternshipDetailPage() {
   const [showReport, setShowReport] = useState(false)
   const [reportStatus, setReportStatus] = useState('SELECTED')
   const [showRegistrations, setShowRegistrations] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
   const isStudent = user?.role === 'STUDENT'
@@ -131,361 +132,364 @@ export default function InternshipDetailPage() {
     const now = new Date()
     const startDate = internship.startDate ? new Date(internship.startDate) : null
     const deadline = internship.deadline ? new Date(internship.deadline) : null
+    if (internship.status === 'ENDED') return { label: 'Ended', color: 'bg-gray-700' }
 
-    if (internship.status === 'ENDED') return { label: 'Ended', color: 'bg-gray-500' }
     if (startDate) {
-      if (now < startDate) return { label: 'Upcoming', color: 'bg-blue-500' }
-      return { label: 'Active', color: 'bg-green-500' }
+      if (now < startDate) return { label: 'Upcoming', color: 'bg-primary-600' }
+      return { label: 'Active', color: 'bg-warning-600' }
     }
     if (deadline) {
-      if (now < deadline) return { label: 'Upcoming', color: 'bg-blue-500' }
-      return { label: 'Active', color: 'bg-green-500' }
+      if (now < deadline) return { label: 'Upcoming', color: 'bg-primary-600' }
+      return { label: 'Active', color: 'bg-warning-600' }
     }
-    return { label: 'Upcoming', color: 'bg-blue-500' }
+    return { label: 'Upcoming', color: 'bg-primary-600' }
   }
 
   const statusBadge = getStatusBadge()
 
   const selectedCount = internship.registrations?.filter((r: any) => r.status === 'SELECTED').length || 0
 
+  const tabs = [
+    { key: 'overview', label: 'Overview', icon: Info },
+    { key: 'eligibility', label: 'Eligibility', icon: Shield },
+    { key: 'registrations', label: 'Registrations', icon: List },
+  ]
+
   return (
     <div className="space-y-6">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-8 md:p-10 text-white">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-white rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
-          <div className="absolute bottom-0 left-0 w-72 h-72 bg-white rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
-        </div>
-
-        <div className="relative z-10">
-          <button
-            onClick={() => navigate('/internships')}
-            className="flex items-center gap-2 text-white/70 hover:text-white text-sm font-medium mb-6 transition-colors print:hidden"
-          >
-            <ArrowLeft size={16} /> Back to Internships
-          </button>
-
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-            <div className="flex-1">
-              <div className="flex flex-wrap items-center gap-3 mb-3">
-                <span className={`px-3 py-1 ${statusBadge.color} rounded-full text-xs font-semibold tracking-wide`}>
-                  {statusBadge.label}
-                </span>
-                {internship.mode && (
-                  <span className="px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold tracking-wide">
-                    {internship.mode}
-                  </span>
-                )}
-              </div>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2">
-                {internship.title}
-              </h1>
-              {internship.company && (
-                <p className="text-white/80 text-lg flex items-center gap-2">
-                  <Building2 size={18} /> {internship.company}
-                </p>
-              )}
-              {internship.role && (
-                <p className="text-white/70 text-sm mt-1">{internship.role}</p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-3 print:hidden">
-              {internship.url && (
-                <a href={internship.url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-all">
-                  <ExternalLink size={14} /> Apply Now
-                </a>
-              )}
-              {isTeacher && (
-                <button onClick={handlePrint}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-all print:hidden">
-                  <Printer size={14} /> Print PDF
-                </button>
-              )}
-              <button
-                onClick={handleExport}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-all">
-                <Download size={14} /> Export Excel
-              </button>
-            </div>
-          </div>
-
-          {/* Hero Stats */}
-          <div className="flex flex-wrap gap-4 mt-6 print:hidden">
-            <div className="flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur-sm rounded-xl">
-              <Users size={16} />
-              <span className="text-sm font-bold">{internship.registrations?.length || 0}</span>
-              <span className="text-xs text-white/70">Registered</span>
-            </div>
-            {internship.deadline && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur-sm rounded-xl">
-                <Clock size={16} />
-                <span className="text-sm font-bold">Deadline: {new Date(internship.deadline).toLocaleDateString()}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Info Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {internship.company && (
-          <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-              <Building2 size={18} className="text-blue-500" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Company</p>
-              <p className="text-sm font-bold text-surface-900">{internship.company}</p>
-            </div>
-          </div>
-        )}
-        {internship.role && (
-          <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-              <Briefcase size={18} className="text-purple-500" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Role</p>
-              <p className="text-sm font-bold text-surface-900">{internship.role}</p>
-            </div>
-          </div>
-        )}
-        {internship.stipend && (
-          <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0">
-              <DollarSign size={18} className="text-green-500" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Stipend</p>
-              <p className="text-sm font-bold text-surface-900">{internship.stipend}</p>
-            </div>
-          </div>
-        )}
-        {internship.duration && (
-          <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-              <Timer size={18} className="text-amber-500" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Duration</p>
-              <p className="text-sm font-bold text-surface-900">{internship.duration}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Registrations — Clickable Card (Teacher View) */}
-      {isTeacher && (
+      {/* Header — matching HackathonDetailPage style */}
+      <div className="space-y-4">
         <button
-          onClick={() => setShowRegistrations(true)}
-          className="w-full bg-white rounded-2xl border border-surface-100 p-5 flex items-center justify-between hover:shadow-md transition-all print:hidden"
+          onClick={() => navigate('/internships')}
+          className="flex items-center gap-2 text-surface-500 hover:text-surface-700 text-sm font-medium transition-colors"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <Users size={18} className="text-indigo-500" />
-            </div>
-            <div className="text-left">
-              <h2 className="font-bold text-surface-900 text-lg">Registrations</h2>
-              <p className="text-xs text-surface-400">
-                {internship.registrations?.length === 0 ? 'No registrations yet' : `${internship.registrations?.length || 0} registered · ${selectedCount} selected`}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {internship.registrations?.length > 0 && (
-              <>
-                <span className="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">{internship.registrations.length}</span>
-                <span className="px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">{selectedCount}</span>
-              </>
-            )}
-            <ExternalLink size={16} className="text-surface-400" />
-          </div>
+          <ArrowLeft size={16} /> Back to Internships
         </button>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content — Left Column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* About */}
-          {internship.description && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-1 h-6 bg-gradient-to-b from-indigo-500 to-purple-500 rounded-full" />
-                <h2 className="font-bold text-surface-900 text-lg">About this Internship</h2>
-              </div>
-              <p className="text-surface-600 leading-relaxed whitespace-pre-line">{internship.description}</p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className={`px-3 py-1 ${statusBadge.color} rounded-full text-xs font-semibold text-white`}>
+                {statusBadge.label.toUpperCase()}
+              </span>
+              {internship.mode && (
+                <span className="px-3 py-1 bg-surface-100 text-surface-600 rounded-full text-xs font-semibold">
+                  {internship.mode}
+                </span>
+              )}
             </div>
-          )}
-
-          {/* Eligibility */}
-          <div className="bg-white rounded-2xl border border-surface-100 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-1 h-6 bg-gradient-to-b from-emerald-500 to-teal-500 rounded-full" />
-              <h2 className="font-bold text-surface-900 text-lg">Eligibility</h2>
-            </div>
-
-            {internship.eligibilityEnabled && (targetDeptNames.length > 0 || targetYears.length > 0) ? (
-              <div className="space-y-2">
-                {targetDeptNames.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <GraduationCap size={14} className="text-violet-500 shrink-0" />
-                    <span className="text-xs font-semibold text-surface-500">Departments:</span>
-                    {targetDeptNames.map(name => (
-                      <span key={name} className="px-2.5 py-0.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-bold">{name}</span>
-                    ))}
-                  </div>
-                )}
-                {targetYears.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <BookOpen size={14} className="text-purple-500 shrink-0" />
-                    <span className="text-xs font-semibold text-surface-500">Years:</span>
-                    {targetYears.sort().map(y => (
-                      <span key={y} className="px-2.5 py-0.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold">Year {y}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-surface-500 text-sm">Open to all students</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-surface-900">{internship.title}</h1>
+            {internship.company && (
+              <p className="text-surface-500 mt-1 flex items-center gap-2">
+                <Building2 size={14} /> {internship.company}
+              </p>
             )}
+            {internship.role && (
+              <p className="text-surface-400 text-sm mt-1">{internship.role}</p>
+            )}
+            <div className="flex items-center gap-4 mt-3 text-sm text-surface-500">
+              <span className="flex items-center gap-1.5">
+                <Users size={14} />
+                {internship.registrations?.length || 0} Registered
+              </span>
+              {internship.deadline && (
+                <span className="flex items-center gap-1.5">
+                  <Clock size={14} />
+                  Deadline: {new Date(internship.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              )}
+              {internship.stipend && (
+                <span className="flex items-center gap-1.5">
+                  <DollarSign size={14} />
+                  {internship.stipend}
+                </span>
+              )}
+              {internship.duration && (
+                <span className="flex items-center gap-1.5">
+                  <Timer size={14} />
+                  {internship.duration}
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Eligibility Popup for Students */}
-          {isStudent && internship.eligibilityEnabled && (
-            <div className={clsx(
-              'flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold',
-              isEligible ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-            )}>
-              {isEligible ? <CheckCircle size={14} /> : <XCircle size={14} />}
-              {isEligible ? 'You are eligible to register' : 'Not eligible — check target departments & years'}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2 print:hidden">
+            {internship.url && (
+              <a href={internship.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 border border-surface-200 text-surface-700 rounded-xl text-sm font-medium hover:bg-surface-50 transition-colors">
+                <ExternalLink size={14} /> Visit Website
+              </a>
+            )}
+            {isTeacher && (
+              <button onClick={handlePrint}
+                className="flex items-center gap-2 px-4 py-2 border border-surface-200 text-surface-700 rounded-xl text-sm font-medium hover:bg-surface-50 transition-colors">
+                <Printer size={14} /> Print PDF
+              </button>
+            )}
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 border border-surface-200 text-surface-700 rounded-xl text-sm font-medium hover:bg-surface-50 transition-colors">
+              <Download size={14} /> Export Excel
+            </button>
+          </div>
         </div>
+      </div>
 
-        {/* Sidebar — Right Column */}
-        <div className="space-y-4">
-          {/* Student Registration Card */}
-          {isStudent && (
-            <div
-              className="relative overflow-hidden rounded-2xl border-2 border-transparent bg-white p-6 print:hidden"
-              style={{ backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899)', backgroundOrigin: 'border-box', backgroundClip: 'padding-box, border-box' }}>
-              {myRegistration ? (
-                <div>
+      {/* Tabs */}
+      <div className="border-b border-surface-200 print:hidden">
+        <div className="flex gap-1 overflow-x-auto">
+          {tabs.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                activeTab === key
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-surface-500 hover:text-surface-700 hover:border-surface-300'
+              )}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div>
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Content */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* About */}
+              {internship.description && (
+                <div className="bg-white rounded-2xl border border-surface-100 p-6">
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                      <CheckCircle size={20} className="text-green-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-surface-900">Registered!</h3>
-                      <p className="text-xs text-surface-400">You're registered for this internship</p>
-                    </div>
+                    <div className="w-1 h-6 bg-gradient-to-b from-primary-500 to-primary-500 rounded-full" />
+                    <h2 className="font-bold text-surface-900 text-lg">About this Internship</h2>
                   </div>
-
-                  <div className="space-y-2.5 text-sm mb-4">
-                    <div className="flex items-center justify-between p-2.5 bg-surface-50 rounded-xl">
-                      <span className="text-surface-500 font-medium">Status</span>
-                      <span className={clsx('font-bold',
-                        myRegistration.status === 'SELECTED' ? 'text-green-600' :
-                        myRegistration.status === 'REJECTED' ? 'text-red-600' :
-                        'text-blue-600'
-                      )}>
-                        {myRegistration.status}
-                      </span>
-                    </div>
-                    {myRegistration.reportedAt && (
-                      <div className="flex items-center justify-between p-2.5 bg-surface-50 rounded-xl">
-                        <span className="text-surface-500 font-medium">Reported At</span>
-                        <span className="text-surface-900 text-xs">{new Date(myRegistration.reportedAt).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="pt-4 border-t border-surface-100">
-                    <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3">Self-Report Status</p>
-                    <button
-                      onClick={() => setShowReport(true)}
-                      className="w-full py-3 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-primary-500 to-accent-500 text-white hover:shadow-lg"
-                    >
-                      Report Status
-                    </button>
-                  </div>
+                  <p className="text-surface-600 leading-relaxed whitespace-pre-line">{internship.description}</p>
                 </div>
-              ) : (
-                <div className="text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
-                    <Rocket size={28} className="text-white" />
-                  </div>
-                  <h3 className="font-bold text-surface-900 text-lg mb-1">Apply for this Internship</h3>
-                  <p className="text-surface-500 text-sm mb-3">Register and track your application</p>
+              )}
 
-                  {internship.eligibilityEnabled && (
-                    <div className={clsx('flex items-center gap-2 justify-center px-3 py-2 rounded-xl text-xs font-bold mb-4',
-                      isEligible ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    )}>
-                      {isEligible ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                      {isEligible ? 'You are eligible' : 'Not eligible — check target departments & years'}
+              {/* Quick Info Bar */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {internship.company && (
+                  <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
+                    <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
+                      <Building2 size={18} className="text-primary-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Company</p>
+                      <p className="text-sm font-bold text-surface-900">{internship.company}</p>
+                    </div>
+                  </div>
+                )}
+                {internship.role && (
+                  <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                      <Briefcase size={18} className="text-blue-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Role</p>
+                      <p className="text-sm font-bold text-surface-900">{internship.role}</p>
+                    </div>
+                  </div>
+                )}
+                {internship.stipend && (
+                  <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
+                    <div className="w-10 h-10 rounded-xl bg-success-50 flex items-center justify-center shrink-0">
+                      <DollarSign size={18} className="text-success-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Stipend</p>
+                      <p className="text-sm font-bold text-surface-900">{internship.stipend}</p>
+                    </div>
+                  </div>
+                )}
+                {internship.duration && (
+                  <div className="flex items-center gap-3 bg-white rounded-2xl border border-surface-100 p-4 hover:shadow-md transition-shadow overflow-hidden">
+                    <div className="w-10 h-10 rounded-xl bg-warning-50 flex items-center justify-center shrink-0">
+                      <Timer size={18} className="text-warning-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Duration</p>
+                      <p className="text-sm font-bold text-surface-900">{internship.duration}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-4">
+              {/* Student Registration Card */}
+              {isStudent && (
+                <div
+                  className="relative overflow-hidden rounded-2xl border-2 border-transparent bg-white p-6 print:hidden"
+                  style={{ backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #10b981, #059669, #22c55e)', backgroundOrigin: 'border-box', backgroundClip: 'padding-box, border-box' }}>
+                  {myRegistration ? (
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
+                          <CheckCircle size={20} className="text-primary-500" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-surface-900">Registered!</h3>
+                          <p className="text-xs text-surface-400">You're registered for this internship</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2.5 text-sm mb-4">
+                        <div className="flex items-center justify-between p-2.5 bg-surface-50 rounded-xl">
+                          <span className="text-surface-500 font-medium">Status</span>
+                          <span className={clsx('font-bold',
+                            myRegistration.status === 'SELECTED' ? 'text-primary-600' :
+                            myRegistration.status === 'REJECTED' ? 'text-danger-600' :
+                            'text-primary-600'
+                          )}>
+                            {myRegistration.status}
+                          </span>
+                        </div>
+                        {myRegistration.reportedAt && (
+                          <div className="flex items-center justify-between p-2.5 bg-surface-50 rounded-xl">
+                            <span className="text-surface-500 font-medium">Reported At</span>
+                            <span className="text-surface-900 text-xs">{new Date(myRegistration.reportedAt).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="pt-4 border-t border-surface-100">
+                        <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3">Self-Report Status</p>
+                        <button
+                          onClick={() => setShowReport(true)}
+                          className="w-full py-3 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-primary-500 to-primary-500 text-white hover:shadow-lg"
+                        >
+                          Report Status
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
+                        <Rocket size={28} className="text-white" />
+                      </div>
+                      <h3 className="font-bold text-surface-900 text-lg mb-1">Apply for this Internship</h3>
+                      <p className="text-surface-500 text-sm mb-3">Register and track your application</p>
+                      {internship.eligibilityEnabled && (
+                        <div className={clsx('flex items-center gap-2 justify-center px-3 py-2 rounded-xl text-xs font-bold mb-4',
+                          isEligible ? 'bg-primary-100 text-primary-700' : 'bg-danger-100 text-danger-700'
+                        )}>
+                          {isEligible ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                          {isEligible ? 'You are eligible' : 'Not eligible — check target departments & years'}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setShowRegister(true)}
+                        disabled={internship.eligibilityEnabled && !isEligible}
+                        className={clsx('w-full py-3 rounded-xl font-bold text-sm transition-all',
+                          internship.eligibilityEnabled && !isEligible
+                            ? 'bg-surface-200 text-surface-400 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-primary-500 via-primary-600 to-primary-500 text-white hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
+                        )}>
+                        {internship.eligibilityEnabled && !isEligible ? 'Not Eligible' : 'Register Now'}
+                      </button>
                     </div>
                   )}
-
-                  <button
-                    onClick={() => setShowRegister(true)}
-                    disabled={internship.eligibilityEnabled && !isEligible}
-                    className={clsx('w-full py-3 rounded-xl font-bold text-sm transition-all',
-                      internship.eligibilityEnabled && !isEligible
-                        ? 'bg-surface-200 text-surface-400 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
-                    )}>
-                    {internship.eligibilityEnabled && !isEligible ? 'Not Eligible' : 'Register Now'}
-                  </button>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Stats */}
-          <div className="bg-white rounded-2xl border border-surface-100 p-5 print:hidden">
-            <h3 className="font-bold text-surface-900 mb-4">Stats</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-blue-50 rounded-xl text-center">
-                <p className="text-2xl font-extrabold text-blue-600">{internship.registrations?.length || 0}</p>
-                <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mt-0.5">Registered</p>
-              </div>
-              <div className="p-3 bg-green-50 rounded-xl text-center">
-                <p className="text-2xl font-extrabold text-green-600">{selectedCount}</p>
-                <p className="text-[10px] font-semibold text-green-400 uppercase tracking-wider mt-0.5">Selected</p>
+              {/* Stats */}
+              <div className="bg-white rounded-2xl border border-surface-100 p-5 print:hidden">
+                <h3 className="font-bold text-surface-900 mb-4">Stats</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Total Registrations</span>
+                    <span className="text-sm font-bold text-surface-900">{internship.registrations?.length || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Selected</span>
+                    <span className="text-sm font-bold text-primary-600">{selectedCount}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Company Info */}
-          {internship.company && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5 print:hidden">
-              <h3 className="font-bold text-surface-900 mb-3">Company</h3>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-400 flex items-center justify-center text-white text-sm font-bold">
-                  {internship.company.charAt(0)}
+        {activeTab === 'eligibility' && (
+          <div className="max-w-3xl space-y-6">
+            <div className="bg-white rounded-2xl border border-surface-100 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-1 h-6 bg-gradient-to-b from-accent-500 to-accent-500 rounded-full" />
+                <h2 className="font-bold text-surface-900 text-lg">Eligibility</h2>
+              </div>
+              {internship.eligibilityEnabled && (targetDeptNames.length > 0 || targetYears.length > 0) ? (
+                <div className="space-y-3">
+                  {targetDeptNames.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <GraduationCap size={14} className="text-accent-500 shrink-0" />
+                      <span className="text-xs font-semibold text-surface-500">Departments:</span>
+                      {targetDeptNames.map(name => (
+                        <span key={name} className="px-2.5 py-0.5 bg-accent-100 text-accent-700 rounded-lg text-xs font-bold">{name}</span>
+                      ))}
+                    </div>
+                  )}
+                  {targetYears.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <BookOpen size={14} className="text-primary-500 shrink-0" />
+                      <span className="text-xs font-semibold text-surface-500">Years:</span>
+                      {targetYears.sort().map(y => (
+                        <span key={y} className="px-2.5 py-0.5 bg-primary-100 text-primary-700 rounded-lg text-xs font-bold">Year {y}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p className="font-semibold text-surface-900 text-sm">{internship.company}</p>
-                  <p className="text-xs text-surface-400">Internship Provider</p>
+              ) : (
+                <p className="text-surface-500 text-sm">Open to all students</p>
+              )}
+            </div>
+
+            {isStudent && internship.eligibilityEnabled && (
+              <div className={clsx(
+                'flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold',
+                isEligible ? 'bg-primary-100 text-primary-700' : 'bg-danger-100 text-danger-700'
+              )}>
+                {isEligible ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                {isEligible ? 'You are eligible to register' : 'Not eligible — check target departments & years'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'registrations' && isTeacher && (
+          <div className="max-w-3xl">
+            <button
+              onClick={() => setShowRegistrations(true)}
+              className="w-full bg-white rounded-2xl border border-surface-100 p-5 flex items-center justify-between hover:shadow-md transition-all print:hidden"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center">
+                  <Users size={18} className="text-primary-500" />
+                </div>
+                <div className="text-left">
+                  <h2 className="font-bold text-surface-900 text-lg">Registrations</h2>
+                  <p className="text-xs text-surface-400">
+                    {internship.registrations?.length === 0 ? 'No registrations yet' : `${internship.registrations?.length || 0} registered · ${selectedCount} selected`}
+                  </p>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Application Link */}
-          {internship.url && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5 print:hidden">
-              <h3 className="font-bold text-surface-900 mb-3">Application</h3>
-              <a href={internship.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-surface-50 hover:bg-surface-100 rounded-xl text-sm font-medium text-surface-700 transition-colors">
-                <ExternalLink size={14} /> Apply on company website
-              </a>
-            </div>
-          )}
-        </div>
+              <div className="flex items-center gap-2">
+                {internship.registrations?.length > 0 && (
+                  <>
+                    <span className="px-2.5 py-1 bg-primary-100 text-primary-700 rounded-full text-xs font-bold">{internship.registrations.length}</span>
+                    <span className="px-2.5 py-1 bg-primary-100 text-primary-700 rounded-full text-xs font-bold">{selectedCount}</span>
+                  </>
+                )}
+                <ExternalLink size={16} className="text-surface-400" />
+              </div>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Register Modal */}
@@ -497,7 +501,7 @@ export default function InternshipDetailPage() {
             <p className="text-surface-600 text-sm mb-4">By registering, you'll be added to the internship applicant list. You can report your status later.</p>
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowRegister(false)} className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-semibold">Cancel</button>
-              <button onClick={handleRegister} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold">Register</button>
+               <button onClick={handleRegister} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 via-primary-600 to-primary-500 text-white rounded-xl font-semibold">Register</button>
             </div>
           </div>
         </div>
@@ -514,7 +518,7 @@ export default function InternshipDetailPage() {
               <button
                 onClick={() => setReportStatus('SELECTED')}
                 className={clsx('w-full p-3 rounded-xl text-sm font-semibold border-2 transition-all text-left',
-                  reportStatus === 'SELECTED' ? 'border-green-400 bg-green-50 text-green-700' : 'border-surface-200 text-surface-600 hover:border-surface-300'
+                  reportStatus === 'SELECTED' ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-surface-200 text-surface-600 hover:border-surface-300'
                 )}>
                 <div className="flex items-center gap-2">
                   <CheckCircle size={16} />
@@ -524,7 +528,7 @@ export default function InternshipDetailPage() {
               <button
                 onClick={() => setReportStatus('REJECTED')}
                 className={clsx('w-full p-3 rounded-xl text-sm font-semibold border-2 transition-all text-left',
-                  reportStatus === 'REJECTED' ? 'border-red-400 bg-red-50 text-red-700' : 'border-surface-200 text-surface-600 hover:border-surface-300'
+                  reportStatus === 'REJECTED' ? 'border-danger-400 bg-danger-50 text-danger-700' : 'border-surface-200 text-surface-600 hover:border-surface-300'
                 )}>
                 <div className="flex items-center gap-2">
                   <XCircle size={16} />
@@ -534,7 +538,7 @@ export default function InternshipDetailPage() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowReport(false)} className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-semibold">Cancel</button>
-              <button onClick={handleReport} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-semibold">Submit</button>
+              <button onClick={handleReport} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-semibold">Submit</button>
             </div>
           </div>
         </div>
@@ -547,8 +551,8 @@ export default function InternshipDetailPage() {
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-surface-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
-                  <Users size={18} className="text-indigo-500" />
+               <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center">
+                   <Users size={18} className="text-primary-500" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-surface-900">Registrations</h2>
@@ -585,7 +589,7 @@ export default function InternshipDetailPage() {
                           </td>
                           <td className="py-3">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-400 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-400 flex items-center justify-center text-white text-xs font-bold shrink-0">
                                 {reg.user.name?.charAt(0)?.toUpperCase()}
                               </div>
                               <div>
@@ -597,9 +601,9 @@ export default function InternshipDetailPage() {
                           <td className="py-3 text-surface-600 font-medium">{reg.user.email}</td>
                           <td className="py-3">
                             <span className={clsx('px-2.5 py-1 rounded-full text-xs font-bold',
-                              reg.status === 'SELECTED' ? 'bg-green-100 text-green-700' :
-                              reg.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                              'bg-blue-100 text-blue-700'
+                              reg.status === 'SELECTED' ? 'bg-primary-100 text-primary-700' :
+                              reg.status === 'REJECTED' ? 'bg-danger-100 text-danger-700' :
+                               'bg-primary-100 text-primary-700'
                             )}>
                               {reg.status}
                             </span>

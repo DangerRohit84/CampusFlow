@@ -1,44 +1,127 @@
 import { Router, Request, Response } from 'express'
-import { authenticate } from '../middleware/auth'
-import { chatCompletion } from '../ai/client'
+import { authenticate, AuthRequest } from '../middleware/auth'
+import { visionCompletion } from '../ai/client'
 import prisma from '../config/db'
 
 const router = Router()
 
-router.post('/parse', authenticate, async (req: Request, res: Response) => {
+// GET /api/attendance/data — load saved attendance
+router.get('/data', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { text } = req.body
-    if (!text || typeof text !== 'string') {
-      res.status(400).json({ error: 'Text is required' })
+    const userId = req.userId!
+    const record = await prisma.attendanceData.findUnique({
+      where: { studentId: userId },
+    })
+    if (!record) {
+      res.json({ subjects: [], requiredPct: 75 })
+      return
+    }
+    res.json({
+      subjects: JSON.parse(record.subjects),
+      requiredPct: record.requiredPct,
+    })
+  } catch (error) {
+    console.error('[Attendance] Load error:', error)
+    res.status(500).json({ error: 'Failed to load attendance data' })
+  }
+})
+
+// POST /api/attendance/data — save/replace attendance
+router.post('/data', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { subjects, requiredPct } = req.body
+    if (!Array.isArray(subjects)) {
+      res.status(400).json({ error: 'Subjects array is required' })
+      return
+    }
+    const userId = req.userId!
+    const record = await prisma.attendanceData.upsert({
+      where: { studentId: userId },
+      update: {
+        subjects: JSON.stringify(subjects),
+        requiredPct: requiredPct ?? 75,
+      },
+      create: {
+        studentId: userId,
+        subjects: JSON.stringify(subjects),
+        requiredPct: requiredPct ?? 75,
+      },
+    })
+    res.json({ saved: true, id: record.id })
+  } catch (error) {
+    console.error('[Attendance] Save error:', error)
+    res.status(500).json({ error: 'Failed to save attendance data' })
+  }
+})
+
+// DELETE /api/attendance/data — clear attendance
+router.delete('/data', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    await prisma.attendanceData.deleteMany({
+      where: { studentId: userId },
+    })
+    res.json({ deleted: true })
+  } catch (error) {
+    console.error('[Attendance] Delete error:', error)
+    res.status(500).json({ error: 'Failed to delete attendance data' })
+  }
+})
+
+// POST /api/attendance/parse — AI parse image
+router.post('/parse', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { image } = req.body
+    if (!image || typeof image !== 'string') {
+      res.status(400).json({ error: 'Image base64 is required' })
       return
     }
 
-    const prompt = `Parse the following attendance data extracted from a college portal screenshot.
+    const mimeType = image.match(/^data:([^;]+)/)?.[1] || 'image/png'
+    const base64 = image.includes(',') ? image.split(',')[1] : image
 
-Extract each subject with:
-- name: subject name
-- total: total classes held
-- present: classes attended
-- absent: classes missed
+    const prompt = `Look at this attendance table image. Extract every row from the table.
 
-Return ONLY a valid JSON array. No markdown, no explanation, no code fences.
+For each row, extract:
+- name: the full subject/course name exactly as written (keep course codes like "24IC5017-...")
+- held: the "Held" column value (total classes held)
+- attended: the "Attend" column value (classes attended)
 
-Example output:
-[{"name": "Mathematics", "total": 40, "present": 35, "absent": 5}]
+RULES:
+- Extract ALL rows, even if attendance is 0
+- Keep subject names EXACTLY as they appear — do not shorten or rename
+- Return ONLY a valid JSON array. No markdown, no code fences, no explanation.
+- Each object: {"name": "...", "held": 40, "attended": 35}
 
-OCR text:
-${text}`
+Return ONLY the JSON array:`
 
-    const result = await chatCompletion('attendance', [
-      { role: 'user', content: prompt },
-    ], { max_tokens: 2048 })
+    let response = ''
+    try {
+      response = await visionCompletion('attendance', [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+        ],
+      }], { temperature: 0.1, max_tokens: 4096 })
+    } catch (err: any) {
+      console.error('[Attendance Parse] Vision error:', err?.message || err)
+      res.status(500).json({ error: 'AI vision failed' })
+      return
+    }
+
+    let clean = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    if (clean.toLowerCase().startsWith('<think>')) {
+      const firstBracket = clean.indexOf('[')
+      if (firstBracket !== -1) clean = clean.substring(firstBracket).trim()
+    }
+    clean = clean.replace(/^```json?\n?/i, '').replace(/```$/gm, '').trim()
 
     let subjects
     try {
-      const cleaned = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
-      subjects = JSON.parse(cleaned)
+      subjects = JSON.parse(clean)
     } catch {
-      res.status(422).json({ error: 'Could not parse AI response', raw: result })
+      res.status(422).json({ error: 'Could not parse AI response', raw: response })
       return
     }
 
@@ -53,147 +136,5 @@ ${text}`
     res.status(500).json({ error: 'Failed to parse attendance data' })
   }
 })
-
-router.post('/predict', authenticate, async (req: Request, res: Response) => {
-  try {
-    const { subjects, targetPercentage = 75 } = req.body;
-
-    if (!subjects || !Array.isArray(subjects)) {
-      return res.status(400).json({ error: 'Subjects array is required' });
-    }
-
-    const predictions = subjects.map((s: any) => {
-      const currentPercentage = s.total > 0 ? (s.present / s.total) * 100 : 0;
-      const target = targetPercentage / 100;
-
-      const safeBunks = Math.floor(
-        (s.present - target * s.total) / (1 - target)
-      );
-
-      const futureClasses = (s.weeksRemaining || 6) * (s.classesPerWeek || 3);
-
-      const ifMiss1PerWeek = (() => {
-        const futureMisses = 1 * (s.weeksRemaining || 6);
-        const projectedPresent = s.present + (futureClasses - futureMisses);
-        const projectedTotal = s.total + futureClasses;
-        return projectedTotal > 0 ? (projectedPresent / projectedTotal) * 100 : 0;
-      })();
-
-      const ifMiss2PerWeek = (() => {
-        const futureMisses = 2 * (s.weeksRemaining || 6);
-        const projectedPresent = s.present + (futureClasses - futureMisses);
-        const projectedTotal = s.total + futureClasses;
-        return projectedTotal > 0 ? (projectedPresent / projectedTotal) * 100 : 0;
-      })();
-
-      const ifAttendAll = (() => {
-        const projectedPresent = s.present + futureClasses;
-        const projectedTotal = s.total + futureClasses;
-        return projectedTotal > 0 ? (projectedPresent / projectedTotal) * 100 : 0;
-      })();
-
-      let riskLevel = 'SAFE';
-      if (currentPercentage < targetPercentage) {
-        riskLevel = 'AT_RISK';
-      } else if (currentPercentage < targetPercentage + 2) {
-        riskLevel = 'WARNING';
-      }
-
-      const recoveryClasses = currentPercentage < targetPercentage
-        ? Math.ceil((target * s.total - s.present) / (1 - target))
-        : null;
-
-      return {
-        name: s.name,
-        currentPercentage: Math.round(currentPercentage * 10) / 10,
-        safeToSkip: Math.max(0, safeBunks),
-        ifAttendAll: Math.round(ifAttendAll * 10) / 10,
-        ifMiss1PerWeek: Math.round(ifMiss1PerWeek * 10) / 10,
-        ifMiss2PerWeek: Math.round(ifMiss2PerWeek * 10) / 10,
-        riskLevel,
-        recoveryClasses,
-      };
-    });
-
-    const overallCurrent = predictions.reduce(
-      (acc: number, p: any) => acc + p.currentPercentage, 0
-    ) / (predictions.length || 1);
-
-    let overallRisk = 'SAFE';
-    if (overallCurrent < targetPercentage) overallRisk = 'AT_RISK';
-    else if (overallCurrent < targetPercentage + 2) overallRisk = 'WARNING';
-
-    res.json({
-      predictions,
-      overall: {
-        currentPercentage: Math.round(overallCurrent * 10) / 10,
-        riskLevel: overallRisk,
-      },
-    });
-  } catch (error) {
-    console.error('Predict error:', error);
-    res.status(500).json({ error: 'Failed to generate predictions' });
-  }
-});
-
-router.get('/history', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user.id;
-    const records = await prisma.attendanceRecord.findMany({
-      where: { studentId: userId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-
-    const grouped = records.reduce((acc: any, r) => {
-      const key = r.createdAt.toISOString().split('T')[0];
-      if (!acc[key]) acc[key] = { date: key, type: r.source, records: [] };
-      acc[key].records.push(r);
-      return acc;
-    }, {});
-
-    const history = Object.values(grouped).map((g: any) => {
-      const total = g.records.length;
-      const present = g.records.filter((r: any) => r.status === 'PRESENT' || r.status === 'EXCUSED').length;
-      return {
-        date: g.date,
-        type: g.type,
-        subjectCount: new Set(g.records.map((r: any) => r.subject)).size,
-        overallPercentage: total > 0 ? Math.round((present / total) * 100) : 0,
-      };
-    });
-
-    res.json({ history });
-  } catch (error) {
-    console.error('History error:', error);
-    res.status(500).json({ error: 'Failed to fetch history' });
-  }
-});
-
-router.post('/save', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user.id;
-    const { records, source } = req.body;
-
-    if (!records || !Array.isArray(records)) {
-      return res.status(400).json({ error: 'Records array is required' });
-    }
-
-    const created = await prisma.attendanceRecord.createMany({
-      data: records.map((r: any) => ({
-        studentId: userId,
-        subject: r.subject,
-        date: new Date(r.date),
-        status: r.status,
-        source: source || 'MANUAL',
-      })),
-    });
-
-    res.json({ saved: created.count });
-  } catch (error) {
-    console.error('Save error:', error);
-    res.status(500).json({ error: 'Failed to save records' });
-  }
-});
 
 export default router

@@ -74,7 +74,7 @@ export async function testProvider(id: string) {
         messages: [{ role: 'user', content: 'Say "Hello! I am working correctly."' }],
         max_tokens: 50,
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(60000),
     })
 
     if (!response.ok) {
@@ -105,33 +105,100 @@ export async function updateRouting(feature: string, providerIds: (string | null
   }
 }
 
-export async function getProviderForFeature(feature: string): Promise<{
-  baseUrl: string; apiKey: string; model: string; type: string; headers: Record<string, string>
-} | null> {
+export interface ManagedProvider {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  type: string
+  headers: Record<string, string>
+}
+
+/**
+ * True when a baseUrl points at the local machine (unreachable on hosted production deploys).
+ */
+function isLocalhostBaseUrl(baseUrl: string): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Ordered list of enabled providers routed to a feature.
+ * Capability support is modeled by AiRouting rows (feature -> providerId).
+ * In production, localhost providers are skipped unless they are the only option;
+ * runtime failover still handles them failing.
+ */
+export async function getProvidersForFeature(feature: string): Promise<ManagedProvider[]> {
   const routing = await prisma.aiRouting.findMany({
     where: { feature },
     orderBy: { fallbackOrder: 'asc' },
   })
 
+  const candidates: Array<ManagedProvider & { fallbackOrder: number; createdAt: Date }> = []
   for (const r of routing) {
     const provider = await prisma.aiProvider.findUnique({ where: { id: r.providerId } })
-    if (provider?.enabled) {
-      let decryptedKey: string
-      try {
-        decryptedKey = decryptApiKey(provider.apiKey)
-      } catch {
-        continue
-      }
-      return {
-        baseUrl: provider.baseUrl,
-        apiKey: decryptedKey,
-        model: provider.model,
-        type: provider.type,
-        headers: JSON.parse(provider.headers || '{}'),
-      }
+    if (!provider?.enabled) continue
+    let decryptedKey: string
+    try {
+      decryptedKey = decryptApiKey(provider.apiKey)
+    } catch {
+      continue
     }
+    let headers: Record<string, string>
+    try {
+      headers = JSON.parse(provider.headers || '{}')
+    } catch {
+      continue
+    }
+    candidates.push({
+      id: provider.id,
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      apiKey: decryptedKey,
+      model: provider.model,
+      type: provider.type,
+      headers,
+      fallbackOrder: r.fallbackOrder,
+      createdAt: provider.createdAt,
+    })
   }
-  return null
+
+  // Production safety: localhost providers are unreachable on hosted deploys —
+  // skip them at selection time unless they are the only option.
+  let eligible = candidates
+  if (process.env.NODE_ENV === 'production') {
+    const remote = candidates.filter(c => !isLocalhostBaseUrl(c.baseUrl))
+    if (remote.length > 0) eligible = remote
+  }
+
+  // Deterministic order: admin-configured fallbackOrder first, stable tie-breaks after.
+  eligible.sort((a, b) =>
+    a.fallbackOrder - b.fallbackOrder ||
+    a.createdAt.getTime() - b.createdAt.getTime() ||
+    a.name.localeCompare(b.name),
+  )
+
+  return eligible.map(c => ({
+    id: c.id,
+    name: c.name,
+    baseUrl: c.baseUrl,
+    apiKey: c.apiKey,
+    model: c.model,
+    type: c.type,
+    headers: c.headers,
+  }))
+}
+
+export async function getProviderForFeature(feature: string): Promise<{
+  baseUrl: string; apiKey: string; model: string; type: string; headers: Record<string, string>
+} | null> {
+  const providers = await getProvidersForFeature(feature)
+  return providers[0] ?? null
 }
 
 export async function getDecryptedKey(id: string): Promise<string> {

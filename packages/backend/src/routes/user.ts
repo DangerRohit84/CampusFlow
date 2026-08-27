@@ -38,34 +38,7 @@ router.get('/grades/stats', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get attendance
-router.get('/attendance', async (req: AuthRequest, res: Response) => {
-  try {
-    const records = await prisma.attendance.findMany({
-      where: { userId: req.userId },
-      orderBy: { date: 'desc' },
-    })
-    res.json(records)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch attendance' })
-  }
-})
 
-// Get attendance stats
-router.get('/attendance/stats', async (req: AuthRequest, res: Response) => {
-  try {
-    const records = await prisma.attendance.findMany({ where: { userId: req.userId } })
-    const total = records.length
-    const present = records.filter((r) => r.status === 'PRESENT').length
-    const absent = records.filter((r) => r.status === 'ABSENT').length
-    const late = records.filter((r) => r.status === 'LATE').length
-    const percentage = total > 0 ? Math.round((present / total) * 100) : 0
-
-    res.json({ total, present, absent, late, percentage })
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch stats' })
-  }
-})
 
 // Get user profile/settings
 router.get('/profile', async (req: AuthRequest, res: Response) => {
@@ -228,9 +201,8 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     }
 
     // ── Student Dashboard (default) ────────────────────────────────
-    const [grades, attendance, assignments, notifications, schedules] = await Promise.all([
+    const [grades, assignments, notifications, schedules] = await Promise.all([
       prisma.grade.findMany({ where: { userId: req.userId } }),
-      prisma.attendance.findMany({ where: { userId: req.userId } }),
       prisma.assignment.findMany({ where: { userId: req.userId } }),
       prisma.notification.findMany({ where: { userId: req.userId, read: false } }),
       prisma.schedule.findMany({ where: { userId: req.userId } }),
@@ -240,11 +212,6 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     const totalCredits = grades.reduce((sum, g) => sum + g.credits, 0)
     const weightedGpa = grades.reduce((sum, g) => sum + g.gpa * g.credits, 0)
     const cgpa = totalCredits > 0 ? Math.round((weightedGpa / totalCredits) * 100) / 100 : 0
-
-    // Attendance
-    const totalClasses = attendance.length
-    const presentClasses = attendance.filter((a) => a.status === 'PRESENT').length
-    const attendancePercent = totalClasses > 0 ? Math.round((presentClasses / totalClasses) * 100) : 0
 
     // Assignments
     const pendingAssignments = assignments.filter((a) => a.status === 'PENDING')
@@ -257,7 +224,6 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     res.json({
       role: 'STUDENT',
       cgpa,
-      attendancePercent,
       pendingAssignments: pendingAssignments.length,
       upcomingDeadlines,
       unreadNotifications: notifications.length,

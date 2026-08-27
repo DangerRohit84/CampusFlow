@@ -93,11 +93,11 @@ export default function NotificationsPage() {
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {!notif.isRead && (
-                            <button onClick={() => markRead(notif.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="Mark as read">
+                            <button onClick={() => markRead(notif.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Mark as read">
                               <Check size={14} />
                             </button>
                           )}
-                          <button onClick={() => deleteNotif(notif.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete">
+                          <button onClick={() => deleteNotif(notif.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-danger-600 hover:bg-danger-50 transition-colors" title="Delete">
                             <Trash2 size={14} />
                           </button>
                         </div>

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { chatWithAI } from '../ai/groq'
+// chatWithAI now uses AI Manager routing (feature: 'chat')
 import { getDayOfWeek } from '../utils/dateUtils'
 
 const router = Router()

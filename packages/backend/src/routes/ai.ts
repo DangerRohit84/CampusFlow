@@ -81,24 +81,15 @@ router.post('/check-conflicts', async (req: AuthRequest, res: Response) => {
 // Get AI insights on grades/performance
 router.get('/insights', async (req: AuthRequest, res: Response) => {
   try {
-    const [grades, attendance] = await Promise.all([
-      prisma.grade.findMany({ where: { userId: req.userId } }),
-      prisma.attendance.findMany({ where: { userId: req.userId } }),
-    ])
+    const grades = await prisma.grade.findMany({ where: { userId: req.userId } })
 
     const totalCredits = grades.reduce((sum, g) => sum + g.credits, 0)
     const weightedGpa = grades.reduce((sum, g) => sum + g.gpa * g.credits, 0)
     const cgpa = totalCredits > 0 ? weightedGpa / totalCredits : 0
 
-    const totalClasses = attendance.length
-    const presentClasses = attendance.filter((a) => a.status === 'PRESENT').length
-    const attendancePercent = totalClasses > 0 ? (presentClasses / totalClasses) * 100 : 0
-
     const prompt = `Analyze this student's academic performance:
 CGPA: ${cgpa.toFixed(2)}/10
-Attendance: ${attendancePercent.toFixed(1)}%
 Grades: ${grades.map((g) => `${g.courseName}: ${g.grade}`).join(', ')}
-Courses with low attendance: ${attendance.filter((a) => a.status === 'ABSENT').map((a) => a.courseName).join(', ') || 'None'}
 
 Provide:
 1. Overall assessment
@@ -107,7 +98,7 @@ Provide:
 4. 3 actionable recommendations`
 
     const insights = await chatWithAI(prompt)
-    res.json({ insights, cgpa, attendancePercent })
+    res.json({ insights, cgpa })
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate insights' })
   }

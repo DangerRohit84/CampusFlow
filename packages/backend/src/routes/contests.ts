@@ -87,6 +87,19 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       orderBy: { createdAt: 'desc' },
     })
 
+    // Sort by actual contest time (startTime is stored as a string)
+    const ts = (s: string) => {
+      const t = Date.parse(s)
+      return isNaN(t) ? 0 : t
+    }
+    if (status === 'ENDED') {
+      // Recently completed first
+      contests.sort((a, b) => ts(b.startTime) - ts(a.startTime))
+    } else if (status === 'UPCOMING') {
+      // Soonest upcoming first
+      contests.sort((a, b) => ts(a.startTime) - ts(b.startTime))
+    }
+
     res.json(contests)
   } catch (error) {
     console.error('Get contests error:', error)
@@ -169,6 +182,45 @@ router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Get contests by date error:', error)
     res.status(500).json({ error: 'Failed to fetch contests by date' })
+  }
+})
+
+// Participant count per ENDED contest (bulk, fuzzy-matched same as per-contest endpoint)
+router.get('/participant-counts', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const [contests, participations] = await Promise.all([
+      prisma.codingContest.findMany({
+        where: { status: 'ENDED' },
+        select: { id: true, title: true, url: true, platform: true },
+      }),
+      prisma.contestParticipation.findMany({
+        select: { platform: true, contestName: true, contestUrl: true },
+      }),
+    ])
+
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+    const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()
+
+    const byPlatform = new Map<string, { n: string; u: string | null }[]>()
+    for (const p of participations) {
+      const key = (p.platform || '').toLowerCase()
+      if (!byPlatform.has(key)) byPlatform.set(key, [])
+      byPlatform.get(key)!.push({ n: normalize(p.contestName), u: p.contestUrl ? normUrl(p.contestUrl) : null })
+    }
+
+    const counts: Record<string, number> = {}
+    for (const c of contests) {
+      const list = byPlatform.get(c.platform.toLowerCase()) || []
+      const ct = normalize(c.title)
+      const cu = normUrl(c.url)
+      counts[c.id] = list.filter(
+        (p) => p.n === ct || p.n.includes(ct) || ct.includes(p.n) || (!!p.u && p.u === cu)
+      ).length
+    }
+    res.json(counts)
+  } catch (error) {
+    console.error('Participant counts error:', error)
+    res.status(500).json({ error: 'Failed to compute participant counts' })
   }
 })
 
@@ -301,6 +353,44 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 })
 
 // Add solution to a contest
+// Extract YouTube video id from any common URL form
+function extractYouTubeId(urlStr: string): string | null {
+  try {
+    const u = new URL(urlStr)
+    if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('/')[0] || null
+    if (u.searchParams.get('v')) return u.searchParams.get('v')
+    const m = u.pathname.match(/\/(shorts|embed|live)\/([\w-]{6,})/)
+    if (m) return m[2]
+  } catch { /* not a URL */ }
+  return null
+}
+
+// Best-effort metadata fetch for a YouTube link (no API key needed).
+// Returns { title?, thumbnail, duration? } — duration in seconds.
+async function fetchYouTubeMeta(urlStr: string): Promise<{ title?: string; thumbnail?: string; duration?: number }> {
+  const videoId = extractYouTubeId(urlStr)
+  const meta: { title?: string; thumbnail?: string; duration?: number } = {}
+  if (!videoId) return meta
+
+  meta.thumbnail = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
+  try {
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'en' },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (resp.ok) {
+      const html = await resp.text()
+      const len = html.match(/"lengthSeconds":"(\d+)"/)
+      if (len) meta.duration = parseInt(len[1])
+      const title = html.match(/<meta name="title" content="([^"]+)"/)
+        || html.match(/"<title>([^<]+)<\/title>/)
+        || html.match(/<title>([^<]+)<\/title>/)
+      if (title) meta.title = title[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim()
+    }
+  } catch { /* offline/blocked — thumbnail still works */ }
+  return meta
+}
+
 router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
   try {
     const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
@@ -333,9 +423,17 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
       solutions = []
     }
 
+    const meta = await fetchYouTubeMeta(solutionUrl)
+
     solutions.push({
       problemName,
       solutionUrl,
+      url: solutionUrl,
+      title: problemName,
+      videoId: extractYouTubeId(solutionUrl) || undefined,
+      thumbnail: meta.thumbnail || '',
+      duration: meta.duration ?? null,
+      autoTitle: meta.title || '',
       language: language || '',
       addedBy: req.userId,
       addedAt: new Date().toISOString(),
@@ -366,7 +464,12 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
     const isOwner = contest.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
-    if (!isOwner && !isAdmin) {
+    let solutionsArr: any[] = []
+    try { solutionsArr = JSON.parse(contest.solutions || '[]') } catch { solutionsArr = [] }
+    const idxNum = parseInt(req.params.solutionIndex as string)
+    const isAdder = Number.isInteger(idxNum) && solutionsArr[idxNum]?.addedBy === req.userId
+
+    if (!isOwner && !isAdmin && !isAdder) {
       res.status(403).json({ error: 'You do not have permission to remove solutions' })
       return
     }

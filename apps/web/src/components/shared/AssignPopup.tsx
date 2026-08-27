@@ -84,7 +84,7 @@ export default function AssignPopup({ show, onClose, teachers, onAssign, onUnass
                   <button
                     onClick={onUnassign}
                     disabled={loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 transition-all disabled:opacity-50 shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-danger-200 text-danger-600 rounded-lg text-xs font-medium hover:bg-danger-50 transition-all disabled:opacity-50 shrink-0"
                   >
                     {loading ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
                     Undo
@@ -129,7 +129,7 @@ export default function AssignPopup({ show, onClose, teachers, onAssign, onUnass
                     >
                       <div className={clsx(
                         'w-8 h-8 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0',
-                        isAssigned ? 'bg-primary-500' : 'bg-gradient-to-br from-primary-500 to-accent-500'
+                        isAssigned ? 'bg-primary-500' : 'bg-gradient-to-br from-primary-500 to-primary-500'
                       )}>
                         {t.name?.charAt(0)?.toUpperCase()}
                       </div>

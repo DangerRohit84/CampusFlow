@@ -257,6 +257,12 @@ export const codingContestAPI = {
   delete: (id: string) => api.delete(`/contests/${id}`).then((r) => r.data),
   updateSolutions: (id: string, solutions: any[]) =>
     api.put(`/contests/${id}/solutions`, { solutions }).then((r) => r.data),
+  addSolution: (id: string, data: { problemName: string; solutionUrl: string; language?: string }) =>
+    api.post(`/contests/${id}/solutions`, data).then((r) => r.data),
+  removeSolution: (id: string, solutionIndex: number) =>
+    api.delete(`/contests/${id}/solutions/${solutionIndex}`).then((r) => r.data),
+  getParticipantCounts: () =>
+    api.get('/contests/participant-counts').then((r) => r.data),
   fetchNow: () => api.post('/contests/fetch-now').then((r) => r.data),
 }
 
@@ -308,6 +314,34 @@ export const roomAPI = {
   // Members
   getMembers: (roomId: string) => api.get(`/rooms/${roomId}/members`).then((r) => r.data),
 
+  // Chat
+  getMessages: (roomId: string) => api.get(`/rooms/${roomId}/messages`).then((r) => r.data),
+  // Multipart: at least one of content / file is required by the backend
+  sendMessage: (roomId: string, payload: { content?: string; file?: File; replyToId?: string }) => {
+    const formData = new FormData()
+    if (payload.content) formData.append('content', payload.content)
+    if (payload.file) formData.append('file', payload.file)
+    if (payload.replyToId) formData.append('replyToId', payload.replyToId)
+    return api.post(`/rooms/${roomId}/messages`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+  // scope=me hides the message for the current user only;
+  // scope=everyone tombstones it for all recipients (sender/creator/admin only)
+  deleteMessage: (roomId: string, messageId: string, scope: 'me' | 'everyone' = 'me') =>
+    api.delete(`/rooms/${roomId}/messages/${messageId}`, { params: { scope } }).then((r) => r.data),
+  // Edit a message (sender only)
+  editMessage: (roomId: string, messageId: string, content: string) =>
+    api.put(`/rooms/${roomId}/messages/${messageId}`, { content }).then((r) => r.data),
+  // Forward a message to other rooms; backend skips invalid targets and reports them
+  forwardMessage: (roomId: string, messageId: string, targetRoomIds: string[]) =>
+    api.post(`/rooms/${roomId}/messages/${messageId}/forward`, { targetRoomIds }).then((r) => r.data),
+  // Toggle a reaction on a message (add if not present, remove if present)
+  toggleReaction: (roomId: string, messageId: string, emoji: string) =>
+    api.post(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji }).then((r) => r.data),
+  updateChatSettings: (roomId: string, data: { chatMode: string; allowedUserIds?: string[] }) =>
+    api.put(`/rooms/${roomId}/settings`, data).then((r) => r.data),
+
   // Resources
   uploadResource: (roomId: string, formData: FormData) =>
     api.post(`/rooms/${roomId}/resources`, formData, {
@@ -320,6 +354,10 @@ export const roomAPI = {
   // Notifications
   getNotifications: () => api.get('/rooms/notifications/list').then((r) => r.data),
   markNotificationRead: (id: string) => api.post(`/rooms/notifications/${id}/read`).then((r) => r.data),
+
+  // Read tracking (sidebar unread badges)
+  getUnreadCounts: () => api.get('/rooms/unread-counts').then((r) => r.data) as Promise<Record<string, number>>,
+  markRead: (roomId: string) => api.post(`/rooms/${roomId}/read`).then((r) => r.data),
 
   // Bulk import
   bulkImport: (roomId: string, rollNumbers: string[]) =>
@@ -395,34 +433,84 @@ export const userAPI = {
   updateProfile: (data: any) => api.put('/user/profile', data).then((r) => r.data),
   getGrades: () => api.get('/user/grades').then((r) => r.data),
   getGradeStats: () => api.get('/user/grades/stats').then((r) => r.data),
-  getAttendance: () => api.get('/user/attendance').then((r) => r.data),
-  getAttendanceStats: () => api.get('/user/attendance/stats').then((r) => r.data),
+
   getIntegrations: () => api.get('/user/integrations').then((r) => r.data),
+}
+
+// Grades
+export const gradesAPI = {
+  getData: () => api.get('/grades/data').then((r) => r.data),
+  saveData: (subjects: any[], scale: string) => api.post('/grades/data', { subjects, scale }).then((r) => r.data),
+  deleteData: () => api.delete('/grades/data').then((r) => r.data),
+  parse: (imageBase64: string) => api.post('/grades/parse', { image: imageBase64 }).then((r) => r.data),
+}
+
+// Announcements
+export const announcementsAPI = {
+  list: (page = 1, limit = 10, collegeId?: string) =>
+    api.get('/announcements', { params: { page, limit, ...(collegeId ? { collegeId } : {}) } }).then((r) => r.data),
+  create: (data: { title: string; content: string; target: string; departmentIds?: string[]; targetScope?: string; collegeIds?: string[]; publishAt?: string; expiresAt?: string }) =>
+    api.post('/announcements', data).then((r) => r.data),
+  update: (id: string, data: { title?: string; content?: string; target?: string; departmentIds?: string[]; targetScope?: string; collegeIds?: string[]; publishAt?: string; expiresAt?: string }) =>
+    api.put(`/announcements/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/announcements/${id}`).then((r) => r.data),
+  listColleges: () => api.get('/announcements/colleges').then((r) => r.data),
+  markRead: (id: string) => api.post(`/announcements/${id}/read`).then((r) => r.data),
+  markAllRead: (collegeId?: string) => api.post('/announcements/read-all', {}, { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
 }
 
 // Attendance
 export const attendanceAPI = {
-  parse: (text: string) =>
-    api.post('/attendance/parse', { text }).then((r) => r.data),
-  predict: (subjects: any[], targetPercentage?: number) =>
-    api.post('/attendance/predict', { subjects, targetPercentage }).then((r) => r.data),
-  save: (records: any[], source: string) =>
-    api.post('/attendance/save', { records, source }).then((r) => r.data),
-  getHistory: () =>
-    api.get('/attendance/history').then((r) => r.data),
+  getData: () =>
+    api.get('/attendance/data').then((r) => r.data),
+  saveData: (subjects: any[], requiredPct: number) =>
+    api.post('/attendance/data', { subjects, requiredPct }).then((r) => r.data),
+  deleteData: () =>
+    api.delete('/attendance/data').then((r) => r.data),
+  parse: (image: string) =>
+    api.post('/attendance/parse', { image }).then((r) => r.data),
 }
 
 // Coding Profile
 export const codingProfileAPI = {
   get: () => api.get('/coding-profile').then((r) => r.data),
   update: (data: any) => api.put('/coding-profile', data).then((r) => r.data),
-  sync: () => api.post('/coding-profile/sync').then((r) => r.data),
+  sync: (auto?: boolean) => api.post('/coding-profile/sync', {}, { params: auto ? { auto: true } : {} }).then((r) => r.data),
   getParticipations: () => api.get('/coding-profile/participations').then((r) => r.data),
   getLeaderboard: (params?: { platform?: string; departmentId?: string; year?: string }) =>
     api.get('/coding-profile/leaderboard', { params }).then((r) => r.data),
   getContestParticipants: (contestId: string) =>
     api.get(`/coding-profile/contest/${contestId}/participants`).then((r) => r.data),
   syncAll: () => api.post('/coding-profile/sync-all').then((r) => r.data),
+}
+
+// POST /coding-profile/sync returns 202 and runs server-side; poll until
+// lastSyncedAt advances past the baseline (or give up after maxTries).
+export function waitForCodingSync(
+  baseline: number,
+  opts?: { intervalMs?: number; maxTries?: number }
+): Promise<{ completed: boolean; profile: any }> {
+  const intervalMs = opts?.intervalMs ?? 4000
+  const maxTries = opts?.maxTries ?? 15
+  return new Promise((resolve) => {
+    let tries = 0
+    const timer = setInterval(async () => {
+      tries++
+      try {
+        const p = await codingProfileAPI.get()
+        const last = p?.lastSyncedAt ? new Date(p.lastSyncedAt).getTime() : 0
+        if (last > baseline) {
+          clearInterval(timer)
+          resolve({ completed: true, profile: p })
+          return
+        }
+      } catch { /* transient poll errors are ignored */ }
+      if (tries >= maxTries) {
+        clearInterval(timer)
+        resolve({ completed: false, profile: null })
+      }
+    }, intervalMs)
+  })
 }
 
 export default api

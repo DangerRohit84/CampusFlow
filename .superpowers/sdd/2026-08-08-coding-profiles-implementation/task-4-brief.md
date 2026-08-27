@@ -1,0 +1,190 @@
+### Task 4: Backend API Routes
+
+**Files:**
+- Create: `packages/backend/src/routes/codingProfile.ts`
+- Modify: `packages/backend/src/index.ts` (register route)
+
+**Interfaces:**
+- Consumes: Express router, authenticate middleware, Prisma
+- Produces: All coding profile endpoints
+
+- [ ] **Step 1: Create codingProfile.ts with GET/PUT profile**
+
+```typescript
+// packages/backend/src/routes/codingProfile.ts
+import { Router, Response } from 'express'
+import prisma from '../config/db'
+import { authenticate, AuthRequest } from '../middleware/auth'
+import { syncUserContests, syncAllUsers } from '../services/syncEngine'
+
+const router = Router()
+
+// GET /coding-profile — get own profile
+router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const profile = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+    res.json(profile || { userId: req.userId })
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch coding profile' })
+  }
+})
+
+// PUT /coding-profile — update handles
+router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    { leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle } = req.body
+    const profile = await prisma.codingProfile.upsert({
+      where: { userId: req.userId! },
+      update: { leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle },
+      create: {
+        userId: req.userId!,
+        leetcodeHandle, codeforcesHandle, codechefHandle, hackerrankHandle, gfgHandle,
+      },
+    })
+    res.json(profile)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update coding profile' })
+  }
+})
+```
+
+- [ ] **Step 2: Add sync and participations endpoints**
+
+Add to the same file:
+
+```typescript
+// POST /coding-profile/sync — sync own data
+router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await syncUserContests(req.userId!)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to sync' })
+  }
+})
+
+// GET /coding-profile/participations — get own participation history
+router.get('/participations', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const participations = await prisma.contestParticipation.findMany({
+      where: { userId: req.userId! },
+      orderBy: { participatedAt: 'desc' },
+    })
+    res.json(participations)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch participations' })
+  }
+})
+```
+
+- [ ] **Step 3: Add teacher endpoints**
+
+Add to the same file:
+
+```typescript
+// GET /coding-profile/leaderboard — overall leaderboard
+router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { platform, departmentId, year } = req.query
+
+    const where: any = {}
+    if (platform) where.platform = platform as string
+
+    const userWhere: any = {}
+    if (departmentId) userWhere.departmentId = departmentId as string
+    if (year) userWhere.incomingYear = parseInt(year as string)
+
+    const participations = await prisma.contestParticipation.findMany({
+      where,
+      include: { user: { include: { department: true } } },
+    })
+
+    const userStats = new Map<string, {
+      userId: string; name: string; department: string; avatar: string | null
+      totalContests: number; avgRank: number; totalProblems: number; bestRating: number
+    }>()
+
+    for (const p of participations) {
+      if (departmentId && p.user.departmentId !== departmentId) continue
+      if (year && p.user.incomingYear !== parseInt(year as string)) continue
+
+      const existing = userStats.get(p.userId)
+      if (existing) {
+        existing.totalContests++
+        existing.totalProblems += p.problemsSolved || 0
+        if (p.rating && p.rating > existing.bestRating) existing.bestRating = p.rating
+      } else {
+        userStats.set(p.userId, {
+          userId: p.userId,
+          name: p.user.name,
+          department: p.user.department?.name || '',
+          avatar: p.user.avatar,
+          totalContests: 1,
+          avgRank: p.rank || 0,
+          totalProblems: p.problemsSolved || 0,
+          bestRating: p.rating || 0,
+        })
+      }
+    }
+
+    const leaderboard = Array.from(userStats.values())
+      .sort((a, b) => b.totalContests - a.totalContests || b.bestRating - a.bestRating)
+
+    res.json(leaderboard)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch leaderboard' })
+  }
+})
+
+// GET /coding-profile/contest/:contestId/participants — per-contest participants
+router.get('/contest/:contestId/participants', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const participations = await prisma.contestParticipation.findMany({
+      where: { contestId: req.params.contestId },
+      include: { user: { include: { department: true } } },
+      orderBy: { rank: 'asc' },
+    })
+    res.json(participations)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch participants' })
+  }
+})
+
+// POST /coding-profile/sync-all — sync all students (teacher only)
+router.post('/sync-all', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Only teachers can sync all users' })
+      return
+    }
+    const result = await syncAllUsers()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to sync all users' })
+  }
+})
+
+export default router
+```
+
+- [ ] **Step 4: Register route in index.ts**
+
+In `packages/backend/src/index.ts`, add after the existing route imports:
+
+```typescript
+import codingProfileRoutes from './routes/codingProfile'
+```
+
+And add after the existing `app.use('/api/contests', ...)`:
+
+```typescript
+app.use('/api/coding-profile', codingProfileRoutes)
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/backend/src/routes/codingProfile.ts packages/backend/src/index.ts
+git commit -m "feat: add coding profile API routes with sync, leaderboard, participants"
+```

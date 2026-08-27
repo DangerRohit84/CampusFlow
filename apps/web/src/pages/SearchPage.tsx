@@ -13,8 +13,8 @@ const typeIcons: Record<string, React.ElementType> = {
 
 const typeColors: Record<string, string> = {
   schedule: 'bg-primary-100 text-primary-600',
-  assignment: 'bg-accent-100 text-accent-600',
-  notification: 'bg-amber-100 text-amber-600',
+  assignment: 'bg-primary-100 text-primary-600',
+  notification: 'bg-warning-100 text-warning-600',
 }
 
 export default function SearchPage() {
@@ -99,7 +99,7 @@ export default function SearchPage() {
 
       {!searched && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="text-center py-16">
-          <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-accent-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+          <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Sparkles className="w-10 h-10 text-primary-500" />
           </div>
           <h3 className="text-lg font-bold text-surface-900 mb-2">AI-Powered Search</h3>

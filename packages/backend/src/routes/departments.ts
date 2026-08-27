@@ -5,16 +5,23 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 const router = Router()
 router.use(authenticate)
 
-// List departments for user's college
+// List departments for user's college (SUPER_ADMIN sees all, or filtered by ?collegeId=)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || !user.collegeId) {
-      res.status(403).json({ error: 'College access required' })
+    if (!user) {
+      res.status(403).json({ error: 'Access required' })
       return
     }
+    let where: any = {}
+    if (user.role === 'SUPER_ADMIN') {
+      const collegeId = req.query.collegeId as string | undefined
+      if (collegeId) where = { collegeId }
+    } else {
+      where = { collegeId: user.collegeId! }
+    }
     const departments = await prisma.department.findMany({
-      where: { collegeId: user.collegeId },
+      where,
       include: { _count: { select: { users: true } } },
       orderBy: { name: 'asc' },
     })
@@ -24,16 +31,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Create department (college admin only)
+// Create department (college admin or super admin)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'College admin access required' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
       return
     }
-    if (!user.collegeId) {
-      res.status(400).json({ error: 'College admin must belong to a college' })
+    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    if (!collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
       return
     }
     const { name } = req.body
@@ -42,14 +50,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return
     }
     const existing = await prisma.department.findFirst({
-      where: { collegeId: user.collegeId, name: name.trim() },
+      where: { collegeId, name: name.trim() },
     })
     if (existing) {
       res.status(400).json({ error: 'Department already exists' })
       return
     }
     const dept = await prisma.department.create({
-      data: { name: name.trim(), collegeId: user.collegeId },
+      data: { name: name.trim(), collegeId },
     })
     res.status(201).json(dept)
   } catch (error: any) {
@@ -62,12 +70,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'College admin access required' })
-      return
-    }
-    if (!user.collegeId) {
-      res.status(400).json({ error: 'College admin must belong to a college' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
       return
     }
     const { name } = req.body
@@ -76,7 +80,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
     const dept = await prisma.department.findUnique({ where: { id: req.params.id as string } })
-    if (!dept || dept.collegeId !== user.collegeId) {
+    if (!dept) {
+      res.status(404).json({ error: 'Department not found' })
+      return
+    }
+    // College admin can only rename their own college's departments
+    if (user.role === 'COLLEGE_ADMIN' && dept.collegeId !== user.collegeId) {
       res.status(404).json({ error: 'Department not found' })
       return
     }
@@ -94,19 +103,20 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || user.role !== 'COLLEGE_ADMIN') {
-      res.status(403).json({ error: 'College admin access required' })
-      return
-    }
-    if (!user.collegeId) {
-      res.status(400).json({ error: 'College admin must belong to a college' })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
       return
     }
     const dept = await prisma.department.findUnique({
       where: { id: req.params.id as string },
       include: { _count: { select: { users: true } } },
     })
-    if (!dept || dept.collegeId !== user.collegeId) {
+    if (!dept) {
+      res.status(404).json({ error: 'Department not found' })
+      return
+    }
+    // College admin can only delete their own college's departments
+    if (user.role === 'COLLEGE_ADMIN' && dept.collegeId !== user.collegeId) {
       res.status(404).json({ error: 'Department not found' })
       return
     }

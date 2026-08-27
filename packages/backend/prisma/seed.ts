@@ -3,8 +3,17 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-async function main() {
-  console.log('Seeding database...')
+// Demo content (login accounts, courses, hackathons, internships, ...) must never
+// be created against a production database: every demo account shares the weak
+// password 'password123'. It is only seeded when NOT running in production, or
+// when a production demo is explicitly opted into via SEED_DEMO_USERS=true.
+const shouldSeedDemo =
+  process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_USERS === 'true'
+
+// Seeds all demo data. Returns the demo college id so the AI provider built-ins
+// can be attached to it (in production they are seeded globally instead).
+async function seedDemoData(): Promise<string> {
+  console.log('Seeding demo data...')
 
   // Create college first
   const college = await prisma.college.upsert({
@@ -401,9 +410,25 @@ async function main() {
 
   console.log('✓ Internships seeded')
 
-  // AI Manager - seed built-in providers
+  return college.id
+}
+
+async function main() {
+  console.log('Seeding database...')
+
+  let aiCollegeId: string | null = null
+  if (shouldSeedDemo) {
+    aiCollegeId = await seedDemoData()
+  } else {
+    console.log('[Seed] Skipping demo data (production)')
+  }
+
+  // AI Manager - seed built-in providers.
+  // ALWAYS seeded regardless of environment: the AI Manager needs these rows even
+  // on a fresh production DB. Without a demo college (production) they are created
+  // as global providers (collegeId: null).
   const BUILTIN_PROVIDERS = [
-    { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', type: 'openai-compatible' },
+    { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', type: 'openai-compatible' },
     { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', type: 'openai-compatible' },
     { name: 'Anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514', type: 'anthropic' },
     { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash', type: 'google' },
@@ -415,11 +440,17 @@ async function main() {
 
   for (const p of BUILTIN_PROVIDERS) {
     try {
-      await prisma.aiProvider.upsert({
-        where: { name_collegeId: { name: p.name, collegeId: college.id } },
-        update: {},
-        create: { ...p, apiKey: 'placeholder', isBuiltIn: true, enabled: false, collegeId: college.id },
+      // findFirst + create instead of upsert: the compound-unique where input
+      // (name, collegeId) does not accept null collegeId, which we need for the
+      // global (production) providers.
+      const existing = await prisma.aiProvider.findFirst({
+        where: { name: p.name, collegeId: aiCollegeId },
       })
+      if (!existing) {
+        await prisma.aiProvider.create({
+          data: { ...p, apiKey: 'placeholder', isBuiltIn: true, enabled: false, collegeId: aiCollegeId },
+        })
+      }
     } catch {
       console.log(`Skipped provider ${p.name} (already exists or constraint issue)`)
     }

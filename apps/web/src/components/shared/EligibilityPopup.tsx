@@ -132,7 +132,7 @@ export default function EligibilityPopup({
 
             <div className="flex gap-3 mt-6">
               <button onClick={onSkip} className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 text-sm">Skip — Everyone</button>
-              <button onClick={onConfirm} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg text-sm">Confirm</button>
+              <button onClick={onConfirm} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg text-sm">Confirm</button>
             </div>
           </motion.div>
         </motion.div>

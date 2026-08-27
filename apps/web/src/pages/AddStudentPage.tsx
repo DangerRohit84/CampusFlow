@@ -195,7 +195,7 @@ export default function AddStudentPage() {
             </div>
           </div>
           <button onClick={handleAddStudent} disabled={loading}
-            className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
+            className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus size={16} />}
             {loading ? 'Adding...' : 'Add Student'}
           </button>
@@ -224,7 +224,7 @@ export default function AddStudentPage() {
               {csvFile ? (
                 <div>
                   <p className="text-sm font-medium text-surface-900">{csvFile.name}</p>
-                  <button onClick={() => setCsvFile(null)} className="text-xs text-red-500 mt-1 flex items-center gap-1 mx-auto">
+                  <button onClick={() => setCsvFile(null)} className="text-xs text-danger-500 mt-1 flex items-center gap-1 mx-auto">
                     <X size={12} /> Remove
                   </button>
                 </div>
@@ -237,7 +237,7 @@ export default function AddStudentPage() {
             </div>
 
             <button onClick={handleCsvUpload} disabled={loading || !csvFile}
-              className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+              className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload size={16} />}
               {loading ? 'Uploading...' : 'Upload & Add Students'}
             </button>
@@ -248,13 +248,13 @@ export default function AddStudentPage() {
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                   className="p-4 bg-surface-50 rounded-xl">
                   <div className="flex items-center gap-3 mb-2">
-                    <CheckCircle size={16} className="text-green-500" />
+                    <CheckCircle size={16} className="text-primary-500" />
                     <span className="text-sm font-medium text-surface-900">
                       {csvResults.success} added, {csvResults.failed} failed
                     </span>
                   </div>
                   {csvResults.errors?.length > 0 && (
-                    <div className="mt-2 text-xs text-red-600 space-y-1">
+                    <div className="mt-2 text-xs text-danger-600 space-y-1">
                       {csvResults.errors.map((err: string, i: number) => (
                         <p key={i}>{err}</p>
                       ))}

@@ -1,6 +1,7 @@
 // packages/backend/src/services/syncEngine.ts
 import prisma from '../config/db'
 import { fetchAllPlatforms } from './platformFetchers'
+import { fetchAllPlatformStats } from './platformStats'
 
 // Normalize a string for fuzzy matching: lowercase, strip non-alphanumeric, collapse spaces
 function normalize(s: string): string {
@@ -92,10 +93,23 @@ export async function syncUserContests(userId: string): Promise<{ synced: number
     }
   }
 
-  await prisma.codingProfile.update({
-    where: { userId },
-    data: { lastSyncedAt: new Date() },
-  })
+  // Fetch and save per-platform stats (problem counts, ratings, ranks)
+  try {
+    const stats = await fetchAllPlatformStats(profile)
+    await prisma.codingProfile.update({
+      where: { userId },
+      data: {
+        platformStats: JSON.stringify(stats),
+        lastSyncedAt: new Date(),
+      },
+    })
+  } catch (err) {
+    console.error('Platform stats sync error:', err)
+    await prisma.codingProfile.update({
+      where: { userId },
+      data: { lastSyncedAt: new Date() },
+    })
+  }
 
   return { synced, platforms: Array.from(platforms) }
 }

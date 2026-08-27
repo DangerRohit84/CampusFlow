@@ -132,7 +132,7 @@ export default function SchedulePage() {
           const classCount = schedules.filter((s) => s.dayOfWeek === i).length
           return (
             <button key={day} onClick={() => setSelectedDay(i)}
-              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-all duration-200 shrink-0 min-w-[70px] ${selectedDay === i ? 'bg-gradient-to-br from-primary-600 to-accent-600 text-white shadow-lg shadow-primary-500/25' : 'bg-white text-surface-600 hover:bg-surface-50 border border-surface-200'}`}>
+              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-all duration-200 shrink-0 min-w-[70px] ${selectedDay === i ? 'bg-gradient-to-br from-primary-600 to-primary-600 text-white shadow-lg shadow-primary-500/25' : 'bg-white text-surface-600 hover:bg-surface-50 border border-surface-200'}`}>
               <span className="text-[10px] opacity-80">{dayShort[i]}</span>
               <span className="text-lg font-bold mt-0.5">{14 + i}</span>
               {classCount > 0 && selectedDay !== i && <div className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1" />}
@@ -197,7 +197,7 @@ export default function SchedulePage() {
                                   {item.teacher && <p className="text-[11px] text-surface-400 mt-1">{/^(Prof|Dr|Mr|Mrs|Ms|Sir|Ma'am)\./i.test(item.teacher) ? '' : 'Prof. '}{item.teacher}</p>}
                                 </div>
                                 {item._type === 'class' && (
-                                  <button onClick={() => handleDeleteClass(item.id)} className="p-1 rounded text-surface-400 hover:text-red-600 opacity-0 group-hover/item:opacity-100 transition-all"><Trash2 size={12} /></button>
+                                   <button onClick={() => handleDeleteClass(item.id)} className="p-1 rounded text-surface-400 hover:text-danger-600 opacity-0 group-hover/item:opacity-100 transition-all"><Trash2 size={12} /></button>
                                 )}
                               </div>
                             </motion.div>
@@ -242,17 +242,17 @@ export default function SchedulePage() {
                 <p className="text-2xl font-bold text-primary-600">{schedules.length}</p>
                 <p className="text-[10px] text-primary-500 font-medium">Total Classes</p>
               </div>
-              <div className="p-3 bg-accent-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-accent-600">{new Set(schedules.map((s) => s.course || s.title)).size}</p>
-                <p className="text-[10px] text-accent-500 font-medium">Subjects</p>
+              <div className="p-3 bg-primary-50 rounded-xl text-center">
+                <p className="text-2xl font-bold text-primary-600">{new Set(schedules.map((s) => s.course || s.title)).size}</p>
+                <p className="text-[10px] text-primary-500 font-medium">Subjects</p>
               </div>
-              <div className="p-3 bg-emerald-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-emerald-600">{schedules.filter((s) => s.type === 'LAB').length}</p>
-                <p className="text-[10px] text-emerald-500 font-medium">Labs</p>
+              <div className="p-3 bg-primary-50 rounded-xl text-center">
+                <p className="text-2xl font-bold text-primary-600">{schedules.filter((s) => s.type === 'LAB').length}</p>
+                <p className="text-[10px] text-primary-500 font-medium">Labs</p>
               </div>
-              <div className="p-3 bg-amber-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-amber-600">{new Set(schedules.map((s) => s.dayOfWeek)).size}</p>
-                <p className="text-[10px] text-amber-500 font-medium">Days Active</p>
+              <div className="p-3 bg-warning-50 rounded-xl text-center">
+                <p className="text-2xl font-bold text-warning-600">{new Set(schedules.map((s) => s.dayOfWeek)).size}</p>
+                <p className="text-[10px] text-warning-500 font-medium">Days Active</p>
               </div>
             </div>
           </Card>
@@ -288,7 +288,7 @@ export default function SchedulePage() {
                   <div className="space-y-2">
                     <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center mx-auto"><Image size={24} className="text-primary-600" /></div>
                     <p className="text-sm font-medium text-surface-900">{file.name}</p>
-                    <button onClick={() => setFile(null)} className="text-xs text-red-500 hover:text-red-600">Remove</button>
+                    <button onClick={() => setFile(null)} className="text-xs text-danger-500 hover:text-danger-600">Remove</button>
                   </div>
                 ) : (
                   <label className="cursor-pointer block">

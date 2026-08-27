@@ -235,3 +235,26 @@ export interface ChatProvider {
   name: string
   models: string[]
 }
+
+export interface AiProvider {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  type: string
+  headers: string | null
+  enabled: boolean
+  isBuiltIn: boolean
+  collegeId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AiRouting {
+  id: string
+  feature: string
+  providerId: string
+  fallbackOrder: number
+  collegeId: string | null
+}
