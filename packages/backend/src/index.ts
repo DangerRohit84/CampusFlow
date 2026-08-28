@@ -33,6 +33,7 @@ import aiManagerRoutes from './routes/ai-manager'
 import attendanceRoutes from './routes/attendance'
 import gradesRoutes from './routes/grades'
 import announcementsRoutes from './routes/announcements'
+import assignmentHubRouter from './routes/assignmentHub'
 import internalCronRoutes, { runContestsJob, runProfileSyncJob, runOpportunitiesJob, runCleanupJob } from './routes/internalCron'
 
 import prisma from './config/db'
@@ -192,6 +193,7 @@ app.use('/api/auth/register', authLimiter)
 app.use('/api/auth', authRoutes)
 app.use('/api/schedules', generalLimiter, scheduleRoutes)
 app.use('/api/assignments', generalLimiter, assignmentRoutes)
+app.use('/api/assignments/hub', generalLimiter, assignmentHubRouter)
 app.use('/api/notifications', generalLimiter, notificationRoutes)
 app.use('/api/chat', generalLimiter, chatRoutes)
 app.use('/api/user', generalLimiter, userRoutes)
