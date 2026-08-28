@@ -141,6 +141,15 @@ External Platform (Devfolio/Devpost/MLH/Unstop/Internshala)
 | `/api/fetch/settings/all` | GET | Get all platform limits |
 | `/api/fetch/:platform/limit` | PUT | Update platform limit |
 
+### Assignments (AssignmentHub)
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/assignments/hub` | CRUD | AssignmentHub with scope ALL/DEPARTMENT/ROOM |
+| `/api/assignments/hub/:id/submissions` | POST | Student submit (mode-enforced) |
+| `/api/assignments/submissions/:id/grade` | PUT | Teacher grade |
+| `/api/assignments/my-submissions` | GET | Student submissions (visibility-gated) |
+| `/api/assignments/hub/:id/stats` | GET | Submission stats (showStats gate) |
+
 ### Other
 | Route | Method | Description |
 |-------|--------|-------------|
@@ -233,6 +242,14 @@ Each platform has a distinct color in the admin UI:
 - Inline script in `index.html` prevents flash
 - `useLayoutEffect` in ThemeContext for instant apply
 - All colors use CSS custom properties via Tailwind
+
+### AssignmentHub Scoping & Visibility
+AssignmentHub replaces single-user assignments with college-scoped targets:
+- Scope `ALL` visible to entire college, `DEPARTMENT` filtered by `departmentId`, `ROOM` via `RoomMember`.
+- Submission modes `ONLINE` (requires file/text), `OFFLINE` (requires confirmation, forbids files), `HYBRID` (either).
+- Teacher visibility toggles `showGrades/showFeedback/showSubmissionStatus/showStats` gate student reads; teacher always sees raw data. Stats endpoint respects `showStats` for students.
+- Legacy `Assignment` retained for backward compat (deprecated).
+- Pagination `page/limit` with ETag `Cache-Control: public, max-age=15, stale-while-revalidate=30` on list endpoints.
 
 ### Limit-Aware Scraping
 When a user sets limit=1 for a platform:
