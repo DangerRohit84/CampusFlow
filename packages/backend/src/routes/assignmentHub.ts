@@ -3,6 +3,15 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { buildHubListWhere } from '../utils/assignmentVisibility'
+import multer from 'multer'
+import { uploadFile } from '../config/storage'
+import path from 'path'
+
+export const hubBlocked = ['.html','.htm','.xhtml','.svg','.xml','.js','.mjs','.css']
+const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 }, fileFilter: (_req,file,cb)=> {
+  if (hubBlocked.includes(path.extname(file.originalname).toLowerCase())) cb(new Error('File type not allowed'))
+  else cb(null,true)
+}})
 
 const router = Router()
 router.use(authenticate)
@@ -16,25 +25,33 @@ const assignmentHubSchema = z.object({
   departmentId: z.string().optional().nullable(),
   roomId: z.string().optional().nullable(),
   submissionMode: z.enum(['ONLINE','OFFLINE','HYBRID']).default('ONLINE'),
-  showGrades: z.boolean().default(true),
-  showFeedback: z.boolean().default(true),
-  showSubmissionStatus: z.boolean().default(true),
-  showStats: z.boolean().default(false),
-  maxPoints: z.number().int().min(1).max(1000).default(100),
+  showGrades: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
+  showFeedback: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
+  showSubmissionStatus: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
+  showStats: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(false)),
+  maxPoints: z.preprocess(v => typeof v === 'string' ? parseInt(v) : v, z.number().int().min(1).max(1000).default(100)),
   maxGrade: z.string().optional().nullable(),
-  allowLateSubmission: z.boolean().default(false),
+  allowLateSubmission: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(false)),
   attachments: z.string().optional(),
 })
 
 const updateHubSchema = assignmentHubSchema.partial()
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', hubUpload.array('attachments', 5), async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN'].includes(user.role)) {
       res.status(403).json({ error: 'Only teachers and admins can create assignments' }); return
     }
     const body = assignmentHubSchema.parse(req.body)
+    let attachmentUrls: string[] = []
+    if ((req as any).files && Array.isArray((req as any).files)) {
+      for (const f of (req as any).files as Express.Multer.File[]) {
+        const stored = await uploadFile(f.buffer, { folder: `assignments/hub`, resourceType: 'auto', fileName: f.originalname })
+        attachmentUrls.push(stored.url)
+      }
+    }
+    const attachmentsJson = attachmentUrls.length ? JSON.stringify(attachmentUrls) : body.attachments || '[]'
     if (body.scope === 'DEPARTMENT' && !body.departmentId) { res.status(400).json({ error: 'departmentId required for DEPARTMENT scope' }); return }
     if (body.scope === 'ROOM' && !body.roomId) { res.status(400).json({ error: 'roomId required for ROOM scope' }); return }
     if (body.scope === 'ALL' && (body.departmentId || body.roomId)) { res.status(400).json({ error: 'departmentId/roomId must be empty for ALL scope' }); return }
@@ -69,7 +86,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         maxPoints: body.maxPoints,
         maxGrade: body.maxGrade || null,
         allowLateSubmission: body.allowLateSubmission,
-        attachments: body.attachments || '[]',
+        attachments: attachmentsJson,
       },
       include: { creator: { select: { id: true, name: true } }, college: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true } }, _count: { select: { submissions: true } } }
     })
