@@ -99,18 +99,23 @@ export const assignmentAPI = {
 }
 
 export const assignmentHubAPI = {
-  getHubs: (params?: { page?: number; limit?: number; search?: string; scope?: string; submissionMode?: string; signal?: AbortSignal }) =>
-    api.get('/assignments/hub', { params, signal: params?.signal }).then(r => {
+  getHubs: (params?: { page?: number; limit?: number; search?: string; scope?: string; submissionMode?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = params || {}
+    return api.get('/assignments/hub', { params: query, signal }).then(r => {
       const b = r.data
       if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
       return b
-    }),
+    })
+  },
   getHub: (id: string) => api.get(`/assignments/hub/${id}`).then(r => r.data),
   create: (data: any) => {
     const hasFile = data instanceof FormData
     return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then(r => r.data)
   },
-  update: (id: string, data: any) => api.put(`/assignments/hub/${id}`, data).then(r => r.data),
+  update: (id: string, data: any) => {
+    const hasFile = data instanceof FormData
+    return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then(r => r.data)
+  },
   delete: (id: string) => api.delete(`/assignments/hub/${id}`).then(r => r.data),
   submit: (hubId: string, payload: { content?: string; file?: File }) => {
     const fd = new FormData()

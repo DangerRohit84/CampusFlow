@@ -3,6 +3,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import multer from 'multer'
 import { uploadFile } from '../config/storage'
+import { filterSubmissionForStudentVisibility } from '../utils/assignmentVisibility'
 import path from 'path'
 
 const router = Router({ mergeParams: true })
@@ -23,6 +24,7 @@ export function enforceSubmissionMode(mode: string, hasFile: boolean, hasContent
   if (mode === 'ONLINE' && !hasFile && !hasContent) throw new Error('ONLINE submissions require content or file upload')
   if (mode === 'OFFLINE' && hasFile) throw new Error('OFFLINE submissions must not include files; submit in person')
   if (mode === 'OFFLINE' && !hasContent) throw new Error('OFFLINE submissions require confirmation text (e.g., roll number or offline receipt)')
+  if (mode === 'HYBRID' && !hasFile && !hasContent) throw new Error('HYBRID submissions require content or file upload')
 }
 
 function handleMulterError(err: any, _req: any, res: Response, next: any) {
@@ -113,11 +115,7 @@ router.get('/my-submissions', async (req: AuthRequest, res: Response) => {
     const subs = await prisma.assignmentSubmission.findMany({ where: { studentId: user.id }, include: { assignment: { select: { id: true, title: true, dueDate: true, submissionMode: true, showGrades: true, showFeedback: true, showSubmissionStatus: true, maxPoints: true } } }, orderBy: { submittedAt: 'desc' } })
     const filtered = subs.map(s => {
       const hub: any = s.assignment
-      let out: any = { ...s }
-      if (!hub.showGrades) { out.grade = null; out.points = null }
-      if (!hub.showFeedback) out.feedback = null
-      if (!hub.showSubmissionStatus) out.status = null
-      return out
+      return filterSubmissionForStudentVisibility(hub, s)
     })
     res.json(filtered)
   } catch (e) { console.error('My subs error', e); res.status(500).json({ error: 'Failed to fetch' }) }

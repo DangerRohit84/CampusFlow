@@ -2,12 +2,12 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { buildHubListWhere } from '../utils/assignmentVisibility'
+import { buildHubListWhere, filterSubmissionForStudentVisibility } from '../utils/assignmentVisibility'
 import multer from 'multer'
 import { uploadFile } from '../config/storage'
 import path from 'path'
 
-export const hubBlocked = ['.html','.htm','.xhtml','.svg','.xml','.js','.mjs','.css']
+export const hubBlocked = ['.html','.htm','.xhtml','.svg','.xml','.js','.mjs','.css','.exe','.sh']
 const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 }, fileFilter: (_req,file,cb)=> {
   if (hubBlocked.includes(path.extname(file.originalname).toLowerCase())) cb(new Error('File type not allowed'))
   else cb(null,true)
@@ -146,9 +146,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 })
 
 function filterForStudent(hub: any, submission: any) {
-  if (!hub.showGrades) { const { grade, points, ...rest } = submission; return { ...rest, grade: null, points: null } }
-  if (!hub.showFeedback) { const { feedback, ...rest } = submission; return { ...rest, feedback: null } }
-  return submission
+  return filterSubmissionForStudentVisibility(hub, submission)
 }
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
@@ -172,12 +170,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const isOwner = hub.creatorId === user.id
     const isCollegeAdmin = user.role === 'COLLEGE_ADMIN' && hub.collegeId === user.collegeId
     const isSuper = user.role === 'SUPER_ADMIN'
-    if (!isOwner && !isCollegeAdmin && !isSuper && user.role !== 'TEACHER') { res.status(403).json({ error: 'Access denied' }); return }
+    if (!isOwner && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Access denied' }); return }
     res.json(hub)
   } catch (e) { console.error('Get hub error', e); res.status(500).json({ error: 'Failed to fetch assignment' }) }
 })
 
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', hubUpload.array('attachments', 5), async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
@@ -188,27 +186,108 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const isSuper = user.role === 'SUPER_ADMIN'
     if (!isOwner && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Only creator or college admin can edit' }); return }
     const body = updateHubSchema.parse(req.body)
-    if (body.scope && body.scope !== existing.scope) {
-      if (body.scope === 'DEPARTMENT' && !body.departmentId) { res.status(400).json({ error: 'departmentId required' }); return }
-      if (body.scope === 'ROOM' && !body.roomId) { res.status(400).json({ error: 'roomId required' }); return }
+
+    // Handle file attachments via multer (append to existing list)
+    const data: any = {}
+    if ((req as any).files && Array.isArray((req as any).files) && (req as any).files.length) {
+      const attachmentUrls: string[] = []
+      for (const f of (req as any).files as Express.Multer.File[]) {
+        const stored = await uploadFile(f.buffer, { folder: `assignments/hub`, resourceType: 'auto', fileName: f.originalname })
+        attachmentUrls.push(stored.url)
+      }
+      const existingList: string[] = (() => { try { return JSON.parse((existing as any).attachments || '[]') } catch { return [] } })()
+      data.attachments = JSON.stringify([...existingList, ...attachmentUrls])
+    } else if ((body as any).attachments !== undefined) {
+      data.attachments = (body as any).attachments || '[]'
     }
-    const updated = await prisma.assignmentHub.update({ where: { id: existing.id }, data: {
-      ...(body.title !== undefined ? { title: body.title.trim() } : {}),
-      ...(body.description !== undefined ? { description: body.description } : {}),
-      ...(body.courseId !== undefined ? { courseId: body.courseId } : {}),
-      ...(body.dueDate !== undefined ? { dueDate: body.dueDate as Date } : {}),
-      ...(body.scope !== undefined ? { scope: body.scope as any } : {}),
-      ...(body.departmentId !== undefined ? { departmentId: body.scope === 'DEPARTMENT' ? body.departmentId! : body.departmentId } : {}),
-      ...(body.roomId !== undefined ? { roomId: body.scope === 'ROOM' ? body.roomId! : body.roomId } : {}),
-      ...(body.submissionMode !== undefined ? { submissionMode: body.submissionMode as any } : {}),
-      ...(body.showGrades !== undefined ? { showGrades: body.showGrades } : {}),
-      ...(body.showFeedback !== undefined ? { showFeedback: body.showFeedback } : {}),
-      ...(body.showSubmissionStatus !== undefined ? { showSubmissionStatus: body.showSubmissionStatus } : {}),
-      ...(body.showStats !== undefined ? { showStats: body.showStats } : {}),
-      ...(body.maxPoints !== undefined ? { maxPoints: body.maxPoints } : {}),
-      ...(body.maxGrade !== undefined ? { maxGrade: body.maxGrade } : {}),
-      ...(body.allowLateSubmission !== undefined ? { allowLateSubmission: body.allowLateSubmission } : {}),
-    }})
+
+    // Scope-aware FK handling with validation (reuse POST checks)
+    if (body.scope !== undefined) {
+      if (body.scope === 'DEPARTMENT' && !(body.departmentId ?? existing.departmentId)) {
+        res.status(400).json({ error: 'departmentId required for DEPARTMENT scope' }); return
+      }
+      if (body.scope === 'ROOM' && !(body.roomId ?? existing.roomId)) {
+        res.status(400).json({ error: 'roomId required for ROOM scope' }); return
+      }
+      if (body.scope === 'ALL' && (body.departmentId || body.roomId)) {
+        res.status(400).json({ error: 'departmentId/roomId must be empty for ALL scope' }); return
+      }
+      data.scope = body.scope as any
+      if (body.scope === 'DEPARTMENT') {
+        data.departmentId = (body.departmentId ?? existing.departmentId) as string
+        data.roomId = null
+      } else if (body.scope === 'ROOM') {
+        data.roomId = (body.roomId ?? existing.roomId) as string
+        data.departmentId = null
+      } else {
+        data.departmentId = null
+        data.roomId = null
+      }
+      if (data.departmentId) {
+        const dept = await prisma.department.findFirst({ where: { id: data.departmentId, collegeId: user.collegeId || undefined } })
+        if (!dept) { res.status(400).json({ error: 'Invalid departmentId for your college' }); return }
+      }
+      if (data.roomId) {
+        const room = await prisma.room.findFirst({ where: { id: data.roomId } })
+        if (!room) { res.status(404).json({ error: 'Room not found' }); return }
+        const isCreator = room.teacherId === user.id
+        const isCollegeAdminRoom = user.role === 'COLLEGE_ADMIN' && room.teacherId && (await prisma.user.findUnique({ where: { id: room.teacherId } }))?.collegeId === user.collegeId
+        const isSuperRoom = user.role === 'SUPER_ADMIN'
+        if (!isCreator && !isCollegeAdminRoom && !isSuperRoom) { res.status(403).json({ error: 'Not authorized for this room' }); return }
+      }
+    } else {
+      const effectiveScope = existing.scope as string
+      if (body.departmentId !== undefined || body.roomId !== undefined) {
+        if (effectiveScope === 'ALL' && (body.departmentId || body.roomId)) {
+          res.status(400).json({ error: 'departmentId/roomId must be empty for ALL scope' }); return
+        }
+        if (effectiveScope === 'DEPARTMENT' && body.departmentId !== undefined && !body.departmentId) {
+          res.status(400).json({ error: 'departmentId required for DEPARTMENT scope' }); return
+        }
+        if (effectiveScope === 'ROOM' && body.roomId !== undefined && !body.roomId) {
+          res.status(400).json({ error: 'roomId required for ROOM scope' }); return
+        }
+        if (effectiveScope === 'ROOM' && body.departmentId) {
+          res.status(400).json({ error: 'departmentId must be empty for ROOM scope' }); return
+        }
+        if (effectiveScope === 'DEPARTMENT' && body.roomId) {
+          res.status(400).json({ error: 'roomId must be empty for DEPARTMENT scope' }); return
+        }
+      }
+      if (body.departmentId !== undefined && effectiveScope === 'DEPARTMENT') {
+        data.departmentId = body.departmentId
+        if (body.departmentId) {
+          const dept = await prisma.department.findFirst({ where: { id: body.departmentId, collegeId: user.collegeId || undefined } })
+          if (!dept) { res.status(400).json({ error: 'Invalid departmentId for your college' }); return }
+        }
+      }
+      if (body.roomId !== undefined && effectiveScope === 'ROOM') {
+        data.roomId = body.roomId
+        if (body.roomId) {
+          const room = await prisma.room.findFirst({ where: { id: body.roomId } })
+          if (!room) { res.status(404).json({ error: 'Room not found' }); return }
+          const isCreator = room.teacherId === user.id
+          const isCollegeAdminRoom = user.role === 'COLLEGE_ADMIN' && room.teacherId && (await prisma.user.findUnique({ where: { id: room.teacherId } }))?.collegeId === user.collegeId
+          const isSuperRoom = user.role === 'SUPER_ADMIN'
+          if (!isCreator && !isCollegeAdminRoom && !isSuperRoom) { res.status(403).json({ error: 'Not authorized for this room' }); return }
+        }
+      }
+    }
+
+    if (body.title !== undefined) data.title = body.title.trim()
+    if (body.description !== undefined) data.description = body.description
+    if (body.courseId !== undefined) data.courseId = body.courseId
+    if (body.dueDate !== undefined) data.dueDate = body.dueDate as Date
+    if (body.submissionMode !== undefined) data.submissionMode = body.submissionMode as any
+    if (body.showGrades !== undefined) data.showGrades = body.showGrades
+    if (body.showFeedback !== undefined) data.showFeedback = body.showFeedback
+    if (body.showSubmissionStatus !== undefined) data.showSubmissionStatus = body.showSubmissionStatus
+    if (body.showStats !== undefined) data.showStats = body.showStats
+    if (body.maxPoints !== undefined) data.maxPoints = body.maxPoints
+    if (body.maxGrade !== undefined) data.maxGrade = body.maxGrade
+    if (body.allowLateSubmission !== undefined) data.allowLateSubmission = body.allowLateSubmission
+
+    const updated = await prisma.assignmentHub.update({ where: { id: existing.id }, data })
     res.json(updated)
   } catch (e: any) {
     if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors }); return }

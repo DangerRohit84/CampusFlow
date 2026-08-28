@@ -1,8 +1,8 @@
 import Card from '../ui/Card'
 import { Users, CheckCircle, Clock, Award, BarChart2 } from 'lucide-react'
 
-export default function StatsPanel({ stats, hub }: any) {
-  if (!hub.showStats) return <div className="text-center py-8 text-surface-400 text-sm">Stats hidden by teacher</div>
+export default function StatsPanel({ stats, hub, isTeacher }: any) {
+  if (!hub.showStats && !isTeacher) return <div className="text-center py-8 text-surface-400 text-sm">Stats hidden by teacher</div>
   if (!stats) return <div className="text-center py-8 text-surface-400">Loading stats...</div>
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

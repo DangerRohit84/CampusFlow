@@ -47,3 +47,11 @@ export function filterHubForStudentVisibility(hub: any, user: UserRow) {
   const base = { ...hub }
   return base
 }
+
+export function filterSubmissionForStudentVisibility(hub: { showGrades: boolean; showFeedback: boolean; showSubmissionStatus: boolean }, submission: any) {
+  const out: any = { ...submission }
+  if (!hub.showGrades) { out.grade = null; out.points = null }
+  if (!hub.showFeedback) out.feedback = null
+  if (!hub.showSubmissionStatus) out.status = null
+  return out
+}

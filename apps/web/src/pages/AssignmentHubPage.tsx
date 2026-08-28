@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Search, FileText } from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { assignmentHubAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
+import { useDebounce } from '../hooks/useDebounce'
 import CreateAssignmentModal from '../components/assignments/CreateAssignmentModal'
 import AssignmentHubCard from '../components/assignments/AssignmentHubCard'
 import SubmissionPanel from '../components/assignments/SubmissionPanel'
@@ -21,6 +22,7 @@ export default function AssignmentHubPage() {
   const [hubs, setHubs] = useState<any[]>([])
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 })
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
   const [filterScope, setFilterScope] = useState('ALL')
   const [filterMode, setFilterMode] = useState('ALL')
   const [page, setPage] = useState(1)
@@ -31,15 +33,20 @@ export default function AssignmentHubPage() {
   const [submissions, setSubmissions] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
   const [grading, setGrading] = useState<any>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const load = async ()=> {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setLoading(true)
     try {
-      const res = await assignmentHubAPI.getHubs({ page, limit: 20, search: search||undefined, scope: filterScope!=='ALL'?filterScope:undefined, submissionMode: filterMode!=='ALL'?filterMode:undefined })
+      const res = await assignmentHubAPI.getHubs({ page, limit: 20, search: debouncedSearch||undefined, scope: filterScope!=='ALL'?filterScope:undefined, submissionMode: filterMode!=='ALL'?filterMode:undefined, signal: controller.signal } as any)
       setHubs(res.data); setPagination(res.pagination)
-    } catch(e){ console.error(e)} finally{ setLoading(false)}
+    } catch(e: any){ if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') return; console.error(e)} finally{ setLoading(false)}
   }
-  useEffect(()=>{ load() }, [page, filterScope, filterMode])
+  useEffect(()=>{ load(); return () => abortRef.current?.abort() }, [page, filterScope, filterMode, debouncedSearch])
+  useEffect(()=>{ setPage(1) }, [debouncedSearch, filterScope, filterMode])
 
   const openDetail = async (hub:any)=> {
     const full = await assignmentHubAPI.getHub(hub.id)
@@ -58,7 +65,7 @@ export default function AssignmentHubPage() {
 
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." className="pl-9" onKeyDown={e=> e.key==='Enter' && load()} /></div>
-        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All scopes</option><option value="ALL">ALL</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
+        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
         <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
       </div>
 
@@ -78,7 +85,7 @@ export default function AssignmentHubPage() {
             <div><p className="text-sm text-surface-500">{detail.courseId}</p><p className="text-sm mt-2 whitespace-pre-wrap">{detail.description}</p><p className="text-xs text-surface-400 mt-2">Due {new Date(detail.dueDate).toLocaleString()} • {detail.submissionMode} • {detail.scope}{detail.department?.name?` • ${detail.department.name}`:''}{detail.room?.name?` • ${detail.room.name}`:''}</p></div>
             {isTeacher ? (
               <>
-                <StatsPanel stats={stats} hub={detail} />
+                <StatsPanel stats={stats} hub={detail} isTeacher={isTeacher} />
                 <div className="space-y-2">
                   <h4 className="font-semibold">Submissions ({submissions.length})</h4>
                   {submissions.map(s=> (
