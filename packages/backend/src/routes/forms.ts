@@ -153,7 +153,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get all forms (filtered by role)
+// Get all forms (paginated, trimmed counts, indexed)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -162,48 +162,37 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    let forms: any[] = []
+    const page = Math.max(1, parseInt(req.query.page as string) || 1)
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const skip = (page - 1) * limit
+    const search = (req.query.search as string)?.trim()
+
+    // Build role-based where
+    let where: any = undefined
+    let includeFields = false // only include fields/response counts, not full blobs
 
     if (user.role === 'SUPER_ADMIN') {
-      forms = await prisma.form.findMany({
-        include: { creator: { select: { name: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-      })
+      where = {}
     } else if (user.role === 'COLLEGE_ADMIN' || user.role === 'TEACHER') {
-      // Teachers see: their own forms + forms in their department + forms linked to their rooms
       const teacherRoomIds = (await prisma.room.findMany({
         where: { teacherId: req.userId },
         select: { id: true },
-      })).map(r => r.id)
-
-      // SECURITY: scope the department branch to the same college and require
-      // both departments to be set, so cross-college forms cannot leak through
-      // a bare creator.departmentId match.
+      })).map((r) => r.id)
       const deptBranch = user.collegeId && user.departmentId
         ? [{ collegeId: user.collegeId, creator: { departmentId: user.departmentId } }]
         : []
-
-      forms = await prisma.form.findMany({
-        where: {
-          OR: [
-            { creatorId: req.userId },
-            ...deptBranch,
-            { formRooms: { some: { roomId: { in: teacherRoomIds } } } },
-          ],
-        },
-        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-      })
+      where = {
+        OR: [
+          { creatorId: req.userId },
+          ...deptBranch,
+          { formRooms: { some: { roomId: { in: teacherRoomIds } } } },
+        ],
+      }
     } else {
-      // Students see: forms linked to their rooms + forms in their department
       const studentRoomIds = (await prisma.roomMember.findMany({
         where: { studentId: req.userId },
         select: { roomId: true },
-      })).map(m => m.roomId)
-
-      // SECURITY: scope the department branch to the same college and require
-      // both departments to be set, so cross-college forms cannot leak through
-      // a bare creator.departmentId match.
+      })).map((m) => m.roomId)
       const deptBranch = user.collegeId && user.departmentId
         ? [{ collegeId: user.collegeId, creator: { departmentId: user.departmentId } }]
         : []
@@ -212,22 +201,49 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         { formRooms: { some: { roomId: { in: studentRoomIds } } } },
       ]
       if (studentClauses.length === 0) {
-        // Nothing can match — never send an empty OR (Prisma treats it as match-all)
-        res.json([])
+        res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+        res.json({ data: [], pagination: { page, limit, total: 0, pages: 0 } })
         return
       }
-
-      forms = await prisma.form.findMany({
-        where: {
-          status: 'ACTIVE',
-          OR: studentClauses,
-        },
-        include: { creator: { select: { name: true, department: true } }, fields: true, responses: true, formRooms: { include: { room: { select: { id: true, name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-      })
+      where = { status: 'ACTIVE', OR: studentClauses }
     }
 
-    res.json(forms)
+    if (search) {
+      const s: any = { contains: search, mode: 'insensitive' }
+      const searchClause = { OR: [{ title: s }, { description: s }] }
+      where = where ? { AND: [where, searchClause] } : searchClause
+    }
+
+    // Trimmed: creators minimal, _count for responses/fields, no full answer blobs
+    const [forms, total] = await Promise.all([
+      prisma.form.findMany({
+        where,
+        include: {
+          creator: { select: { name: true } },
+          _count: { select: { fields: true, responses: true } },
+          formRooms: { include: { room: { select: { id: true, name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.form.count({ where }),
+    ])
+
+    const data = forms.map((f: any) => ({
+      ...f,
+      fields: Array(f._count.fields).fill({}),
+      responses: Array(f._count.responses).fill({}),
+      responsesCount: f._count.responses,
+      fieldsCount: f._count.fields,
+      _count: undefined,
+    }))
+
+    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+    res.json({
+      data,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    })
   } catch (error) {
     console.error('Get forms error:', error)
     res.status(500).json({ error: 'Failed to fetch forms' })

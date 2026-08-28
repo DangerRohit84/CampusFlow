@@ -4,31 +4,31 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CampusFlowAI - AI Campus Assistant</title>
+    <title>CampusFlow — Campus OS</title>
+    <!-- High-scale head: preconnect + dns-prefetch + preload fonts (Notion/Vercel pattern for first-paint) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    <!-- preload font stylesheet with swap; display=swap avoids FOIT (like Shopify/StackOverflow) -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
     <script>
       (function() {
         var theme = localStorage.getItem('theme');
         if (theme === 'dark') {
           document.documentElement.classList.add('dark');
           document.documentElement.setAttribute('data-theme', 'dark');
-          document.documentElement.style.backgroundColor = '#080D12';
-          document.documentElement.style.color = '#F4F7F8';
         }
       })();
     </script>
     <style>
-      html, body { margin: 0; background-color: #FFFFFF; color: #1A1F36; }
-      html.dark, html.dark body { background-color: #080D12 !important; color: #F4F7F8 !important; }
-      html.dark aside { background-color: #0C1218 !important; }
-      html.dark header { background-color: #111920 !important; border-color: #202C35 !important; }
-      html.dark main { background-color: #080D12 !important; }
-      html.dark input:not([type="hidden"]) { background-color: #0D151C !important; color: #F4F7F8 !important; border-color: #202C35 !important; }
-      html.dark nav a, html.dark nav button { color: #A6B3BE !important; }
-      html.dark nav a.active, html.dark nav button.active { background-color: #10332F !important; color: #00A88F !important; }
-      #root[data-ready="false"] { visibility: hidden; }
+      html, body { margin:0; background:#FEFCF7; color:#0C1218; }
+      html.dark, html.dark body { background:#0B1216 !important; color:#F1F5F9 !important; }
+      #root[data-ready="false"] { visibility:hidden; }
+      /* High-scale list perf: content-visibility for offscreen cards (Notion/Instagram pattern) */
+      .due-slip, .paper { content-visibility: auto; contain-intrinsic-size: auto 220px; }
     </style>
   </head>
   <body>

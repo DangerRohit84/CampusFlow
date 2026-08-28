@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
 import { getSocket } from '../lib/socket'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, BookOpen, Users, FileText, Copy, Share2,
   Trash2, Loader2, Pencil, ChevronRight, KeyRound,
-  Building2, UsersRound, GraduationCap, Layers
+  Building2, UsersRound, GraduationCap, Layers, DoorOpen
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -24,25 +25,25 @@ type RoomType = 'department' | 'club' | 'study_group' | 'custom'
 
 const typeConfig: Record<RoomType, { gradient: string; overlay: string; icon: any; label: string }> = {
   department: {
-    gradient: 'from-primary-500 to-primary-600',
+    gradient: 'bg-primary-600',
     overlay: 'from-primary-500/10 to-primary-600/5',
     icon: Building2,
     label: 'Department',
   },
   club: {
-    gradient: 'from-primary-500 to-primary-600',
+    gradient: 'bg-primary-600',
     overlay: 'from-primary-500/10 to-primary-600/5',
     icon: UsersRound,
     label: 'Club',
   },
   study_group: {
-    gradient: 'from-primary-500 to-primary-600',
+    gradient: 'bg-primary-600',
     overlay: 'from-primary-500/10 to-primary-600/5',
     icon: GraduationCap,
     label: 'Study Group',
   },
   custom: {
-    gradient: 'from-warning-500 to-warning-500',
+    gradient: 'bg-warning-500',
     overlay: 'from-warning-500/10 to-warning-500/5',
     icon: Layers,
     label: 'Custom',
@@ -57,8 +58,7 @@ const getRoomType = (room: any): RoomType => {
 export default function RoomsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const [rooms, setRooms] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [editRoom, setEditRoom] = useState<any>(null)
@@ -67,6 +67,15 @@ export default function RoomsPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const { data: roomsData, isLoading: loading } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: ({ signal }) => roomAPI.getAll({ signal } as any),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
+  const rooms = (roomsData as any[]) ?? []
 
   const { activeTab, setActiveTab, filteredItems: filteredRooms } = useFilteredItems<any>({
     items: rooms,
@@ -92,34 +101,39 @@ export default function RoomsPage() {
     custom: rooms.filter(r => getRoomType(r) === 'custom').length,
   }), [rooms])
 
-  useEffect(() => {
-    loadRooms()
-  }, [])
-
-  // Live unread updates + refresh on markRead
+  // Live unread: increment local count instead of full refetch (avoids N+1 reload storm)
   useEffect(() => {
     const socketHandler = (message: any) => {
-      setRooms((prev) => prev.map((r) => r.id === message.roomId ? { ...r, unreadCount: (Number(r.unreadCount) || 0) + 1 } : r))
-      setTimeout(() => roomAPI.getAll().then(setRooms).catch(() => {}), 800)
+      queryClient.setQueryData(['rooms'], (old: any) => {
+        if (!Array.isArray(old)) return old
+        return old.map((r: any) => r.id === message.roomId ? { ...r, unreadCount: (Number(r.unreadCount) || 0) + 1 } : r)
+      })
     }
-    const onRead = () => roomAPI.getAll().then(setRooms).catch(() => {})
+    const onRead = (e: any) => {
+      const roomId = e?.detail?.roomId
+      if (roomId) {
+        queryClient.setQueryData(['rooms'], (old: any) => {
+          if (!Array.isArray(old)) return old
+          return old.map((r: any) => r.id === roomId ? { ...r, unreadCount: 0 } : r)
+        })
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      }
+    }
     const s = getSocket()
     if (s) s.on('room:message:new', socketHandler)
-    window.addEventListener('room:read', onRead)
+    window.addEventListener('room:read', onRead as any)
     return () => {
       if (s) s.off('room:message:new', socketHandler)
-      window.removeEventListener('room:read', onRead)
+      window.removeEventListener('room:read', onRead as any)
     }
-  }, [])
+  }, [queryClient])
 
   const loadRooms = async () => {
     try {
-      const data = await roomAPI.getAll()
-      setRooms(data)
+      await queryClient.invalidateQueries({ queryKey: ['rooms'] })
     } catch (err) {
       console.error('Failed to load rooms', err)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -224,19 +238,32 @@ export default function RoomsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title="Rooms"
-        subtitle="Manage your classrooms, clubs, and study groups"
-        action={
+      {/* Hallway head — brass live rail */}
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center">
+              <DoorOpen size={18} className="text-brass-400" />
+            </div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none flex items-center gap-2">
+                Hallway — Rooms
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-widest uppercase bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-1">
+                  <span className="live-dot live-dot--on" /> Live
+                </span>
+              </h1>
+              <p className="text-xs text-surface-500">Lockers, clubs, and study halls. Brass dot = live.</p>
+            </div>
+          </div>
           <button
             onClick={() => { resetForm(); setShowCreate(true) }}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium shadow-sm"
+            className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold"
           >
-            <Plus size={16} /> Create Room
+            <Plus size={16} /> New Locker
           </button>
-        }
-      />
+        </div>
+      </div>
 
       {/* Filter Tabs */}
       <FilterTabs
@@ -265,107 +292,50 @@ export default function RoomsPage() {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredRooms.map((room, index) => {
+          {filteredRooms.map((room) => {
             const roomType = getRoomType(room)
             const config = typeConfig[roomType]
             const TypeIcon = config.icon
-
+            const isLive = (room.unreadCount||0) > 0 || (room._count?.members ?? 0) > 0
             return (
-              <motion.div
+              <div
                 key={room.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05, duration: 0.25 }}
+                onClick={() => navigate(`/rooms/${room.id}`)}
+                className="paper p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow group relative overflow-hidden"
               >
-                <Card
-                  hover
-                  padding="none"
-                  onClick={() => navigate(`/rooms/${room.id}`)}
-                  className="group overflow-hidden relative"
-                >
-                  {/* Gradient Header */}
-                  <div className={clsx('relative bg-gradient-to-br p-6 pb-8', config.gradient)}>
-                    {/* Subtle overlay pattern */}
-                    <div className="absolute inset-0 bg-white/5" />
-                    <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-xl" />
-
-                    {/* Type Icon */}
-                    <div className="relative w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                      <TypeIcon size={22} className="text-white" />
+                  {/* brass live rail + dot */}
+                  <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-brass-400" />
+                  <div className="flex items-start justify-between">
+                    <div className="w-11 h-11 rounded-xl bg-surface-900 flex items-center justify-center">
+                      <TypeIcon size={18} className="text-brass-400" />
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase border rounded-full px-2.5 py-1 bg-surface-50 text-surface-600 border-surface-200">
+                      <span className={clsx('live-dot', isLive && 'live-dot--on')} /> {config.label}
+                    </span>
+                  </div>
+                  <h3 className="mt-3 font-display font-bold text-surface-900 text-lg line-clamp-1">{room.name}</h3>
+                  {room.description && <p className="text-sm text-surface-500 line-clamp-2 mt-1">{room.description}</p>}
+                  <div className="mt-3 flex items-center gap-2 text-sm text-surface-500">
+                    <Users size={14} className="text-surface-400" />
+                    <span>{room._count?.members ?? room.members?.length ?? 0} members</span>
+                    {room.unreadCount > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-danger-500 text-white rounded-full text-[11px] font-bold">{room.unreadCount>99?'99+':room.unreadCount}</span>}
+                  </div>
+                  <div className="mt-3 p-2.5 bg-surface-50 border border-surface-200 rounded-xl flex items-center gap-2">
+                    <KeyRound size={13} className="text-primary-600 shrink-0" />
+                    <span className="font-mono font-bold text-surface-800 text-xs tracking-wider">{room.joinCode}</span>
+                    <div className="flex gap-1 ml-auto">
+                      <button onClick={(e) => copyJoinCode(room.joinCode, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-primary-600 hover:bg-white border border-transparent hover:border-surface-200" title="Copy code"><Copy size={12} /></button>
+                      <button onClick={(e) => shareJoinCode(room, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-primary-600 hover:bg-white border border-transparent hover:border-surface-200" title="Copy join link"><Share2 size={12} /></button>
                     </div>
                   </div>
-
-                  {/* Content */}
-                  <div className="relative px-5 pt-4 pb-5 -mt-2">
-                    {/* Type Badge */}
-                    <Badge variant="default" className="mb-2">{config.label}</Badge>
-
-                    {/* Room Name */}
-                    <h3 className="font-bold text-surface-900 text-lg line-clamp-1 mb-1">{room.name}</h3>
-
-                    {room.description && (
-                      <p className="text-sm text-surface-500 line-clamp-2 mb-3">{room.description}</p>
-                    )}
-
-                    {/* Member Count + unread badge */}
-                    <div className="flex items-center gap-2 text-sm text-surface-500">
-                      <Users size={14} className="text-surface-400" />
-                      <span>{room._count?.members ?? room.members?.length ?? 0} members</span>
-                      {room.unreadCount > 0 && (
-                        <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-red-500 text-white rounded-full text-[11px] font-bold">
-                          {room.unreadCount > 99 ? '99+' : room.unreadCount}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Join Code */}
-                    <div className="mt-3 p-2.5 bg-surface-50 rounded-xl flex items-center gap-2">
-                      <KeyRound size={13} className="text-primary-500 shrink-0" />
-                      <span className="font-mono font-bold text-surface-800 text-xs tracking-wider">{room.joinCode}</span>
-                      <div className="flex gap-1 ml-auto">
-                        <button
-                          onClick={(e) => copyJoinCode(room.joinCode, e)}
-                          className="p-1 rounded-md text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
-                          title="Copy code"
-                        >
-                          <Copy size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => shareJoinCode(room, e)}
-                          className="p-1 rounded-md text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
-                          title="Copy join link"
-                        >
-                          <Share2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Actions Row */}
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-surface-100">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${room.id}`) }}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-500 text-white rounded-xl text-sm font-medium hover:bg-primary-600 transition-colors shadow-sm"
-                      >
-                        Open <ChevronRight size={14} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openEditModal(room) }}
-                        className="p-2 rounded-xl text-surface-400 hover:text-primary-500 hover:bg-primary-50 border border-surface-200 transition-all"
-                        title="Edit"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openDeleteConfirm(room) }}
-                        className="p-2 rounded-xl text-surface-400 hover:text-danger-500 hover:bg-danger-50 border border-surface-200 transition-all"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-surface-100">
+                    <button onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${room.id}`) }} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">
+                      Open <ChevronRight size={14} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openEditModal(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-primary-600 hover:bg-surface-50 border border-surface-200" title="Edit"><Pencil size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); openDeleteConfirm(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-danger-600 hover:bg-danger-50 border border-surface-200" title="Delete"><Trash2 size={14} /></button>
                   </div>
-                </Card>
-              </motion.div>
+              </div>
             )
           })}
         </div>

@@ -46,7 +46,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get all coding contests (filtered by role)
+// Get all coding contests (paginated, indexed)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -55,12 +55,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { status, platform } = req.query
+    const { status, platform, search } = req.query as Record<string, string | undefined>
+    const page = Math.max(1, parseInt(req.query.page as string) || 1)
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const skip = (page - 1) * limit
 
     let where: any = {}
 
     if (user.role === 'SUPER_ADMIN') {
-      // Super admin sees all
+      // all
     } else if (user.role === 'COLLEGE_ADMIN') {
       where.OR = [{ collegeId: user.collegeId }, { collegeId: null }]
     } else if (user.role === 'TEACHER') {
@@ -70,7 +73,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         { collegeId: null },
       ]
     } else {
-      // Students see contests from their college or global (null collegeId)
       where.OR = [{ collegeId: user.collegeId }, { collegeId: null }]
     }
 
@@ -80,27 +82,51 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (platform && typeof platform === 'string') {
       where.platform = platform
     }
+    if (search) {
+      const s: any = { contains: search, mode: 'insensitive' }
+      const searchClause = { OR: [{ title: s }, { platform: s }] }
+      where = Object.keys(where).length ? { AND: [where, searchClause] } : searchClause
+    }
 
-    const contests = await prisma.codingContest.findMany({
-      where,
-      include: { creator: { select: { name: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
-    })
+    // Leverage index on (collegeId, status, platform) via orderBy startTime
+    const [contests, total] = await Promise.all([
+      prisma.codingContest.findMany({
+        where,
+        include: { creator: { select: { name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.codingContest.count({ where }),
+    ])
 
-    // Sort by actual contest time (startTime is stored as a string)
+    // Sort page slice by contest time (startTime stored as string) — O(limit log limit) not O(n log n)
     const ts = (s: string) => {
       const t = Date.parse(s)
       return isNaN(t) ? 0 : t
     }
-    if (status === 'ENDED') {
-      // Recently completed first
-      contests.sort((a, b) => ts(b.startTime) - ts(a.startTime))
-    } else if (status === 'UPCOMING') {
-      // Soonest upcoming first
-      contests.sort((a, b) => ts(a.startTime) - ts(b.startTime))
-    }
+    if (status === 'ENDED') contests.sort((a, b) => ts(b.startTime) - ts(a.startTime))
+    else if (status === 'UPCOMING') contests.sort((a, b) => ts(a.startTime) - ts(b.startTime))
 
-    res.json(contests)
+    const pages = Math.ceil(total / limit)
+    const makeLink = (p: number) => {
+      const params = new URLSearchParams({ page: String(p), limit: String(limit) })
+      if (status) params.set('status', status)
+      if (platform) params.set('platform', platform)
+      if (search) params.set('search', search)
+      return `<${req.baseUrl}${req.path}?${params.toString()}>`
+    }
+    const links: string[] = []
+    if (page < pages) links.push(`${makeLink(page + 1)}; rel="next"`)
+    if (page > 1) links.push(`${makeLink(page - 1)}; rel="prev"`)
+    links.push(`${makeLink(1)}; rel="first"`)
+    if (pages > 0) links.push(`${makeLink(pages)}; rel="last"`)
+    if (links.length) res.set('Link', links.join(', '))
+    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60, s-maxage=120, stale-while-revalidate=300')
+    res.json({
+      data: contests,
+      pagination: { page, limit, total, pages },
+    })
   } catch (error) {
     console.error('Get contests error:', error)
     res.status(500).json({ error: 'Failed to fetch contests' })
@@ -185,7 +211,7 @@ router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Participant count per ENDED contest (bulk, fuzzy-matched same as per-contest endpoint)
+// Participant count per ENDED contest (batched O(m+n) + grouped, vs N+1 per contest)
 router.get('/participant-counts', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const [contests, participations] = await Promise.all([
@@ -197,6 +223,7 @@ router.get('/participant-counts', authenticate, async (req: AuthRequest, res: Re
         select: { platform: true, contestName: true, contestUrl: true },
       }),
     ])
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120')
 
     const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
     const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()

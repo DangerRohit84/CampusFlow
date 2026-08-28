@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { codingContestAPI, codingProfileAPI } from '../lib/api'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Trophy, Calendar, Clock, ExternalLink, Check,
@@ -35,10 +36,8 @@ const statusConfig: Record<string, { color: string; dot: string; label: string }
 
 export default function CodingContestsPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { user } = useAuthStore()
-  const [contests, setContests] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  // calendar dots are now derived from filteredContests (respects status filter)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [platformFilter, setPlatformFilter] = useState<Platform>('ALL')
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -77,42 +76,42 @@ export default function CodingContestsPage() {
     contestType: 'OTHER',
   })
 
+  const { data: contestsData, isLoading: loading } = useQuery({
+    queryKey: ['contests', platformFilter],
+    queryFn: ({ signal }) => {
+      const params: any = {}
+      if (platformFilter !== 'ALL') params.platform = platformFilter
+      return codingContestAPI.getAll({ ...params, signal } as any)
+    },
+    staleTime: 2 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
+  const contests = (contestsData as any[]) ?? []
+
+  const prefetchContestPage = (_p: number) => { void _p }
+
   useEffect(() => {
-    const init = async () => {
-      // Auto-fetch from platforms first, then load (with 6-hour cache)
-      if (isTeacher) {
-        const CACHE_KEY = 'campusflow-last-contest-fetch'
-        const SIX_HOURS_MS = 6 * 60 * 60 * 1000
-        const lastFetch = localStorage.getItem(CACHE_KEY)
-        const now = Date.now()
-        if (!lastFetch || now - parseInt(lastFetch, 10) > SIX_HOURS_MS) {
-          try {
-            await codingContestAPI.fetchNow()
-            localStorage.setItem(CACHE_KEY, String(now))
-          } catch {}
-        }
-      }
-      await loadContests()
-      codingContestAPI.getParticipantCounts().then(setParticipantCounts).catch(() => {})
-      if (user?.role === 'STUDENT') {
-        codingProfileAPI.getParticipations().then(setMyParticipations).catch(() => {})
+    if (isTeacher) {
+      const CACHE_KEY = 'campusflow-last-contest-fetch'
+      const SIX_HOURS_MS = 6 * 60 * 60 * 1000
+      const lastFetch = localStorage.getItem(CACHE_KEY)
+      const now = Date.now()
+      if (!lastFetch || now - parseInt(lastFetch, 10) > SIX_HOURS_MS) {
+        codingContestAPI.fetchNow().then(() => {
+          localStorage.setItem(CACHE_KEY, String(now))
+          queryClient.invalidateQueries({ queryKey: ['contests'] })
+        }).catch(() => {})
       }
     }
-    init()
-  }, [currentMonth])
+    codingContestAPI.getParticipantCounts().then(setParticipantCounts).catch(() => {})
+    if (user?.role === 'STUDENT') {
+      codingProfileAPI.getParticipations().then(setMyParticipations).catch(() => {})
+    }
+  }, [queryClient, isTeacher, user?.role])
 
   const loadContests = async (platform?: string) => {
-    try {
-      const params: any = {}
-      const plat = platform || platformFilter
-      if (plat !== 'ALL') params.platform = plat
-      const data = await codingContestAPI.getAll(params)
-      setContests(data)
-    } catch (err) {
-      console.error('Failed to load contests', err)
-    } finally {
-      setLoading(false)
-    }
+    if (platform && platform !== platformFilter) setPlatformFilter(platform as Platform)
+    else await queryClient.invalidateQueries({ queryKey: ['contests'] })
   }
 
   // Calendar is now derived from filteredContests  —  no separate API call needed
@@ -280,12 +279,12 @@ export default function CodingContestsPage() {
     setSavingSolution(true)
     try {
       await codingContestAPI.addSolution(contestId, { problemName: solProblem.trim(), solutionUrl: solUrl.trim() })
-      const contest = contests.find((c) => c.id === contestId)
+      const contest = contests.find((c: any) => c.id === contestId)
       const updated = JSON.parse((contest?.solutions as string) || '[]').concat([
         { problemName: solProblem.trim(), solutionUrl: solUrl.trim() },
       ])
       setSolutions((prev) => ({ ...prev, [contestId]: updated }))
-      setContests((prev) => prev.map((c) => c.id === contestId ? { ...c, solutions: JSON.stringify(updated) } : c))
+      queryClient.setQueryData(['contests', platformFilter], (prev: any) => Array.isArray(prev) ? prev.map((c: any) => c.id === contestId ? { ...c, solutions: JSON.stringify(updated) } : c) : prev)
       setSolProblem(''); setSolUrl(''); setShowAddSolution(null)
       toast.success('Solution added')
     } catch (e: any) {
@@ -426,13 +425,13 @@ export default function CodingContestsPage() {
               <>
                 <button
                   onClick={() => navigate('/contests/leaderboard')}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-warning-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-brass-400 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
                 >
                   <Trophy size={16} /> Leaderboard
                 </button>
                 <button
                   onClick={createModal.open}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
                 >
                   <Plus size={16} /> Add Contest
                 </button>
@@ -633,7 +632,7 @@ export default function CodingContestsPage() {
                                   <button
                                     onClick={() => handleAddSolution(c.id)}
                                     disabled={savingSolution}
-                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white rounded-lg disabled:opacity-50 flex items-center gap-1"
+                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-lg disabled:opacity-50 flex items-center gap-1"
                                   >
                                     {savingSolution ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
                                   </button>
@@ -751,7 +750,7 @@ export default function CodingContestsPage() {
                 )
               })}
             </div>
-            <Pagination page={page} totalPages={contestTotalPages} onChange={setPage} />
+            <Pagination page={page} totalPages={contestTotalPages} onChange={setPage} onPrefetch={prefetchContestPage} />
             </>
           )}
 
@@ -807,7 +806,7 @@ export default function CodingContestsPage() {
                       isSelected
                         ? 'bg-primary-500 text-white'
                         : isToday
-                        ? 'bg-primary-50 text-primary-700 dark:bg-[#7BA290]/10 dark:text-[#7BA290]'
+                        ? 'bg-primary-50 text-primary-700 dark:bg-[#90B9A4]/10 dark:text-[#90B9A4]'
                         : item.hasContests
                         ? 'bg-surface-50 text-surface-900 hover:bg-surface-100 dark:bg-night-850 dark:text-night-50 dark:hover:bg-night-600'
                         : 'text-surface-600 hover:bg-surface-50 dark:text-night-200 dark:hover:bg-night-600'
@@ -951,7 +950,7 @@ export default function CodingContestsPage() {
                 </button>
                 <button
                   onClick={handleCreate}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg"
+                  className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg"
                 >
                   Create
                 </button>
@@ -984,7 +983,7 @@ export default function CodingContestsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={exportParticipantsToCSV}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
                   >
                     <Download size={16} /> Export CSV
                   </button>

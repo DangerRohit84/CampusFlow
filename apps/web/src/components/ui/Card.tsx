@@ -13,15 +13,14 @@ export default function Card({ children, className, hover = false, padding = 'md
     <div
       onClick={onClick}
       className={clsx(
-        'bg-white rounded-2xl border border-surface-100',
+        'bg-white rounded-[14px] border border-surface-200 shadow-e1',
         {
-          'shadow-soft hover:shadow-soft-lg transition-all duration-300': hover,
-          'shadow-soft': !hover,
+          'hover:shadow-e2 transition-shadow duration-200': hover,
           'p-0': padding === 'none',
           'p-4': padding === 'sm',
-          'p-6': padding === 'md',
-          'p-8': padding === 'lg',
-          'cursor-pointer hover:border-primary-200 hover:-translate-y-0.5': hover && onClick,
+          'p-5': padding === 'md',
+          'p-6': padding === 'lg',
+          'cursor-pointer hover:border-primary-200': hover && onClick,
         },
         className
       )}

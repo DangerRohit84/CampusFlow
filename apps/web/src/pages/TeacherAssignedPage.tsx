@@ -83,7 +83,7 @@ export default function TeacherAssignedPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+      <div className="min-h-screen bg-surface-50 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
         </div>
@@ -92,7 +92,7 @@ export default function TeacherAssignedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+    <div className="min-h-screen bg-surface-50 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
       <PageHeader
         title="Assigned to Me"
         subtitle="Review and approve/reject opportunities assigned to you"

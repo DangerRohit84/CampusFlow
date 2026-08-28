@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
   BookOpen, Users, FileText, ChevronRight, Loader2, DoorOpen
@@ -12,25 +13,20 @@ import Modal from '../components/ui/Modal'
 export default function StudentRoomsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const [rooms, setRooms] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [showJoin, setShowJoin] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
 
-  useEffect(() => {
-    loadRooms()
-  }, [])
+  const { data: roomsData, isLoading: loading } = useQuery({
+    queryKey: ['rooms', 'student'],
+    queryFn: ({ signal }) => roomAPI.getAll({ signal } as any),
+    staleTime: 2 * 60 * 1000,
+  })
+  const rooms = (roomsData as any[]) ?? []
 
   const loadRooms = async () => {
-    try {
-      const data = await roomAPI.getAll()
-      setRooms(data)
-    } catch (err) {
-      console.error('Failed to load rooms', err)
-    } finally {
-      setLoading(false)
-    }
+    await queryClient.invalidateQueries({ queryKey: ['rooms'] })
   }
 
   const handleJoin = async () => {
@@ -79,7 +75,7 @@ export default function StudentRoomsPage() {
         </div>
         <button
           onClick={() => { setJoinCode(''); setShowJoin(true) }}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
         >
           <DoorOpen size={16} /> Join Room
         </button>
@@ -93,7 +89,7 @@ export default function StudentRoomsPage() {
           <p className="text-surface-400 mt-1 mb-4">Join a room using the code from your teacher</p>
           <button
             onClick={() => { setJoinCode(''); setShowJoin(true) }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
           >
             <DoorOpen size={16} /> Join Room
           </button>
@@ -109,7 +105,7 @@ export default function StudentRoomsPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
                     <BookOpen size={18} className="text-white" />
                   </div>
                   <div>
@@ -137,7 +133,7 @@ export default function StudentRoomsPage() {
               {/* Open Room Button */}
               <button
                 onClick={() => navigate(`/rooms/${room.id}`)}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
               >
                 Open Room <ChevronRight size={14} />
               </button>
@@ -182,7 +178,7 @@ export default function StudentRoomsPage() {
             <button
               onClick={handleJoin}
               disabled={joining || joinCode.length !== 6}
-              className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {joining && <Loader2 size={14} className="animate-spin" />}
               Join

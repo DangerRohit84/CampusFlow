@@ -24,7 +24,7 @@ const HACKATHON_PLATFORMS = [
   { id: 'DEVFOLIO', name: 'Devfolio', icon: '💻', color: 'border-l-[#635BFF]' },
   { id: 'DEVPOST', name: 'Devpost', icon: '🏆', color: 'border-l-[#635BFF]' },
   { id: 'MLH', name: 'MLH', icon: '🎯', color: 'border-l-[#DC2626]' },
-  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-[#C9A86A]' },
+  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-[#D1B48C]' },
 ]
 
 const INTERNSHIP_PLATFORMS = [
@@ -99,37 +99,43 @@ export default function FetchPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-surface-900">Fetch Opportunities</h1>
-          <p className="text-surface-500 mt-1">Manage data fetching from external platforms</p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => fetchStats()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200 transition-colors disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Refresh
-          </button>
-          <button
-            onClick={handleEnrichAll}
-            disabled={enrichingAll}
-            className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200 transition-colors disabled:opacity-50"
-          >
-            {enrichingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            Enrich All
-          </button>
-          <button
-            onClick={handleFetchAll}
-            disabled={fetchingAll}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-colors disabled:opacity-50 text-sm font-medium"
-          >
-            {fetchingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Fetch All
-          </button>
+      {/* Header — campus paper */}
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><Download size={18} className="text-brass-400" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Fetch — External Platforms</h1>
+              <p className="text-xs text-surface-500">Pull hackathons & internships from Devfolio, Internshala, etc.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => fetchStats()}
+              disabled={loading}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Refresh
+            </button>
+            <button
+              onClick={handleEnrichAll}
+              disabled={enrichingAll}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold disabled:opacity-50"
+            >
+              {enrichingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              Enrich All
+            </button>
+            <button
+              onClick={handleFetchAll}
+              disabled={fetchingAll}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold disabled:opacity-50"
+            >
+              {fetchingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              Fetch All
+            </button>
+          </div>
         </div>
       </div>
 

@@ -88,27 +88,33 @@ export default function AiManagerPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-primary-600 dark:text-[#7BA290]" size={32} />
+        <Loader2 className="animate-spin text-primary-600 dark:text-[#90B9A4]" size={32} />
       </div>
     )
   }
 
   return (
-    <div className="p-4 lg:p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">AI Manager</h1>
-          <p className="text-surface-600 dark:text-night-300">Manage AI providers and feature routing</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={handleTestAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700">
-            <Zap size={16} /> Test All
-          </button>
-          <button onClick={() => { setEditing(null); setModalOpen(true) }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white">
-            <Plus size={16} /> Add Provider
-          </button>
+    <div className="space-y-6">
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><Zap size={18} className="text-brass-400" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">AI Manager — Routing Desk</h1>
+              <p className="text-xs text-surface-500">Providers & feature routing. Flat, paper, no gradients.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleTestAll}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl border border-surface-200 bg-white text-surface-700 hover:bg-surface-50 text-sm font-semibold">
+              <Zap size={16} /> Test All
+            </button>
+            <button onClick={() => { setEditing(null); setModalOpen(true) }}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold">
+              <Plus size={16} /> Add Provider
+            </button>
+          </div>
         </div>
       </div>
 

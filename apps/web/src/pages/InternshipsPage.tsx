@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { internshipAPI, departmentAPI } from '../lib/api'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useDebounce } from '../hooks/useDebounce'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Briefcase, Calendar, Users, Download,
@@ -26,8 +28,7 @@ type InternshipStatus = 'upcoming' | 'active' | 'ended'
 export default function InternshipsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const [internships, setInternships] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -46,25 +47,28 @@ export default function InternshipsPage() {
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   const createModal = useModal()
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
+  const { data: internshipsData, isLoading: loading } = useQuery({
+    queryKey: ['internships', debouncedSearch],
+    queryFn: ({ signal }) => internshipAPI.getAll({ search: debouncedSearch || undefined, signal } as any),
+    staleTime: 3 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
+  const internships = (internshipsData as any[]) ?? []
+
+  const prefetchPage = (_p: number) => { void _p }
+
   useEffect(() => {
-    loadInternships()
     departmentAPI.getAll().then(setDepartments).catch(() => {})
   }, [])
 
   const loadInternships = async () => {
-    try {
-      const data = await internshipAPI.getAll()
-      setInternships(data)
-    } catch (err) {
-      console.error('Failed to load internships', err)
-    } finally {
-      setLoading(false)
-    }
+    await queryClient.invalidateQueries({ queryKey: ['internships'] })
   }
 
   const getInternshipStatus = (i: any): InternshipStatus => {
@@ -234,33 +238,42 @@ export default function InternshipsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title="Internships"
-        subtitle="Discover and track internship opportunities"
-        action={
+      {/* Notice Board Head */}
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Briefcase size={18} className="text-surface-900" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Notice Board — Internships</h1>
+              <p className="text-xs text-surface-500">Training & placement desk · Due slips below</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
-              <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 pl-4 pr-4 py-2 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all" />
+              <input type="text" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15" />
             </div>
             <button
               onClick={() => internshipAPI.exportAll().then(() => toast.success('Exported!')).catch(() => toast.error('Export failed'))}
-              className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all text-sm font-medium"
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 bg-white text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold"
             >
-              <Download size={16} /> Export All
+              <Download size={16} /> Export
             </button>
             {isTeacher && (
               <button
                 onClick={createModal.open}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold"
               >
-                <Plus size={16} /> Post Internship
+                <Plus size={16} /> Pin Notice
               </button>
             )}
           </div>
-        }
-      />
+        </div>
+        <div className="px-5 pb-4 sm:hidden">
+          <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm" />
+        </div>
+      </div>
 
       {/* Filter Tabs */}
       <FilterTabs
@@ -297,111 +310,41 @@ export default function InternshipsPage() {
         />
       ) : (
         <>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {pagedInternships.map((i) => {
             const status = getInternshipStatus(i)
-
+            const isUrgent = status!=='ended' && isNearDeadline(i.deadline)
             return (
-              <motion.div
+              <div
                 key={i.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
+                onClick={() => navigate(`/internships/${i.id}`)}
+                className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow', isUrgent && 'due-slip--urgent')}
               >
-                <Card hover padding="none" className="h-full flex flex-col group">
-                  {/* Card Content */}
-                  <div className="p-5 flex-1 flex flex-col">
-                    {/* Status Badge + Mode */}
-                    <div className="flex items-center justify-between mb-3">
-                      <Badge variant={getStatusBadgeVariant(status)} dot>
-                        {getStatusLabel(status)}
-                      </Badge>
-                      {i.mode && (
-                        <Badge variant="default">
-                          {i.mode}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {/* Title */}
-                    <h3
-                      className="text-lg font-bold text-surface-900 mb-1 line-clamp-1 group-hover:text-primary-600 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/internships/${i.id}`)}
-                    >
-                      {i.title}
-                    </h3>
-
-                    {/* Company */}
-                    {i.company && (
-                      <p className="text-sm font-medium text-primary-600 mb-2 flex items-center gap-1.5">
-                        <Building2 size={13} /> {i.company}
-                      </p>
-                    )}
-
-                    {/* Description */}
-                    {i.description && (
-                      <p className="text-surface-500 text-sm mb-4 line-clamp-2 flex-1">
-                        {i.description}
-                      </p>
-                    )}
-
-                    {/* Meta Row */}
-                    <div className="flex items-center gap-3 text-xs text-surface-500 mb-4 flex-wrap">
-                      {i.stipend && (
-                        <span className="px-2 py-0.5 bg-success-50 text-success-700 rounded-md font-medium">
-                          {i.stipend}
-                        </span>
-                      )}
-                      {i.duration && (
-                        <span className="flex items-center gap-1">
-                          <Timer size={12} className="text-surface-400" />
-                          {i.duration}
-                        </span>
-                      )}
-                      {i.deadline && (
-                        <span className={clsx(
-                          'flex items-center gap-1',
-                          isNearDeadline(i.deadline) && 'text-danger-600 font-semibold'
-                        )}>
-                          <Calendar size={12} className={isNearDeadline(i.deadline) ? 'text-danger-500' : 'text-surface-400'} />
-                          {new Date(i.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                        </span>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='active'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 text-surface-600 border-surface-200')}>
+                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='active'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
+                    </span>
+                    {i.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 border border-surface-200 rounded-full px-2 py-1">{i.mode}</span>}
                   </div>
-
-                  {/* Bottom Row */}
-                  <div className="flex items-center justify-between px-5 pb-4 pt-2">
-                    <div className="flex items-center gap-3 text-xs text-surface-500">
-                      <span className="flex items-center gap-1.5">
-                        <Users size={13} className="text-surface-400" />
-                        {i.registrations?.length || 0} Registered
-                      </span>
-                      {i.role && (
-                        <span className="flex items-center gap-1.5">
-                          <Briefcase size={13} className="text-surface-400" />
-                          {i.role}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => navigate(`/internships/${i.id}`)}
-                      className={clsx(
-                        'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                        status === 'ended'
-                          ? 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-                          : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
-                      )}
-                    >
-                      <ChevronRight size={16} />
-                    </button>
+                  <h3 className="mt-3 font-display font-bold text-surface-900 line-clamp-1 hover:text-primary-700">
+                    {i.title}
+                  </h3>
+                  {i.company && <p className="text-sm font-semibold text-primary-600 flex items-center gap-1.5 mt-1"><Building2 size={13}/> {i.company}</p>}
+                  {i.description && <p className="text-sm text-surface-500 line-clamp-2 mt-2 flex-1">{i.description}</p>}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    {i.stipend && <span className="px-2 py-1 bg-success-50 text-success-700 border border-success-100 rounded-full text-xs font-semibold">{i.stipend}</span>}
+                    {i.duration && <span className="inline-flex items-center gap-1 text-surface-500"><Timer size={12}/> {i.duration}</span>}
+                    {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 text-surface-600 border-surface-200')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
                   </div>
-                </Card>
-              </motion.div>
+                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 pt-3">
+                    <span className="text-xs text-surface-500 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12}/> {i.role}</span>}</span>
+                    <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14}/></span>
+                  </div>
+              </div>
             )
           })}
         </div>
-        <Pagination page={page} totalPages={intTotalPages} onChange={setPage} />
+        <Pagination page={page} totalPages={intTotalPages} onChange={setPage} onPrefetch={prefetchPage} />
         </>
       )}
 
@@ -627,7 +570,7 @@ export default function InternshipsPage() {
                 <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
-                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg">
+                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg">
                   Post
                 </button>
               </div>

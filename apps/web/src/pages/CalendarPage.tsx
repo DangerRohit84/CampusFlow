@@ -26,7 +26,7 @@ type TimetableClass = {
 }
 
 const EVENT_COLORS: Record<string, { light: string; dark: string; bg: string; darkBg: string }> = {
-  class: { light: '#007060', dark: '#7BA290', bg: 'bg-teal-100', darkBg: 'dark:bg-teal-500/15' },
+  class: { light: '#007060', dark: '#90B9A4', bg: 'bg-primary-50', darkBg: 'dark:bg-teal-500/15' },
   assignment: { light: '#EF4444', dark: '#EF4444', bg: 'bg-red-100', darkBg: 'dark:bg-red-500/15' },
   task: { light: '#3B82F6', dark: '#3B82F6', bg: 'bg-blue-100', darkBg: 'dark:bg-blue-500/15' },
   contest: { light: '#8B5CF6', dark: '#8B5CF6', bg: 'bg-purple-100', darkBg: 'dark:bg-purple-500/15' },
@@ -245,7 +245,7 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center shadow-lg">
+          <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center shadow-lg">
             <CalendarDays className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -255,7 +255,7 @@ export default function CalendarPage() {
         </div>
         <button
           onClick={goToToday}
-          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white transition-colors"
+          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white transition-colors"
         >
           Today
         </button>
@@ -330,9 +330,9 @@ export default function CalendarPage() {
                   <span
                     className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
                       isToday
-                        ? 'bg-primary-600 dark:bg-[#7BA290] text-white ring-2 ring-primary-400 dark:ring-[#A8C2B3]'
+                        ? 'bg-primary-600 dark:bg-[#90B9A4] text-white ring-2 ring-primary-400 dark:ring-[#A8C2B3]'
                         : isSelected
-                        ? 'bg-primary-100 dark:bg-[rgba(45,106,79,0.18)] text-primary-700 dark:text-[#7BA290]'
+                        ? 'bg-primary-100 dark:bg-[rgba(45,106,79,0.18)] text-primary-700 dark:text-[#90B9A4]'
                         : 'text-surface-700 dark:text-[#CBD5E1]'
                     }`}
                   >

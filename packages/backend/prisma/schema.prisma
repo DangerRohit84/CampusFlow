@@ -58,11 +58,17 @@ model User {
   contestParticipations   ContestParticipation[]
   hackathonStagings       HackathonStaging[]       @relation("HackathonStagingCreator")
   internshipStagings      InternshipStaging[]      @relation("InternshipStagingCreator")
-  attendanceData          AttendanceData?
+   attendanceData          AttendanceData?
   gradeData               GradeData?
    announcementsCreated    Announcement[]
   announcementReads     AnnouncementRead[]
   roomReads           RoomRead[]
+
+  @@index([collegeId, role])
+  @@index([collegeId])
+  @@index([role])
+  @@index([departmentId])
+  @@index([collegeId, departmentId])
 }
 
 model CodingProfile {
@@ -341,6 +347,12 @@ model Hackathon {
   college       College?                @relation(fields: [collegeId], references: [id])
   registrations HackathonRegistration[]
   rounds        HackathonRound[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([deadline])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
 }
 
 model HackathonRegistration {
@@ -415,6 +427,12 @@ model HackathonStaging {
 
   creator User     @relation("HackathonStagingCreator", fields: [creatorId], references: [id])
   college College? @relation(fields: [collegeId], references: [id])
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([deadline])
+  @@index([status])
+  @@index([targetDepartments])
 }
 
 model InternshipStaging {
@@ -441,6 +459,11 @@ model InternshipStaging {
 
   creator User     @relation("InternshipStagingCreator", fields: [creatorId], references: [id])
   college College? @relation(fields: [collegeId], references: [id])
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([status])
+  @@index([deadline])
 }
 
 model Internship {
@@ -466,6 +489,12 @@ model Internship {
   creator            User                     @relation(fields: [creatorId], references: [id])
   college            College                  @relation(fields: [collegeId], references: [id])
   registrations      InternshipRegistration[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
+  @@index([deadline])
 }
 
 model InternshipRegistration {
@@ -496,6 +525,16 @@ model CodingContest {
   createdAt     DateTime @default(now())
   creator       User?    @relation(fields: [creatorId], references: [id])
   college       College? @relation(fields: [collegeId], references: [id])
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([platform])
+  @@index([status])
+  @@index([collegeId])
+  @@index([collegeId, status])
+  @@index([platform, status])
+  @@index([startTime])
+  @@index([status, startTime])
 }
 
 model Form {
@@ -518,6 +557,12 @@ model Form {
   fields    FormField[]
   responses FormResponse[]
   formRooms FormRoom[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
+  @@index([collegeId])
 }
 
 model FormRoom {

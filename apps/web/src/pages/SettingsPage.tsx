@@ -122,7 +122,7 @@ export default function SettingsPage() {
         initial={{ opacity: 0, y: 10 }} 
         animate={{ opacity: 1, y: 0 }}
       >
-        <h1 className="text-3xl font-bold text-surface-900">Settings</h1>
+        <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Settings</h1>
         <p className="text-surface-500 mt-1">Manage your account preferences and configurations</p>
       </motion.div>
 
@@ -142,7 +142,7 @@ export default function SettingsPage() {
             {/* Avatar Section */}
             <div className="flex flex-col items-center md:items-start gap-4">
               <div className="relative group">
-                <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary-400 via-primary-500 to-primary-500 flex items-center justify-center text-white text-4xl font-bold shadow-lg ring-4 ring-white">
+                <div className="w-32 h-32 rounded-full bg-primary-600 flex items-center justify-center text-white text-4xl font-bold shadow-lg ring-4 ring-white">
                   {user?.name?.charAt(0) || 'A'}
                 </div>
                 <button className="absolute inset-0 w-full h-full rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
@@ -357,7 +357,7 @@ export default function SettingsPage() {
       >
         <Card hover>
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
               <Code className="w-5 h-5 text-white" />
             </div>
             <div>

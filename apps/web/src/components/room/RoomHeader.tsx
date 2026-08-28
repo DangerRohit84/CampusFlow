@@ -51,7 +51,7 @@ export default function RoomHeader({
         <ArrowLeft size={18} />
       </button>
 
-      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shrink-0 shadow-sm">
+      <div className="w-10 h-10 rounded-xl bg-primary-600 from-primary-500 to-primary-700 flex items-center justify-center shrink-0 shadow-sm">
         <BookOpen size={18} className="text-white" />
       </div>
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { formAPI, departmentAPI, roomAPI } from '../lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
@@ -24,8 +25,7 @@ type FormStatus = 'active' | 'expiring' | 'expired'
 export default function FormsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const [forms, setForms] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [formTitle, setFormTitle] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [fields, setFields] = useState<any[]>([
@@ -75,6 +75,13 @@ export default function FormsPage() {
     return 'active'
   }
 
+  const { data: formsData, isLoading: loading } = useQuery({
+    queryKey: ['forms'],
+    queryFn: ({ signal }) => formAPI.getAll({ signal } as any),
+    staleTime: 3 * 60 * 1000,
+  })
+  const forms = (formsData as any[]) ?? []
+
   const { activeTab, setActiveTab, filteredItems: filteredForms } = useFilteredItems<any>({
     items: forms,
     tabs: [
@@ -101,29 +108,21 @@ export default function FormsPage() {
   }), [forms])
 
   useEffect(() => {
-    loadForms()
     departmentAPI.getAll().then(setDepartments).catch(() => {})
     if (isTeacher) {
       roomAPI.getAll().then(setTeacherRooms).catch(() => {})
     }
     if (user?.role === 'STUDENT') {
       roomAPI.getAll().then((rooms: any[]) => {
-        const crRooms = rooms.filter((r: any) => r.isCR === true)
+        const crRooms = (rooms as any[]).filter((r: any) => r.isCR === true)
         setCrRoomIds(crRooms.map((r: any) => r.id))
         setTeacherRooms(crRooms)
       }).catch(() => {})
     }
-  }, [user])
+  }, [user, isTeacher])
 
   const loadForms = async () => {
-    try {
-      const data = await formAPI.getAll()
-      setForms(data)
-    } catch (err) {
-      console.error('Failed to load forms', err)
-    } finally {
-      setLoading(false)
-    }
+    await queryClient.invalidateQueries({ queryKey: ['forms'] })
   }
 
   const addField = () => {
@@ -309,17 +308,13 @@ export default function FormsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03, duration: 0.2 }}
             >
-              <Card
-                hover
-                padding="none"
+              <div
                 onClick={() => navigate(`/forms/${f.id}`)}
-                className="group"
+                className="due-slip p-4 flex items-center gap-4 cursor-pointer hover:shadow-e2 transition-shadow group"
               >
-                <div className="flex items-center gap-4 p-4">
-                  {/* Form Icon */}
-                  <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
-                    <FileText size={18} className="text-primary-500" />
-                  </div>
+                <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center shrink-0">
+                  <FileText size={18} className="text-primary-600" />
+                </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
@@ -367,10 +362,8 @@ export default function FormsPage() {
                     )}
                   </div>
 
-                  {/* Chevron */}
-                  <ChevronRight size={18} className="text-surface-300 group-hover:text-primary-500 transition-colors shrink-0" />
+                  <ChevronRight size={18} className="text-surface-300 group-hover:text-primary-600 transition-colors shrink-0" />
                 </div>
-              </Card>
             </motion.div>
           ))}
         </div>

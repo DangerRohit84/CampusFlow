@@ -410,7 +410,7 @@ export default function FormDetailPage() {
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || isExpired}
-                  className="mt-6 w-full py-3 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="mt-6 w-full py-3 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                   {submitted ? 'Update Response' : 'Submit Response'}

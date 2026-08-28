@@ -195,7 +195,7 @@ export default function AddStudentPage() {
             </div>
           </div>
           <button onClick={handleAddStudent} disabled={loading}
-            className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
+            className="mt-5 w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus size={16} />}
             {loading ? 'Adding...' : 'Add Student'}
           </button>
@@ -237,7 +237,7 @@ export default function AddStudentPage() {
             </div>
 
             <button onClick={handleCsvUpload} disabled={loading || !csvFile}
-              className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+              className="w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload size={16} />}
               {loading ? 'Uploading...' : 'Upload & Add Students'}
             </button>

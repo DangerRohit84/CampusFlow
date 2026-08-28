@@ -93,7 +93,7 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
               className="w-10 h-10 rounded-full object-cover shrink-0"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center shrink-0">
               <Megaphone size={16} className="text-white" />
             </div>
           )}

@@ -35,7 +35,7 @@ export default function SearchPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-3xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold text-surface-900">Search</h1>
+        <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Search</h1>
         <p className="text-surface-500 mt-1">Find schedules, assignments, notifications, and more</p>
       </motion.div>
 

@@ -31,14 +31,14 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             type={isPassword && showPassword ? 'text' : type}
             className={clsx(
-              'w-full bg-white border border-surface-200 rounded-xl text-surface-900 placeholder:text-surface-400 shadow-sm',
-              'focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500',
-              'transition-all duration-200',
+              'w-full bg-white border border-surface-200 rounded-xl text-surface-900 placeholder:text-surface-400',
+              'focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20',
+              'transition-colors duration-150 text-sm min-h-[44px]',
               {
-                'px-4 py-3': !icon,
-                'pl-11 pr-4 py-3': icon,
+                'px-4': !icon,
+                'pl-11 pr-4': icon,
                 'pr-11': isPassword,
-                'border-danger-300 focus:ring-danger-500/20 focus:border-danger-400': error,
+                'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20': error,
               },
               className
             )}
@@ -54,7 +54,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             </button>
           )}
         </div>
-        {error && <p className="text-sm text-danger-500">{error}</p>}
+        {error && <p className="text-sm text-danger-600">{error}</p>}
       </div>
     )
   }

@@ -178,7 +178,7 @@ export default function InternshipDetailPage() {
                 </span>
               )}
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold text-surface-900">{internship.title}</h1>
+            <h1 className="font-display text-xl md:text-2xl font-extrabold text-surface-900 leading-none">{internship.title}</h1>
             {internship.company && (
               <p className="text-surface-500 mt-1 flex items-center gap-2">
                 <Building2 size={14} /> {internship.company}
@@ -266,7 +266,7 @@ export default function InternshipDetailPage() {
               {internship.description && (
                 <div className="bg-white rounded-2xl border border-surface-100 p-6">
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="w-1 h-6 bg-gradient-to-b from-primary-500 to-primary-500 rounded-full" />
+                    <div className="w-1 h-6 bg-gradient-to-b bg-primary-600 rounded-full" />
                     <h2 className="font-bold text-surface-900 text-lg">About this Internship</h2>
                   </div>
                   <p className="text-surface-600 leading-relaxed whitespace-pre-line">{internship.description}</p>
@@ -362,7 +362,7 @@ export default function InternshipDetailPage() {
                         <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3">Self-Report Status</p>
                         <button
                           onClick={() => setShowReport(true)}
-                          className="w-full py-3 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-primary-500 to-primary-500 text-white hover:shadow-lg"
+                          className="w-full py-3 rounded-xl font-bold text-sm transition-all bg-primary-600 text-white hover:shadow-lg"
                         >
                           Report Status
                         </button>
@@ -370,7 +370,7 @@ export default function InternshipDetailPage() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
+                      <div className="w-16 h-16 rounded-2xl bg-primary-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
                         <Rocket size={28} className="text-white" />
                       </div>
                       <h3 className="font-bold text-surface-900 text-lg mb-1">Apply for this Internship</h3>
@@ -389,7 +389,7 @@ export default function InternshipDetailPage() {
                         className={clsx('w-full py-3 rounded-xl font-bold text-sm transition-all',
                           internship.eligibilityEnabled && !isEligible
                             ? 'bg-surface-200 text-surface-400 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-primary-500 via-primary-600 to-primary-500 text-white hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
+                            : 'bg-primary-600 text-white hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
                         )}>
                         {internship.eligibilityEnabled && !isEligible ? 'Not Eligible' : 'Register Now'}
                       </button>
@@ -501,7 +501,7 @@ export default function InternshipDetailPage() {
             <p className="text-surface-600 text-sm mb-4">By registering, you'll be added to the internship applicant list. You can report your status later.</p>
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowRegister(false)} className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-semibold">Cancel</button>
-               <button onClick={handleRegister} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 via-primary-600 to-primary-500 text-white rounded-xl font-semibold">Register</button>
+               <button onClick={handleRegister} className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl font-semibold">Register</button>
             </div>
           </div>
         </div>
@@ -538,7 +538,7 @@ export default function InternshipDetailPage() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowReport(false)} className="flex-1 px-4 py-2.5 bg-surface-100 text-surface-700 rounded-xl font-semibold">Cancel</button>
-              <button onClick={handleReport} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-semibold">Submit</button>
+              <button onClick={handleReport} className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl font-semibold">Submit</button>
             </div>
           </div>
         </div>
@@ -589,7 +589,7 @@ export default function InternshipDetailPage() {
                           </td>
                           <td className="py-3">
                             <div className="flex items-center gap-2.5">
-                               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-400 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                               <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                                 {reg.user.name?.charAt(0)?.toUpperCase()}
                               </div>
                               <div>

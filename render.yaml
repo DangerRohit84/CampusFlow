@@ -67,3 +67,12 @@ services:
     envVars:
       - key: CRON_SECRET
         sync: false
+
+  # Keep-alive ping every 5 min to prevent Render + Neon free tier cold sleep
+  - type: cron
+    name: campusflow-keepalive
+    schedule: "*/5 * * * *"
+    command: curl -fsS https://campusflow-api.onrender.com/api/health > /dev/null && echo "keepalive ok"
+    envVars:
+      - key: CRON_SECRET
+        sync: false

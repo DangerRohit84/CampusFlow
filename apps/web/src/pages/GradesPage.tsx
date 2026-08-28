@@ -40,10 +40,10 @@ function gradeToGpa(grade: string, scale: string): number {
 
 function gradeColor(grade: string): string {
   const g = gradeToGpa10[grade] ?? 0
-  if (g >= 9) return 'bg-primary-100 dark:bg-[#7BA290]/10 text-primary-600 dark:text-[#7BA290]'
-  if (g >= 7) return 'bg-primary-100 dark:bg-[#7BA290]/10 text-primary-600 dark:text-[#7BA290]'
-  if (g >= 5) return 'bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]'
-  if (g >= 3) return 'bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]'
+  if (g >= 9) return 'bg-primary-100 dark:bg-[#90B9A4]/10 text-primary-600 dark:text-[#90B9A4]'
+  if (g >= 7) return 'bg-primary-100 dark:bg-[#90B9A4]/10 text-primary-600 dark:text-[#90B9A4]'
+  if (g >= 5) return 'bg-warning-100 dark:bg-[#D1B48C]/10 text-warning-600 dark:text-[#D1B48C]'
+  if (g >= 3) return 'bg-warning-100 dark:bg-[#D1B48C]/10 text-warning-600 dark:text-[#D1B48C]'
   return 'bg-danger-100 dark:bg-[#F87171]/10 text-danger-600 dark:text-[#F87171]'
 }
 
@@ -207,10 +207,10 @@ export default function GradesPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
+      <div className="sticky top-0 z-10 bg-white dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-surface-900 dark:text-night-50">Grades</h1>
+            <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Grades</h1>
             <p className="text-surface-500 dark:text-night-200 mt-1">Calculate your CGPA</p>
           </div>
           <div className="flex items-center gap-2">
@@ -320,7 +320,7 @@ export default function GradesPage() {
                 </p>
               )}
             </div>
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white shadow-lg">
+            <div className="w-12 h-12 rounded-xl bg-primary-600 flex items-center justify-center text-white shadow-lg">
               <Award size={22} />
             </div>
           </div>
@@ -472,7 +472,7 @@ export default function GradesPage() {
 
       {/* Fixed Bottom Save Bar */}
       {filteredCourses.length > 0 && (
-        <div className="sticky bottom-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-t border-surface-200 dark:border-night-600 px-6 py-3">
+        <div className="sticky bottom-0 z-10 bg-white dark:bg-night-950/80 backdrop-blur-md border-t border-surface-200 dark:border-night-600 px-6 py-3">
           <div className="flex justify-center">
             <Button
               variant="primary"

@@ -113,26 +113,30 @@ export default function SchedulePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      {/* Header */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-surface-900">Timetable</h1>
-          <p className="text-surface-500 mt-1">Upload your timetable or add classes manually</p>
-        </div>
-        <div className="flex gap-2">
+      {/* Header — campus paper */}
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><CalendarDays size={18} className="text-brass-400" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Timetable — Period Grid</h1>
+              <p className="text-xs text-surface-500">Your week, period by period. Upload once, reuse.</p>
+            </div>
+          </div>
           <Button size="sm" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
             <Upload size={16} /> Upload Timetable
           </Button>
         </div>
-      </motion.div>
+      </div>
 
       {/* Day Tabs */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="flex gap-2 overflow-x-auto pb-2">
         {days.map((day, i) => {
           const classCount = schedules.filter((s) => s.dayOfWeek === i).length
           return (
-            <button key={day} onClick={() => setSelectedDay(i)}
-              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-all duration-200 shrink-0 min-w-[70px] ${selectedDay === i ? 'bg-gradient-to-br from-primary-600 to-primary-600 text-white shadow-lg shadow-primary-500/25' : 'bg-white text-surface-600 hover:bg-surface-50 border border-surface-200'}`}>
+              <button key={day} onClick={() => setSelectedDay(i)}
+              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-colors duration-150 shrink-0 min-w-[70px] border ${selectedDay === i ? 'bg-primary-600 text-white border-primary-600 shadow-e1' : 'bg-white text-surface-600 hover:bg-surface-50 border-surface-200'}`}>
               <span className="text-[10px] opacity-80">{dayShort[i]}</span>
               <span className="text-lg font-bold mt-0.5">{14 + i}</span>
               {classCount > 0 && selectedDay !== i && <div className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1" />}

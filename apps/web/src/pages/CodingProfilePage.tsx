@@ -69,7 +69,7 @@ function ccStarColor(stars: number): string {
 function StatBox({ value, label, accent }: { value: React.ReactNode; label: string; accent?: boolean }) {
   return (
     <div className="text-center px-2 py-1.5 rounded-xl bg-white/50 dark:bg-night-850/60">
-      <p className={`text-lg font-bold ${accent ? 'text-primary-600 dark:text-[#7BA290]' : 'text-surface-900 dark:text-night-50'}`}>{value}</p>
+      <p className={`text-lg font-bold ${accent ? 'text-primary-600 dark:text-[#90B9A4]' : 'text-surface-900 dark:text-night-50'}`}>{value}</p>
       <p className="text-[10px] text-surface-500 dark:text-night-300 leading-tight mt-0.5">{label}</p>
     </div>
   )
@@ -259,7 +259,7 @@ export default function CodingProfilePage() {
 
   if (loading) return (
     <div className="flex items-center justify-center h-96">
-      <Loader2 className="animate-spin text-primary-500 dark:text-[#7BA290]" size={32} />
+      <Loader2 className="animate-spin text-primary-500 dark:text-[#90B9A4]" size={32} />
     </div>
   )
 
@@ -269,7 +269,7 @@ export default function CodingProfilePage() {
       {/* ===== Header ===== */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 dark:from-[#7BA290] dark:to-[#A8C2B3] flex items-center justify-center text-white font-bold text-xl shadow-lg">
+          <div className="w-14 h-14 rounded-2xl bg-primary-600 dark:from-[#90B9A4] dark:to-[#A8C2B3] flex items-center justify-center text-white font-bold text-xl shadow-lg">
             {user?.name?.charAt(0) || 'S'}
           </div>
           <div>
@@ -291,7 +291,7 @@ export default function CodingProfilePage() {
           <button
             onClick={handleSync}
             disabled={syncing || filledCount === 0}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white text-sm font-medium disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white text-sm font-medium disabled:opacity-50 transition-colors"
           >
             {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             {syncing ? 'Syncing...' : 'Sync Stats'}
@@ -331,7 +331,7 @@ export default function CodingProfilePage() {
                 ))}
               </div>
               <button onClick={handleSave} disabled={saving}
-                className="mt-4 px-5 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                className="mt-4 px-5 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : null}
                 Save Handles
               </button>
@@ -352,7 +352,7 @@ export default function CodingProfilePage() {
             onClick={() => setActiveTab(tab.key as any)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.key
-                ? 'bg-white dark:bg-night-650 text-primary-600 dark:text-[#7BA290] shadow-sm'
+                ? 'bg-white dark:bg-night-650 text-primary-600 dark:text-[#90B9A4] shadow-sm'
                 : 'text-surface-500 dark:text-night-300 hover:text-surface-700 dark:hover:text-night-200'
             }`}
           >
@@ -576,7 +576,7 @@ export default function CodingProfilePage() {
             </div>
           ) : filledCount > 0 ? (
             <div className="bg-primary-50 dark:bg-[rgba(0,168,143,0.06)] border border-primary-200 dark:border-[rgba(0,168,143,0.25)] rounded-2xl p-6 text-center">
-              <RefreshCw className="mx-auto text-primary-500 dark:text-[#7BA290] mb-2" size={28} />
+              <RefreshCw className="mx-auto text-primary-500 dark:text-[#90B9A4] mb-2" size={28} />
               <p className="font-semibold text-surface-900 dark:text-night-50">Handles saved  —  sync to load your stats</p>
               <p className="text-sm text-surface-500 dark:text-night-300 mt-1">Click "Sync Stats" above to pull problems solved, ratings and ranks.</p>
             </div>
@@ -601,7 +601,7 @@ export default function CodingProfilePage() {
               onClick={() => setHistoryFilter('all')}
               className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                 historyFilter === 'all'
-                  ? 'bg-primary-600 dark:bg-[#7BA290] text-white border-transparent'
+                  ? 'bg-primary-600 dark:bg-[#90B9A4] text-white border-transparent'
                   : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-600 hover:bg-surface-100 dark:hover:bg-night-700'
               }`}
             >
@@ -616,7 +616,7 @@ export default function CodingProfilePage() {
                   onClick={() => setHistoryFilter(p.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                     historyFilter === p.id
-                      ? 'bg-primary-600 dark:bg-[#7BA290] text-white border-transparent'
+                      ? 'bg-primary-600 dark:bg-[#90B9A4] text-white border-transparent'
                       : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-600 hover:bg-surface-100 dark:hover:bg-night-700'
                   }`}
                 >
@@ -762,13 +762,13 @@ export default function CodingProfilePage() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                             {entry.name?.charAt(0) || '?'}
                           </div>
                           <div>
                             <p className="font-medium text-surface-900 dark:text-night-50">{entry.name}</p>
                             {entry.userId === user?.id && (
-                              <span className="text-[10px] text-primary-500 dark:text-[#7BA290] font-medium">You</span>
+                              <span className="text-[10px] text-primary-500 dark:text-[#90B9A4] font-medium">You</span>
                             )}
                           </div>
                         </div>
@@ -812,7 +812,7 @@ export default function CodingProfilePage() {
               </p>
               <button
                 onClick={() => { setShowProfilePrompt(false); setShowHandles(true) }}
-                className="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-[#7BA290] dark:hover:bg-[#A8C2B3] text-white rounded-xl font-medium transition-colors"
+                className="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-xl font-medium transition-colors"
               >
                 Add Profiles
               </button>

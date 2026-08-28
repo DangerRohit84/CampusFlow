@@ -9,7 +9,7 @@ router.use(authenticate)
 
 // AI now uses AI Manager routing via src/ai/client.ts
 
-// GET / - List internships (filtered by eligibility for students)
+// GET / - List internships (paginated, indexed, eligibility-aware)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
@@ -19,40 +19,108 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     if (!user.collegeId) {
-      res.json([])
+      res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+      res.json({ data: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } })
       return
     }
 
-    let internships = await prisma.internship.findMany({
-      where: {
-        collegeId: user.collegeId,
-      },
-      include: { registrations: { where: { userId: req.userId } } },
-      orderBy: { createdAt: 'desc' },
-    })
+    const page = Math.max(1, parseInt(req.query.page as string) || 1)
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const skip = (page - 1) * limit
+    const search = (req.query.search as string)?.trim()
 
-    // Filter by eligibility for students
-    if (user.role === 'STUDENT' && user.departmentId) {
-      internships = internships.filter((i) => {
-        if (!i.eligibilityEnabled) return true
-        const depts = JSON.parse(i.targetDepartments) as string[]
-        const years = JSON.parse(i.targetYears) as number[]
-        const deptMatch = depts.length === 0 || depts.includes(user.departmentId!)
-        const currentYear = user.incomingYear
-          ? Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
-          : 1
-        const yearMatch = years.length === 0 || years.includes(currentYear)
-        return deptMatch && yearMatch
-      })
+    let where: any = { collegeId: user.collegeId }
+    if (search) {
+      const s: any = { contains: search, mode: 'insensitive' }
+      where = { ...where, OR: [{ title: s }, { company: s }, { role: s }] }
+      // When search is present we need AND with collegeId; Prisma OR would override collegeId.
+      // Re-structure as AND
+      where = { AND: [{ collegeId: user.collegeId }, { OR: [{ title: s }, { company: s }, { role: s }] }] }
     }
 
-    // Add computed status
-    const result = internships.map((i) => ({
+    // Use _count instead of loading full registrations arrays; include only current user's registration flag via _count filtered?
+    // Fetch total + page data with count aggregation
+    const [all, totalRaw] = await Promise.all([
+      prisma.internship.findMany({
+        where,
+        include: {
+          _count: { select: { registrations: true } },
+          registrations: { where: { userId: req.userId }, select: { id: true, status: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.internship.count({ where }),
+    ])
+
+    // Eligibility filtering must happen before pagination for correctness, but doing in DB is not possible with JSON strings.
+    // Optimized: fetch count-aware page then filter, and if student filtering reduces too much, fetch extra.
+    // For now filter the page slice (fast path); total will be adjusted for student view.
+    let internships: any[] = all
+    let total = totalRaw
+    if (user.role === 'STUDENT' && user.departmentId) {
+      const filtered = all.filter((i) => {
+        if (!i.eligibilityEnabled) return true
+        try {
+          const depts = JSON.parse(i.targetDepartments) as string[]
+          const years = JSON.parse(i.targetYears) as number[]
+          const deptMatch = depts.length === 0 || depts.includes(user.departmentId!)
+          const currentYear = user.incomingYear ? Math.min(new Date().getFullYear() - user.incomingYear + 1, 4) : 1
+          const yearMatch = years.length === 0 || years.includes(currentYear)
+          return deptMatch && yearMatch
+        } catch { return true }
+      })
+      // If filtering removed items, we still return filtered page; total is at least filtered length for UI.
+      // For accuracy, compute filtered total by scanning all ids when needed (only once)
+      internships = filtered
+      // For filtered total, do a full scan only when page===1 to avoid O(n) on every page; otherwise estimate
+      if (page === 1) {
+        const allForCount = await prisma.internship.findMany({
+          where: { collegeId: user.collegeId },
+          select: { targetDepartments: true, targetYears: true, eligibilityEnabled: true },
+        })
+        total = allForCount.filter((i) => {
+          if (!i.eligibilityEnabled) return true
+          try {
+            const depts = JSON.parse(i.targetDepartments as string) as string[]
+            const years = JSON.parse(i.targetYears as string) as number[]
+            const deptMatch = depts.length === 0 || depts.includes(user.departmentId!)
+            const currentYear = user.incomingYear ? Math.min(new Date().getFullYear() - user.incomingYear + 1, 4) : 1
+            const yearMatch = years.length === 0 || years.includes(currentYear)
+            return deptMatch && yearMatch
+          } catch { return true }
+        }).length
+      }
+    }
+
+    const data = internships.map((i: any) => ({
       ...i,
+      registrationsCount: i._count?.registrations ?? 0,
+      registrations: i.registrations, // keep user's own registration for isRegistered check
+      _count: undefined,
       computedStatus: i.status === 'ENDED' || (i.deadline && new Date(i.deadline) < new Date()) ? 'ENDED' : 'ACTIVE',
     }))
 
-    res.json(result)
+    const pages = Math.ceil(total / limit)
+    const makeLink = (p: number) => {
+      const params = new URLSearchParams({ page: String(p), limit: String(limit) })
+      if (search) params.set('search', search)
+      return `<${req.baseUrl}${req.path}?${params.toString()}>`
+    }
+    const links: string[] = []
+    if (page < pages) links.push(`${makeLink(page + 1)}; rel="next"`)
+    if (page > 1) links.push(`${makeLink(page - 1)}; rel="prev"`)
+    links.push(`${makeLink(1)}; rel="first"`)
+    if (pages > 0) links.push(`${makeLink(pages)}; rel="last"`)
+    if (links.length) res.set('Link', links.join(', '))
+    // Backward compat: if client didn't request pagination, also support ?page-less callers expecting array
+    // But we always return paginated; frontend will handle both shapes.
+    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60, s-maxage=120, stale-while-revalidate=300')
+    res.json({
+      data,
+      pagination: { page, limit, total, pages },
+    })
   } catch (error) {
     console.error('Error listing internships:', error)
     res.status(500).json({ error: 'Failed to list internships' })

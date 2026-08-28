@@ -88,7 +88,7 @@ export default function ChatPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shadow-glow"><Bot className="w-6 h-6 text-white" /></div>
+          <div className="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-e1"><Bot className="w-6 h-6 text-white" /></div>
           <div>
             <h1 className="text-2xl font-bold text-surface-900">AI Assistant</h1>
             <div className="flex items-center gap-2">
@@ -106,7 +106,7 @@ export default function ChatPage() {
             {messages.map((msg) => (
               <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shrink-0 shadow-md"><GraduationCap size={18} className="text-white" /></div>
+                  <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center shrink-0 shadow-md"><GraduationCap size={18} className="text-white" /></div>
                 )}
                 <div className={`max-w-[75%] rounded-2xl px-5 py-3.5 ${msg.role === 'user' ? 'bg-gradient-to-br from-primary-600 to-primary-600 text-white rounded-br-md' : 'bg-surface-100 text-surface-900 rounded-bl-md'}`}>
                   <div className="whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(msg.content) }} />
@@ -124,7 +124,7 @@ export default function ChatPage() {
           </AnimatePresence>
           {isTyping && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shrink-0"><GraduationCap size={18} className="text-white" /></div>
+              <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center shrink-0"><GraduationCap size={18} className="text-white" /></div>
               <div className="bg-surface-100 rounded-2xl rounded-bl-md px-5 py-4">
                 <div className="flex gap-1.5">
                   <span className="w-2 h-2 bg-surface-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -155,7 +155,7 @@ export default function ChatPage() {
               <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask me anything about campus life..." className="w-full px-5 py-3.5 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all pr-12" disabled={isTyping} />
               <Zap size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-400" />
             </div>
-            <button type="submit" disabled={!input.trim() || isTyping} className="p-3.5 bg-gradient-to-r from-primary-600 to-primary-600 text-white rounded-xl hover:from-primary-700 hover:to-primary-700 transition-all shadow-lg hover:shadow-xl hover:shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
+            <button type="submit" disabled={!input.trim() || isTyping} className="p-3.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-lg hover:shadow-xl hover:shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
               <Send size={18} />
             </button>
           </form>

@@ -70,7 +70,7 @@ export default function CollegeRegistrationPage() {
             Your college has been submitted for approval. Once the Super Admin approves, you can log in with your credentials.
           </p>
           <Link to="/login"
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm">
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm">
             Go to Login
           </Link>
         </motion.div>
@@ -87,7 +87,7 @@ export default function CollegeRegistrationPage() {
         </Link>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-primary-600 flex items-center justify-center">
             <GraduationCap className="w-7 h-7 text-white" />
           </div>
           <div>
@@ -157,7 +157,7 @@ export default function CollegeRegistrationPage() {
         </div>
 
         <button onClick={handleSubmit} disabled={loading}
-          className="w-full px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
+          className="w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle size={16} />}
           {loading ? 'Submitting...' : 'Register College'}
         </button>

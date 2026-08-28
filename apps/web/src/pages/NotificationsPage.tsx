@@ -46,7 +46,7 @@ export default function NotificationsPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-surface-900">Notifications</h1>
+          <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Notifications</h1>
           <p className="text-surface-500 mt-1">{unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}</p>
         </div>
         {unreadCount > 0 && (

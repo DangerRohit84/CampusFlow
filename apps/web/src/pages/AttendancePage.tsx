@@ -41,8 +41,8 @@ function calcNeedClasses(attended: number, held: number, required: number) {
 }
 
 const statusConfig = {
-  safe: { color: 'text-primary-600 dark:text-[#7BA290]', bg: 'bg-primary-100 dark:bg-[#7BA290]/10', bar: 'bg-primary-500', label: 'SAFE' },
-  warning: { color: 'text-warning-600 dark:text-[#C9A86A]', bg: 'bg-warning-100 dark:bg-[#C9A86A]/10', bar: 'bg-warning-500', label: 'WARNING' },
+  safe: { color: 'text-primary-600 dark:text-[#90B9A4]', bg: 'bg-primary-100 dark:bg-[#90B9A4]/10', bar: 'bg-primary-500', label: 'SAFE' },
+  warning: { color: 'text-warning-600 dark:text-[#D1B48C]', bg: 'bg-warning-100 dark:bg-[#D1B48C]/10', bar: 'bg-warning-500', label: 'WARNING' },
   risk: { color: 'text-danger-600 dark:text-[#F87171]', bg: 'bg-danger-100 dark:bg-[#F87171]/10', bar: 'bg-danger-500', label: 'RISK' },
 }
 
@@ -174,10 +174,10 @@ export default function AttendancePage() {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
+      <div className="sticky top-0 z-10 bg-white dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-surface-900 dark:text-night-50">Attendance</h1>
+            <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Attendance</h1>
             <p className="text-surface-500 dark:text-night-200 mt-1">Track your class attendance</p>
           </div>
           <div className="flex items-center gap-2">
@@ -264,7 +264,7 @@ export default function AttendancePage() {
               {totalSkipped > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {subjects.filter(s => s.skip > 0).map(s => (
-                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-[#C9A86A]/10 text-warning-600 dark:text-[#C9A86A]">
+                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-[#D1B48C]/10 text-warning-600 dark:text-[#D1B48C]">
                       {s.name || 'Untitled'}: ⚠️ {s.skip}
                     </span>
                   ))}
@@ -401,7 +401,7 @@ export default function AttendancePage() {
 
       {/* Fixed Bottom Save Bar */}
       {subjects.length > 0 && (
-        <div className="sticky bottom-0 z-10 bg-white/80 dark:bg-night-950/80 backdrop-blur-md border-t border-surface-200 dark:border-night-600 px-6 py-3">
+        <div className="sticky bottom-0 z-10 bg-white dark:bg-night-950/80 backdrop-blur-md border-t border-surface-200 dark:border-night-600 px-6 py-3">
           <div className="flex justify-center">
             <Button
               variant="primary"

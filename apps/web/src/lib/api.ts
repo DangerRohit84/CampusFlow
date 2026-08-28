@@ -9,6 +9,7 @@ const WS_URL = API_BASE
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 10000,
 })
 
 api.interceptors.request.use((config) => {
@@ -167,8 +168,25 @@ export const timetableAPI = {
 }
 
 // Hackathons
+function unwrapPaginated<T>(body: any): T[] {
+  if (Array.isArray(body)) return body as T[]
+  if (body && Array.isArray(body.data)) return body.data as T[]
+  return []
+}
 export const hackathonAPI = {
-  getAll: () => api.get('/hackathons').then((r) => r.data),
+  getAll: (params?: { page?: number; limit?: number; search?: string; status?: string; signal?: AbortSignal }) =>
+    api.get('/hackathons', { params, signal: params?.signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return b
+      if (b?.data) return b.data
+      return b
+    }),
+  getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
+    api.get('/hackathons', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
   getOne: (id: string) => api.get(`/hackathons/${id}`).then((r) => r.data),
   create: (data: any) => api.post('/hackathons', data).then((r) => r.data),
   delete: (id: string) => api.delete(`/hackathons/${id}`).then((r) => r.data),
@@ -215,7 +233,19 @@ export const hackathonAPI = {
 
 // Internships
 export const internshipAPI = {
-  getAll: () => api.get('/internships').then((r) => r.data),
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
+    api.get('/internships', { params, signal: params?.signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return b
+      if (b?.data) return b.data
+      return b
+    }),
+  getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
+    api.get('/internships', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
   getOne: (id: string) => api.get(`/internships/${id}`).then((r) => r.data),
   create: (data: any) => api.post('/internships', data).then((r) => r.data),
   delete: (id: string) => api.delete(`/internships/${id}`).then((r) => r.data),
@@ -248,8 +278,19 @@ export const internshipAPI = {
 
 // Coding Contests
 export const codingContestAPI = {
-  getAll: (params?: { platform?: string; status?: string; startDate?: string; endDate?: string }) =>
-    api.get('/contests', { params }).then((r) => r.data),
+  getAll: (params?: { platform?: string; status?: string; startDate?: string; endDate?: string; page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
+    api.get('/contests', { params, signal: params?.signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return b
+      if (b?.data) return b.data
+      return b
+    }),
+  getPaged: (page = 1, limit = 20, extra?: { platform?: string; status?: string; search?: string }, signal?: AbortSignal) =>
+    api.get('/contests', { params: { page, limit, ...extra }, signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
   getByDate: (date: string) => api.get(`/contests/by-date/${date}`).then((r) => r.data),
   getCalendar: (start: string, end: string) =>
     api.get('/contests/calendar', { params: { start, end } }).then((r) => r.data),
@@ -268,7 +309,19 @@ export const codingContestAPI = {
 
 // Forms
 export const formAPI = {
-  getAll: () => api.get('/forms').then((r) => r.data),
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
+    api.get('/forms', { params, signal: params?.signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return b
+      if (b?.data) return b.data
+      return b
+    }),
+  getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
+    api.get('/forms', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
   getOne: (id: string) => api.get(`/forms/${id}`).then((r) => r.data),
   create: (data: any) => api.post('/forms', data).then((r) => r.data),
   delete: (id: string) => api.delete(`/forms/${id}`).then((r) => r.data),
@@ -289,8 +342,20 @@ export const formAPI = {
 
 // Rooms
 export const roomAPI = {
-  // Room CRUD
-  getAll: () => api.get('/rooms').then((r) => r.data),
+  // Room CRUD (supports abort + pagination)
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
+    api.get('/rooms', { params, signal: params?.signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return b
+      if (b?.data) return b.data
+      return b
+    }),
+  getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
+    api.get('/rooms', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
   getOne: (id: string) => api.get(`/rooms/${id}`).then((r) => r.data),
   create: (data: { name: string; description?: string; departmentId?: string; targetYears?: number[] }) =>
     api.post('/rooms', data).then((r) => r.data),

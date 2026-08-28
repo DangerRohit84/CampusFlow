@@ -809,7 +809,7 @@ export default function AdminPage() {
               </div>
               <div className="flex gap-3 mt-5">
                 <button onClick={() => setShowAddUser(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
-                <button onClick={handleAddUser} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium">Add</button>
+                <button onClick={handleAddUser} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Add</button>
               </div>
             </motion.div>
           </motion.div>
@@ -844,7 +844,7 @@ export default function AdminPage() {
               </div>
               <div className="flex gap-3 mt-5">
                 <button onClick={() => setShowAddCollege(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
-                <button onClick={handleAddCollege} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium">Create</button>
+                <button onClick={handleAddCollege} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Create</button>
               </div>
             </motion.div>
           </motion.div>
@@ -876,7 +876,7 @@ export default function AdminPage() {
                 placeholder="e.g., Computer Science" autoFocus />
               <div className="flex gap-3 mt-5">
                 <button onClick={() => setShowAddDept(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
-                <button onClick={handleAddDept} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium">Create</button>
+                <button onClick={handleAddDept} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Create</button>
               </div>
             </motion.div>
           </motion.div>

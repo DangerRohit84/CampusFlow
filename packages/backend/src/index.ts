@@ -1,6 +1,8 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import compression from 'compression'
+import { etagCacheMiddleware } from './middleware/etagCache'
 import path from 'path'
 import { createServer } from 'http'
 import cron from 'node-cron'
@@ -42,8 +44,11 @@ const httpServer = createServer(app)
 // Initialize WebSocket
 initSocket(httpServer)
 
-// Middleware
+// Middleware (order matters: compression first for wire size, then ETag/CDN SWR like Cloudflare/Vercel)
+app.use(compression({ threshold: 1024 }))
 app.use(helmet({ crossOriginResourcePolicy: false }))
+// High-scale: per-page weak ETag + CDN SWR (GitHub/Cloudflare pattern) — keep before routes so res.json is wrapped
+app.use(etagCacheMiddleware)
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map((o: string) => o.trim())
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
 app.use(express.json({ limit: '10mb' }))

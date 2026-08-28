@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, TrendingUp, Target, BookOpen, Clock, Lightbulb, GraduationCap, BarChart3 } from 'lucide-react'
 import Card from '../components/ui/Card'
@@ -33,7 +33,7 @@ export default function InsightsPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-4xl">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold text-surface-900 dark:text-night-50">AI Insights</h1>
+        <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">AI Insights</h1>
         <p className="text-surface-500 dark:text-night-200 mt-1">AI-powered analysis of your academic performance</p>
       </motion.div>
 
@@ -41,7 +41,7 @@ export default function InsightsPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <Card hover>
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center"><BarChart3 className="w-5 h-5 text-white" /></div>
+            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><BarChart3 className="w-5 h-5 text-white" /></div>
             <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Performance Analysis</h2>
             <Badge variant="accent"><Sparkles size={10} /> AI Generated</Badge>
           </div>

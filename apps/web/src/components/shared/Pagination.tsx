@@ -4,9 +4,11 @@ type Props = {
   onChange: (p: number) => void
   /** Set false for paginating inside modals/panels (no window scroll). Default true. */
   scroll?: boolean
+  /** High-scale: prefetch next page on hover (Vercel SWR pattern) — keepPreviousData already avoids flash */
+  onPrefetch?: (p: number) => void
 }
 
-export default function Pagination({ page, totalPages, onChange, scroll = true }: Props) {
+export default function Pagination({ page, totalPages, onChange, scroll = true, onPrefetch }: Props) {
   if (totalPages <= 1) return null
 
   const handle = (p: number) => {
@@ -34,6 +36,8 @@ export default function Pagination({ page, totalPages, onChange, scroll = true }
     <div className="flex items-center justify-center gap-1.5 py-4 mt-4">
       <button
         onClick={() => handle(Math.max(1, page - 1))}
+        onMouseEnter={() => onPrefetch?.(Math.max(1, page - 1))}
+        onFocus={() => onPrefetch?.(Math.max(1, page - 1))}
         disabled={page <= 1}
         className="px-3 py-1.5 text-sm font-medium text-surface-600 bg-surface-100 dark:bg-night-700 dark:text-night-200 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
       >
@@ -46,9 +50,11 @@ export default function Pagination({ page, totalPages, onChange, scroll = true }
           <button
             key={p}
             onClick={() => handle(p as number)}
+            onMouseEnter={() => onPrefetch?.(p as number)}
+            onFocus={() => onPrefetch?.(p as number)}
             className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${
               page === p
-                ? 'bg-primary-500 dark:bg-[#7BA290] text-white shadow-sm'
+                ? 'bg-primary-500 dark:bg-[#90B9A4] text-white shadow-sm'
                 : 'text-surface-600 bg-surface-100 hover:bg-surface-200 dark:bg-night-700 dark:text-night-200 dark:hover:bg-night-600'
             }`}
           >
@@ -58,6 +64,8 @@ export default function Pagination({ page, totalPages, onChange, scroll = true }
       )}
       <button
         onClick={() => handle(Math.min(totalPages, page + 1))}
+        onMouseEnter={() => onPrefetch?.(Math.min(totalPages, page + 1))}
+        onFocus={() => onPrefetch?.(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
         className="px-3 py-1.5 text-sm font-medium text-surface-600 bg-surface-100 dark:bg-night-700 dark:text-night-200 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
       >

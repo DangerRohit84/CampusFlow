@@ -62,7 +62,7 @@ export default function AssignmentsPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div><h1 className="text-3xl font-bold text-surface-900">Assignments</h1><p className="text-surface-500 mt-1">Track and manage all your assignments</p></div>
+        <div><h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Assignments</h1><p className="text-surface-500 mt-1">Track and manage all your assignments</p></div>
         <Button size="sm" onClick={openCreate}><Plus size={16} /> New Assignment</Button>
       </motion.div>
 

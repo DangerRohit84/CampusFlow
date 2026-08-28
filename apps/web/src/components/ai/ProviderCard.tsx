@@ -55,7 +55,7 @@ export default function ProviderCard({ provider, onEdit, onToggle, onDelete, onT
         </div>
         <button
           onClick={() => onToggle(provider.id)}
-          className="text-surface-500 hover:text-primary-600 dark:text-night-300 dark:hover:text-[#7BA290]"
+          className="text-surface-500 hover:text-primary-600 dark:text-night-300 dark:hover:text-[#90B9A4]"
         >
           {provider.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
         </button>

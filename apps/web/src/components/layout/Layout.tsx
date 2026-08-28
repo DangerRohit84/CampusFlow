@@ -2,149 +2,88 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { useAppStore } from '../../store/appStore'
 import {
-  LayoutDashboard, MessageSquare, BookOpen,
-  Bell, Settings, LogOut, Menu, X, GraduationCap,
-  ChevronRight, Sparkles, Search, Award, Target, Clock, Trophy,
+  LayoutDashboard, Bell, Settings, LogOut, Menu, X, GraduationCap,
+  Sparkles, Search, Award, Target, Clock, Trophy,
   ClipboardList, Shield, DoorOpen, Briefcase, CheckSquare,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
   Medal, UserCheck, Code2
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { motion, AnimatePresence } from 'framer-motion'
 import CommandPalette from '../CommandPalette'
 import ThemeToggle from '../ThemeToggle'
 import toast from 'react-hot-toast'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, codingProfileAPI, notificationAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI } from '../../lib/api'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
 
-type NavItem = {
-  path: string
-  label: string
-  icon: any
-}
-
-type NavSection = {
-  label: string
-  items: NavItem[]
-}
+type NavItem = { path: string; label: string; icon: any }
+type NavSection = { label: string; items: NavItem[] }
 
 const navByRole: Record<string, NavSection[]> = {
   STUDENT: [
-    {
-      label: '',
-      items: [
-        { path: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-      ],
-    },
-    {
-      label: 'ACADEMICS',
-      items: [
-        { path: '/schedule', label: 'Timetable', icon: Clock },
-        { path: '/attendance', label: 'Attendance', icon: UserCheck },
-        { path: '/grades', label: 'Grades', icon: Award },
-        { path: '/tasks', label: 'Planner', icon: ListTodo },
-      ],
-    },
-    {
-      label: 'OPPORTUNITIES',
-      items: [
-        { path: '/hackathons', label: 'Hackathons', icon: Trophy },
-        { path: '/internships', label: 'Internships', icon: Briefcase },
-        { path: '/contests', label: 'Contests', icon: Medal },
-        { path: '/coding-profile', label: 'Coding Profile', icon: Code2 },
-      ],
-    },
-    {
-      label: 'CAMPUS',
-      items: [
-        { path: '/calendar', label: 'Calendar', icon: CalendarDays },
-        { path: '/forms', label: 'Forms', icon: ClipboardList },
-        { path: '/rooms', label: 'Rooms', icon: DoorOpen },
-      ],
-    },
+    { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'ACADEMICS', items: [
+      { path: '/schedule', label: 'Timetable', icon: Clock },
+      { path: '/attendance', label: 'Attendance', icon: UserCheck },
+      { path: '/grades', label: 'Grades', icon: Award },
+      { path: '/tasks', label: 'Planner', icon: ListTodo },
+    ]},
+    { label: 'OPPORTUNITIES', items: [
+      { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+      { path: '/internships', label: 'Internships', icon: Briefcase },
+      { path: '/contests', label: 'Contests', icon: Medal },
+      { path: '/coding-profile', label: 'Coding Profile', icon: Code2 },
+    ]},
+    { label: 'CAMPUS', items: [
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+      { path: '/forms', label: 'Forms', icon: ClipboardList },
+      { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
   ],
   TEACHER: [
-    {
-      label: '',
-      items: [
-        { path: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-      ],
-    },
-    {
-      label: 'CAMPUS',
-      items: [
-        { path: '/hackathons', label: 'Hackathons', icon: Trophy },
-        { path: '/internships', label: 'Internships', icon: Briefcase },
-        { path: '/teacher/opportunities', label: 'Opportunities', icon: Target },
-        { path: '/contests', label: 'Contests', icon: Medal },
-        { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
-        { path: '/schedule', label: 'Timetable', icon: Clock },
-        { path: '/calendar', label: 'Calendar', icon: CalendarDays },
-        { path: '/forms', label: 'Forms', icon: ClipboardList },
-        { path: '/rooms', label: 'Rooms', icon: DoorOpen },
-      ],
-    },
-    {
-      label: 'Management',
-      items: [
-        { path: '/admin', label: 'Admin Panel', icon: Shield },
-      ],
-    },
+    { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'CAMPUS', items: [
+      { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+      { path: '/internships', label: 'Internships', icon: Briefcase },
+      { path: '/teacher/opportunities', label: 'Opportunities', icon: Target },
+      { path: '/contests', label: 'Contests', icon: Medal },
+      { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
+      { path: '/schedule', label: 'Timetable', icon: Clock },
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+      { path: '/forms', label: 'Forms', icon: ClipboardList },
+      { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
+    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   COLLEGE_ADMIN: [
-    {
-      label: '',
-      items: [
-        { path: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-      ],
-    },
-    {
-      label: 'CAMPUS',
-      items: [
-        { path: '/hackathons', label: 'Hackathons', icon: Trophy },
-        { path: '/internships', label: 'Internships', icon: Briefcase },
-        { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
-        { path: '/contests', label: 'Contests', icon: Medal },
-        { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
-        { path: '/forms', label: 'Forms', icon: ClipboardList },
-        { path: '/rooms', label: 'Rooms', icon: DoorOpen },
-      ],
-    },
-    {
-      label: 'Management',
-      items: [
-        { path: '/admin', label: 'Admin Panel', icon: Shield },
-      ],
-    },
+    { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'CAMPUS', items: [
+      { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+      { path: '/internships', label: 'Internships', icon: Briefcase },
+      { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
+      { path: '/contests', label: 'Contests', icon: Medal },
+      { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
+      { path: '/forms', label: 'Forms', icon: ClipboardList },
+      { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
+    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   SUPER_ADMIN: [
-    {
-      label: '',
-      items: [
-        { path: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-      ],
-    },
-    {
-      label: 'CAMPUS',
-      items: [
-        { path: '/hackathons', label: 'Hackathons', icon: Trophy },
-        { path: '/internships', label: 'Internships', icon: Briefcase },
-        { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
-        { path: '/contests', label: 'Contests', icon: Medal },
-        { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
-        { path: '/forms', label: 'Forms', icon: ClipboardList },
-        { path: '/rooms', label: 'Rooms', icon: DoorOpen },
-      ],
-    },
-    {
-      label: 'Management',
-      items: [
-        { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
-        { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
-        { path: '/admin', label: 'Admin Panel', icon: Shield },
-      ],
-    },
+    { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'CAMPUS', items: [
+      { path: '/hackathons', label: 'Hackathons', icon: Trophy },
+      { path: '/internships', label: 'Internships', icon: Briefcase },
+      { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
+      { path: '/contests', label: 'Contests', icon: Medal },
+      { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
+      { path: '/forms', label: 'Forms', icon: ClipboardList },
+      { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
+    { label: 'Management', items: [
+      { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
+      { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
+      { path: '/admin', label: 'Admin Panel', icon: Shield },
+    ]},
   ],
 }
 
@@ -161,117 +100,70 @@ export default function Layout() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setShowCommandPalette(true)
-      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowCommandPalette(true) }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  useEffect(() => {
-    setMobileOpenLocal(false)
-  }, [location.pathname])
+  useEffect(() => { setMobileOpenLocal(false) }, [location.pathname])
 
-  // Fetch unread notification count on mount
   useEffect(() => {
     if (!token) return
-
-    // On the notifications page, reset the badge and skip refetching  — 
-    // a resolved fetch would otherwise overwrite the reset with a stale count.
-    if (location.pathname === '/notifications') {
-      setUnreadCount(0)
-      return
-    }
-
-    notificationAPI.getUnreadCount()
-      .then((count: number) => setUnreadCount(count))
-      .catch(() => {})
+    if (location.pathname === '/notifications') { setUnreadCount(0); return }
+    notificationAPI.getUnreadCount().then((c: number) => setUnreadCount(c)).catch(()=>{})
   }, [token, location.pathname])
 
-  // Room unread: fetch + socket live updates
   useEffect(() => {
     if (!token) return
-    let cancelled = false
+    let cancelled=false
     const refresh = async () => {
       try {
         const map = await roomAPI.getUnreadCounts()
         if (cancelled) return
-        const total = Object.values(map as Record<string, number>).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+        const total = Object.values(map as Record<string, number>).reduce((a:number,b:any)=>a+(Number(b)||0),0)
         setRoomUnreadCount(total)
       } catch {
-        // fallback to getAll which now includes unreadCount
         try {
           const rooms = await roomAPI.getAll()
           if (cancelled) return
-          const total = (rooms as any[]).reduce((sum: number, r: any) => sum + (Number(r.unreadCount) || 0), 0)
+          const total=(rooms as any[]).reduce((s:number,r:any)=>s+(Number(r.unreadCount)||0),0)
           setRoomUnreadCount(total)
         } catch {}
       }
     }
     refresh()
-    // refetch on route change (clears badge after visiting room)
-    // also listen for custom event dispatched by RoomChatPanel after markRead
     const onRoomRead = () => refresh()
     window.addEventListener('room:read', onRoomRead)
-    // also refresh when pathname changes (handled via dependency below)
-    return () => {
-      cancelled = true
-      window.removeEventListener('room:read', onRoomRead)
-    }
+    return () => { cancelled=true; window.removeEventListener('room:read', onRoomRead) }
   }, [token, location.pathname])
 
-  // Socket.IO: connect, listen for live notifications + room messages
   useEffect(() => {
     if (!token) return
-
     const socket = connectSocket(token)
-
-    // Join the user's room after connection
-    const onConnect = () => {
-      socket.emit('auth:join')
-    }
+    const onConnect = () => socket.emit('auth:join')
     socket.on('connect', onConnect)
-
-    // Listen for new notifications
-    const onNotification = (notification: any) => {
-      setUnreadCount((prev) => prev + 1)
-      toast(notification.title || 'New Notification', {
-        icon: '🔔',
-        duration: 4000,
-      })
-    }
+    const onNotification = (n:any) => { setUnreadCount(p=>p+1); toast(n.title||'New Notification',{icon:'📌',duration:3000}) }
     socket.on('notification:new', onNotification)
-
-    // Room unread: live increment; if user is currently inside that room chat, mark read immediately
-    const onRoomMessage = (message: any) => {
-      if (!message?.roomId) return
-      if (message.senderId === user?.id) return
-      // if currently viewing that room's chat tab, clear immediately (optimistic) and mark read in background
-      const isOnRoomRoute = location.pathname.includes(`/rooms/${message.roomId}`)
-      // heuristic: if chat tab is open we clear; otherwise increment
-      // We refetch counts for accuracy; increment is optimistic fallback if fetch fails
+    const onRoomMessage = (msg:any) => {
+      if (!msg?.roomId) return
+      if (msg.senderId === user?.id) return
+      const isOnRoomRoute = location.pathname.includes(`/rooms/${msg.roomId}`)
       if (isOnRoomRoute) {
-        roomAPI.markRead(message.roomId).catch(() => {})
-        // keep badge at 0 for this room until next fetch; trigger refresh
-        roomAPI.getUnreadCounts().then((map: any) => {
-          const total = Object.values(map as Record<string, number>).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+        roomAPI.markRead(msg.roomId).catch(()=>{})
+        roomAPI.getUnreadCounts().then((map:any)=>{
+          const total=Object.values(map as Record<string,number>).reduce((a:number,b:any)=>a+(Number(b)||0),0)
           setRoomUnreadCount(total)
-        }).catch(() => {})
+        }).catch(()=>{})
         return
       }
-      setRoomUnreadCount((prev) => prev + 1)
-      // also refetch to reconcile (debounced via setTimeout to avoid race)
-      setTimeout(() => {
-        roomAPI.getUnreadCounts().then((map: any) => {
-          const total = Object.values(map as Record<string, number>).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
-          setRoomUnreadCount(total)
-        }).catch(() => {})
-      }, 400)
+      setRoomUnreadCount(prev=>prev+1)
+      setTimeout(()=>{ roomAPI.getUnreadCounts().then((map:any)=>{
+        const total=Object.values(map as Record<string,number>).reduce((a:number,b:any)=>a+(Number(b)||0),0)
+        setRoomUnreadCount(total)
+      }).catch(()=>{}) },400)
     }
     socket.on('room:message:new', onRoomMessage)
-
     return () => {
       socket.off('connect', onConnect)
       socket.off('notification:new', onNotification)
@@ -281,121 +173,85 @@ export default function Layout() {
   }, [token, user?.id, location.pathname])
 
   useEffect(() => {
-    const isNear = (dateStr: string) => {
-      if (!dateStr) return false
-      const diff = new Date(dateStr).getTime() - Date.now()
-      return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000
+    const isNear = (dateStr:string) => {
+      if(!dateStr) return false
+      const diff=new Date(dateStr).getTime()-Date.now()
+      return diff>0 && diff<3*24*60*60*1000
     }
-    hackathonAPI.getAll().then((data: any) => {
-      const count = data.filter((h: any) => isNear(h.deadline)).length
-      setNearDeadlineCount((prev) => ({ ...prev, hackathons: count }))
-    }).catch(() => {})
-    formAPI.getAll().then((data: any) => {
-      const count = data.filter((f: any) => isNear(f.expiresAt)).length
-      setNearDeadlineCount((prev) => ({ ...prev, forms: count }))
-    }).catch(() => {})
-    internshipAPI.getAll().then((data: any) => {
-      const count = data.filter((i: any) => i.status === 'ACTIVE' && i.deadline && isNear(i.deadline)).length
-      setNearDeadlineCount((prev) => ({ ...prev, internships: count }))
-    }).catch(() => {})
-    codingContestAPI.getAll().then((data: any) => {
-      const now = Date.now()
-      const count = data.filter((c: any) => {
-        const start = new Date(c.startDate).getTime()
-        const end = start + (c.duration || 180) * 60000
-        return now >= start && now <= end
-      }).length
-      setNearDeadlineCount((prev) => ({ ...prev, contests: count }))
-    }).catch(() => {})
+    hackathonAPI.getAll().then((data:any)=> setNearDeadlineCount(prev=>({...prev,hackathons:data.filter((h:any)=>isNear(h.deadline)).length}))).catch(()=>{})
+    formAPI.getAll().then((data:any)=> setNearDeadlineCount(prev=>({...prev,forms:data.filter((f:any)=>isNear(f.expiresAt)).length}))).catch(()=>{})
+    internshipAPI.getAll().then((data:any)=> setNearDeadlineCount(prev=>({...prev,internships:data.filter((i:any)=>i.status==='ACTIVE'&&i.deadline&&isNear(i.deadline)).length}))).catch(()=>{})
+    codingContestAPI.getAll().then((data:any)=>{
+      const now=Date.now()
+      const c=data.filter((cc:any)=>{ const s=new Date(cc.startDate).getTime(); const e=s+(cc.duration||180)*60000; return now>=s&&now<=e }).length
+      setNearDeadlineCount(prev=>({...prev,contests:c}))
+    }).catch(()=>{})
   }, [])
 
-  const getNearCount = (path: string) => {
-    if (path === '/hackathons') return nearDeadlineCount.hackathons
-    if (path === '/forms') return nearDeadlineCount.forms
-    if (path === '/internships') return nearDeadlineCount.internships
-    if (path === '/contests') return nearDeadlineCount.contests
+  const getNearCount = (path:string) => {
+    if(path==='/hackathons') return nearDeadlineCount.hackathons
+    if(path==='/forms') return nearDeadlineCount.forms
+    if(path==='/internships') return nearDeadlineCount.internships
+    if(path==='/contests') return nearDeadlineCount.contests
     return 0
   }
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="p-5 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-500 flex items-center justify-center shadow-glow">
+      {/* Logo — hallway plate */}
+      <div className="px-4 py-5 flex items-center gap-3 border-b border-surface-200/70">
+        <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center shrink-0">
           <GraduationCap className="w-6 h-6 text-white" />
         </div>
         {sidebarOpen && (
-          <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
-            <span className="text-lg font-bold text-primary-600">CampusFlow</span>
-            <p className="text-[10px] text-surface-400 font-medium">AI Campus OS</p>
-          </motion.div>
+          <div>
+            <span className="text-[15px] font-bold tracking-tight text-surface-900 font-display">CampusFlow</span>
+            <p className="text-[10px] font-semibold tracking-widest uppercase text-surface-400">Hall 01 · Campus OS</p>
+          </div>
         )}
       </div>
 
-      {/* Nav Sections */}
-      <nav className="flex-1 px-3 mt-2 overflow-y-auto">
-        {(navByRole[user?.role || 'STUDENT'] || navByRole.STUDENT).map((section) => (
-          <div key={section.label} className="mb-4">
-            {/* Section Label */}
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-3 overflow-y-auto">
+        {(navByRole[user?.role || 'STUDENT'] || navByRole.STUDENT).map((section)=>(
+          <div key={section.label} className="mb-5">
             {sidebarOpen && section.label && (
-              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-surface-400 dark:text-night-300">
+              <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-surface-400">
                 {section.label}
               </p>
             )}
-
-            {/* Section Items */}
-            <div className="space-y-0.5">
-              {section.items.map((item) => {
-                const isActive = location.pathname === item.path
-                const Icon = item.icon
-                const nearCount = getNearCount(item.path)
-                const isRooms = item.path === '/rooms'
-                const showRoomsBadge = isRooms && roomUnreadCount > 0
-
+            {!sidebarOpen && section.label && <div className="h-px bg-surface-200 mx-2 mb-3" />}
+            <div className="space-y-1">
+              {section.items.map((item)=>{
+                const isActive = location.pathname===item.path
+                const Icon=item.icon
+                const nearCount=getNearCount(item.path)
+                const isRooms=item.path==='/rooms'
+                const showRoomsBadge=isRooms && roomUnreadCount>0
                 return (
                   <button
                     key={item.path}
-                    onClick={() => navigate(item.path)}
-                    title={isRooms && roomUnreadCount > 0 ? `Rooms (${roomUnreadCount > 99 ? '99+' : roomUnreadCount} unread)` : item.label}
+                    onClick={()=>navigate(item.path)}
+                    title={isRooms && roomUnreadCount>0 ? `Rooms (${roomUnreadCount>99?'99+':roomUnreadCount} unread)`: item.label}
                     className={clsx(
-                      'w-full flex items-center gap-3 rounded-lg font-medium transition-all duration-200 group relative',
-                      sidebarOpen ? 'px-3 py-2' : 'justify-center px-0 py-2.5',
-                      isActive
-                        ? 'bg-primary-50 text-primary-600 border border-primary-100 shadow-sm'
-                        : 'text-surface-500 hover:bg-surface-100 hover:text-surface-700'
+                      'w-full flex items-center gap-3 rounded-xl font-medium transition-colors duration-150 relative text-left',
+                      sidebarOpen ? 'px-3 min-h-[44px]' : 'justify-center px-0 min-h-[44px]',
+                      isActive ? 'sidebar-link-active' : 'sidebar-link'
                     )}
                   >
-                    {/* Active indicator - left accent bar */}
-                    {isActive && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-gradient-to-b from-primary-500 to-primary-500 rounded-r-full" />
-                    )}
-
+                    {isActive && <span className="locker-stripe" />}
                     <span className="relative inline-flex">
                       <Icon size={18} className={clsx(isActive && 'text-primary-600')} />
                       {!sidebarOpen && showRoomsBadge && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
-                          {roomUnreadCount > 99 ? '99+' : roomUnreadCount}
-                        </span>
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{roomUnreadCount>99?'99+':roomUnreadCount}</span>
                       )}
-                      {!sidebarOpen && nearCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border border-white dark:border-night-800">
-                          {nearCount > 99 ? '99+' : nearCount}
-                        </span>
+                      {!sidebarOpen && nearCount>0 && !showRoomsBadge && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{nearCount>99?'99+':nearCount}</span>
                       )}
                     </span>
-
-                    {sidebarOpen && (
-                      <span className="flex-1 text-left text-[13px]">{item.label}</span>
-                    )}
-
-                    {sidebarOpen && nearCount > 0 && (
-                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>
-                    )}
-                    {sidebarOpen && showRoomsBadge && (
-                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">
-                        {roomUnreadCount > 99 ? '99+' : roomUnreadCount}
-                      </span>
-                    )}
+                    {sidebarOpen && <span className="flex-1 text-left">{item.label}</span>}
+                    {sidebarOpen && nearCount>0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>}
+                    {sidebarOpen && showRoomsBadge && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{roomUnreadCount>99?'99+':roomUnreadCount}</span>}
                   </button>
                 )
               })}
@@ -404,55 +260,38 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* CampusFlow AI Card */}
+      {/* Locker bottom — registrar card */}
       {sidebarOpen && (
-          <div className="px-3 mb-3 shrink-0">
-          <div className="p-4 bg-accent-50 border border-accent-100 rounded-xl">
-            <div className="flex items-center gap-2 mb-1.5">
-              <Sparkles size={16} className="text-accent-600" />
-              <span className="text-sm font-bold text-primary-600">CampusFlow AI</span>
+        <div className="px-3 pb-3">
+          <div className="rounded-xl border border-brass-400/30 bg-brass-50 p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-brass-400" />
+              <span className="text-xs font-bold tracking-wide uppercase text-surface-700">Registrar Desk</span>
             </div>
-            <p className="text-[11px] text-surface-500 mb-3 leading-relaxed">
-              Your intelligent assistant for campus operations
-            </p>
-            <button
-              onClick={() => navigate('/chat')}
-              className="w-full px-3 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm font-medium transition-all flex items-center justify-between text-white shadow-sm"
-            >
-              <span>Ask AI Assistant</span>
-              <span className="text-lg">→</span>
+            <p className="text-[11px] leading-relaxed text-surface-500">Questions? Visit the desk or ask the assistant.</p>
+            <button onClick={()=>navigate('/chat')} className="mt-3 w-full min-h-[36px] px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5">
+              <Sparkles size={14} /> Ask Assistant
             </button>
           </div>
         </div>
       )}
 
-      {/* College Illustration */}
-      {sidebarOpen && (
-        <div className="px-0 mt-auto shrink-0">
-          <img src="/school-illustration.svg" alt="Campus" className="w-full h-auto object-contain" />
-        </div>
-      )}
-
-      {/* User Profile & Logout */}
-      <div className="px-3 mt-auto pb-3 pt-2 border-t border-surface-100 dark:border-night-600">
+      {/* User */}
+      <div className="px-3 py-3 border-t border-surface-200">
         <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-primary-400 flex items-center justify-center text-white font-bold text-xs shadow-md shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
             {user?.name?.charAt(0) || 'S'}
           </div>
           {sidebarOpen && (
             <>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-surface-900 dark:text-night-50 truncate">{user?.name || 'Student'}</p>
-                  <CheckSquare size={12} className="text-primary-500 shrink-0" />
+                  <p className="text-sm font-semibold text-surface-900 truncate">{user?.name || 'Student'}</p>
+                  <CheckSquare size={12} className="text-primary-600 shrink-0" />
                 </div>
-                <p className="text-[10px] text-surface-400 dark:text-night-300 truncate">{user?.email || 'student@campus.edu'}</p>
+                <p className="text-[11px] text-surface-400 truncate">{user?.email || 'student@campus.edu'}</p>
               </div>
-              <button
-                onClick={() => { logout(); navigate('/login') }}
-                className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
-                title="Logout"
-              >
+              <button onClick={()=>{logout(); navigate('/login')}} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-danger-600 hover:bg-danger-50 transition-colors" title="Sign out">
                 <LogOut size={16} />
               </button>
             </>
@@ -463,87 +302,87 @@ export default function Layout() {
   )
 
   return (
-    <div className="flex h-screen bg-surface-50 dark:bg-night-950 overflow-hidden">
-      {/* Desktop Sidebar */}
+    <div className="flex h-screen bg-surface-50 overflow-hidden">
+      {/* Desktop Sidebar — 280 / 72 hallway locker */}
       <aside className={clsx(
-        'hidden lg:flex flex-col border-r border-surface-200 dark:border-night-600 bg-surface-100 dark:bg-night-800 transition-all duration-300 overflow-hidden',
-        sidebarOpen ? 'w-64' : 'w-[72px]'
+        'hidden lg:flex flex-col shrink-0 locker-rail transition-all duration-200 overflow-hidden',
+        sidebarOpen ? 'w-[280px]' : 'w-[72px]'
       )}>
         <SidebarContent />
       </aside>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-night-950">
-        {/* Top Header */}
-        <header className="h-16 border-b border-surface-200 dark:border-night-600 bg-white/80 dark:bg-night-800/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-6 shrink-0">
+      {/* Main */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-surface-50">
+        {/* Header — paper bar, flat, 44px controls */}
+        <header className="h-16 border-b border-surface-200 bg-white flex items-center justify-between px-4 lg:px-6 shrink-0">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.innerWidth >= 1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpenLocal(true)}
-              className="p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors shrink-0"
+              onClick={()=> window.innerWidth>=1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpenLocal(true)}
+              className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 transition-colors shrink-0"
+              aria-label="Toggle navigation"
             >
-              {sidebarOpen && window.innerWidth >= 1024 ? <X size={18} /> : <Menu size={18} />}
+              {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
+            {/* search — card look */}
             <div className="relative hidden sm:block">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
-              <input type="text" placeholder="Search... (⌘K)" className="w-full pl-10 pr-4 py-2 bg-surface-50 dark:bg-night-950 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all" readOnly onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))} />
+              <input
+                type="text"
+                placeholder="Search courses, rooms…  ⌘K"
+                className="w-[280px] xl:w-[360px] pl-10 pr-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 transition-colors"
+                readOnly
+                onClick={()=> document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true}))}
+              />
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="w-px h-6 bg-surface-200 hidden sm:block" />
-            <button className="relative p-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors" onClick={() => navigate('/notifications')}>
+            <button className="relative w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 transition-colors" onClick={()=>navigate('/notifications')} aria-label="Notifications">
               <Bell size={18} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-danger-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">{unreadCount > 99 ? '99+' : unreadCount}</span>
-              )}
+              {unreadCount>0 && <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-danger-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border-2 border-white">{unreadCount>99?'99+':unreadCount}</span>}
             </button>
-            <div className="w-px h-6 bg-surface-200 hidden sm:block" />
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/settings')}>
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-bold text-xs shadow-md">
+            <div className="hidden sm:block w-px h-6 bg-surface-200" />
+            <button onClick={()=>navigate('/settings')} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-surface-50 transition-colors">
+              <div className="w-8 h-8 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold text-xs">
                 {user?.name?.charAt(0) || 'A'}
               </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-semibold text-surface-900 dark:text-night-50 leading-tight">{user?.name || 'Admin'}</p>
-                <p className="text-[10px] text-surface-400 dark:text-night-300">{user?.role?.replace('_', ' ') || 'Super Admin'}</p>
+              <div className="hidden sm:block text-left">
+                <p className="text-sm font-semibold leading-none text-surface-900">{user?.name || 'Admin'}</p>
+                <p className="text-[10px] tracking-wide uppercase font-semibold text-surface-400">{user?.role?.replace('_',' ') || 'Super Admin'}</p>
               </div>
-            </div>
+            </button>
           </div>
         </header>
 
-        {/* Hanging Lamp from navbar border line */}
-        <div className="relative h-0">
-          <div className="absolute right-24 top-0 z-10">
+        {/* hanging lamp — moved left to avoid covering announcement count badge (right side) */}
+        <div className="relative h-0 pointer-events-none">
+          <div className="absolute right-16 lg:right-24 top-0 z-10 pointer-events-auto">
             <ThemeToggle />
           </div>
         </div>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          <Outlet />
+        {/* Page content — 12-col 1280 container */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="campus-shell py-6">
+            <div className="animate-slideUp">
+              <Outlet />
+            </div>
+          </div>
         </main>
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-              onClick={() => setMobileOpenLocal(false)}
-            />
-            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed inset-y-0 left-0 w-72 bg-surface-100 dark:bg-night-800 z-50 lg:hidden shadow-2xl">
-              <button onClick={() => setMobileOpenLocal(false)} className="absolute top-4 right-4 p-2 rounded-lg text-surface-400 hover:bg-surface-100"><X size={20} /></button>
-              <SidebarContent />
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm" onClick={()=>setMobileOpenLocal(false)} />
+          <aside className="fixed inset-y-0 left-0 w-[280px] bg-[#F5F1E8] z-50 lg:hidden shadow-e3 animate-slideUp locker-rail overflow-hidden flex flex-col">
+            <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100"><X size={20} /></button>
+            <SidebarContent />
+          </aside>
+        </>
+      )}
 
-      {/* Command Palette */}
-      <CommandPalette open={showCommandPalette} onClose={() => setShowCommandPalette(false)} />
+      <CommandPalette open={showCommandPalette} onClose={()=>setShowCommandPalette(false)} />
     </div>
   )
 }

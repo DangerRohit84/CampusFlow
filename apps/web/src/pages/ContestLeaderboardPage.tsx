@@ -85,7 +85,7 @@ export default function ContestLeaderboardPage() {
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-warning-500 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-brass-400 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
         >
           <Download size={16} /> Export CSV
         </button>

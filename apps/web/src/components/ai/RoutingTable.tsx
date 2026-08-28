@@ -83,7 +83,7 @@ export default function RoutingTable({ providers, routing, onSave }: Props) {
                 <button
                   onClick={() => handleSave(f.id)}
                   disabled={saving === f.id}
-                  className="p-1.5 rounded-lg hover:bg-surface-200 dark:hover:bg-night-700 text-primary-600 dark:text-[#7BA290]"
+                  className="p-1.5 rounded-lg hover:bg-surface-200 dark:hover:bg-night-700 text-primary-600 dark:text-[#90B9A4]"
                 >
                   {saving === f.id ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 </button>

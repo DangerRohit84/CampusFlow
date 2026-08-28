@@ -129,7 +129,7 @@ export default function AssignPopup({ show, onClose, teachers, onAssign, onUnass
                     >
                       <div className={clsx(
                         'w-8 h-8 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0',
-                        isAssigned ? 'bg-primary-500' : 'bg-gradient-to-br from-primary-500 to-primary-500'
+                        isAssigned ? 'bg-primary-500' : 'bg-primary-600 from-primary-500 to-primary-500'
                       )}>
                         {t.name?.charAt(0)?.toUpperCase()}
                       </div>

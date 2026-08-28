@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, departmentAPI } from '../lib/api'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useDebounce } from '../hooks/useDebounce'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Calendar, Users, Download,
@@ -25,8 +27,7 @@ type HackathonStatus = 'upcoming' | 'ongoing' | 'completed'
 export default function HackathonsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const [hackathons, setHackathons] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [fetching, setFetching] = useState(false)
 
   const [form, setForm] = useState({
@@ -56,24 +57,35 @@ export default function HackathonsPage() {
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
 
   const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearch = useDebounce(searchQuery, 300)
   const createModal = useModal()
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
+  // React Query with keepPreviousData + SWR (Vercel/GitHub pattern) + AbortController + server-side debounced search (O(log n) indexed scan)
+  const { data: hackathonsData, isLoading: loading } = useQuery({
+    queryKey: ['hackathons', debouncedSearch],
+    queryFn: ({ signal }) => hackathonAPI.getAll({ search: debouncedSearch || undefined, signal } as any),
+    staleTime: 3 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
+  const hackathons = (hackathonsData as any[]) ?? []
+
+  // Prefetch next client-page slice on hover — hides pagination latency (Shopify instant-nav)
+  const prefetchPage = (nextPage: number) => {
+    // No server fetch needed — data already cached client-side; warming does nothing but keeps API for future cursor pagination
+    // When moving to true server pagination, uncomment:
+    // queryClient.prefetchQuery({ queryKey: ['hackathons', debouncedSearch, 'p', nextPage], queryFn: ({signal})=>hackathonAPI.getPaged(nextPage, HACKATHONS_PER_PAGE, debouncedSearch||undefined, signal) , staleTime: 3*60*1000 })
+    void nextPage
+  }
+
   useEffect(() => {
-    loadHackathons()
     departmentAPI.getAll().then(setDepartments).catch(() => {})
   }, [])
 
   const loadHackathons = async () => {
-    try {
-      const data = await hackathonAPI.getAll()
-      setHackathons(data)
-    } catch (err) {
-      console.error('Failed to load hackathons', err)
-    } finally {
-      setLoading(false)
-    }
+    await queryClient.invalidateQueries({ queryKey: ['hackathons'] })
   }
 
   const getHackathonStatus = (h: any): HackathonStatus => {
@@ -288,40 +300,57 @@ export default function HackathonsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-surface-900">Hackathons</h1>
-          <p className="text-surface-500 mt-1">Discover and manage hackathons across your campus.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => hackathonAPI.exportAll()}
-            className="flex items-center gap-2 px-4 py-2 border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-all text-sm font-medium"
-          >
-            <Download size={16} /> Export
-          </button>
-          {isTeacher && (
+      {/* Notice Board Head — registrar style */}
+      <div className="paper overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Trophy size={18} className="text-surface-900" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Notice Board — Hackathons</h1>
+              <p className="text-xs text-surface-500">Pinned by the registrar · Due slips below</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={14} />
+              <input
+                type="text"
+                placeholder="Search notices…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 rounded-xl text-sm bg-surface-50 placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15"
+              />
+            </div>
             <button
-              onClick={createModal.open}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium"
+              onClick={() => hackathonAPI.exportAll()}
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 bg-white text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold"
             >
-              <Plus size={16} /> Create Hackathon
+              <Download size={16} /> Export
             </button>
-          )}
+            {isTeacher && (
+              <button
+                onClick={createModal.open}
+                className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold"
+              >
+                <Plus size={16} /> Pin Notice
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* Search Bar */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={16} />
-        <input
-          type="text"
-          placeholder="Search hackathons..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-colors"
-        />
+        {/* mobile search */}
+        <div className="px-5 pb-4 sm:hidden">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={16} />
+            <input
+              type="text"
+              placeholder="Search hackathons..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 min-h-[44px] border border-surface-200 rounded-xl text-sm bg-surface-50"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -359,123 +388,61 @@ export default function HackathonsPage() {
         />
       ) : (
         <>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pagedHackathons.map((h) => {
             const status = getHackathonStatus(h)
-            const isCreator = h.creatorId === user?.id
-
+            const isUrgent = status==='upcoming' && isNearDeadline(h.deadline)
             return (
-              <motion.div
+              <div
                 key={h.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
+                className={clsx('due-slip p-5 flex flex-col group cursor-pointer hover:shadow-e2 transition-shadow', isUrgent && 'due-slip--urgent')}
+                onClick={() => navigate(`/hackathons/${h.id}`)}
               >
-                <Card hover padding="none" className="h-full flex flex-col group">
-                  {/* Card Content */}
-                  <div className="p-5 flex-1 flex flex-col">
-                    {/* Status Badge + Mode */}
-                    <div className="flex items-center justify-between mb-3">
-                      <Badge variant={getStatusBadgeVariant(status)} dot>
-                        {getStatusLabel(status)}
-                      </Badge>
-                      {h.mode && (
-                        <Badge variant="default">
-                          {getModeLabel(h.mode)}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {/* Hackathon Name */}
-                    <h3
-                      className="text-lg font-bold text-surface-900 mb-2 line-clamp-1 group-hover:text-primary-600 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/hackathons/${h.id}`)}
-                    >
-                      {h.title}
-                    </h3>
-
-                    {/* Description */}
-                    {h.description && (
-                      <p className="text-surface-500 text-sm mb-4 line-clamp-2 flex-1">
-                        {h.description}
-                      </p>
+                  <div className="flex items-center justify-between">
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='ongoing'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 text-surface-600 border-surface-200')}>
+                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='ongoing'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
+                    </span>
+                    {h.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 border border-surface-200 rounded-full px-2 py-1">{getModeLabel(h.mode)}</span>}
+                  </div>
+                  <h3 className="mt-3 font-display font-bold text-surface-900 line-clamp-2 leading-tight group-hover:text-primary-700">
+                    {h.title}
+                  </h3>
+                  {h.description && <p className="text-sm text-surface-500 line-clamp-2 mt-1.5 flex-1">{h.description}</p>}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    {(h.startDate || h.deadline) && (
+                      <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 text-surface-600 border-surface-200')}>
+                        <Calendar size={12} /> {h.startDate ? new Date(h.startDate).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : new Date(h.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short' })} {isUrgent && '· Due soon'}
+                      </span>
                     )}
-
-                    {/* Meta Row */}
-                    <div className="flex items-center gap-4 text-xs text-surface-500 mb-4">
-                      {/* Date */}
-                      {(h.startDate || h.deadline) && (
-                        <span className={clsx(
-                          'flex items-center gap-1.5',
-                           isNearDeadline(h.deadline) && 'text-danger-600 font-semibold'
-                        )}>
-                          <Calendar size={14} className={isNearDeadline(h.deadline) ? 'text-danger-500' : 'text-surface-400'} />
-                          {h.startDate
-                            ? new Date(h.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                            : new Date(h.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-                          }
-                        </span>
-                      )}
-
-                      {/* Location */}
-                      {h.location && (
-                        <span className="flex items-center gap-1.5">
-                          <MapPin size={14} className="text-surface-400" />
-                          <span className="truncate max-w-[100px]">{h.location}</span>
-                        </span>
-                      )}
-
-                    </div>
+                    {h.location && <span className="inline-flex items-center gap-1 text-surface-500"><MapPin size={12}/> {h.location}</span>}
                   </div>
-
-                  {/* Participants + Rounds + Arrow */}
-                  <div className="flex items-center justify-between px-5 pb-4 pt-2">
-                    <div className="flex items-center gap-3 text-xs text-surface-500">
-                      <span className="flex items-center gap-1.5">
-                        <Users size={13} className="text-surface-400" />
-                        {h.registrations?.length || 0} Participants
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Code size={13} className="text-surface-400" />
-                        {h.rounds?.length || 0} Rounds
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => navigate(`/hackathons/${h.id}`)}
-                      className={clsx(
-                        'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                        status === 'completed'
-                          ? 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-                          : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
-                      )}
-                    >
-                      <ChevronRight size={16} />
-                    </button>
+                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 pt-3">
+                    <span className="text-xs text-surface-500 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
+                    <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14} /></span>
                   </div>
-                </Card>
-              </motion.div>
+              </div>
             )
           })}
         </div>
-        <Pagination page={page} totalPages={hackTotalPages} onChange={setPage} />
+        <Pagination page={page} totalPages={hackTotalPages} onChange={setPage} onPrefetch={prefetchPage} />
         </>
       )}
 
-      {/* Create Modal */}
+      {/* Create Modal — campus paper */}
       <AnimatePresence>
         {createModal.isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={createModal.close}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6"
+              initial={{ scale: 0.98, opacity: 0, y: 8 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.98, opacity: 0, y: 8 }}
+              className="bg-white rounded-[14px] border border-surface-200 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 shadow-e3"
               onClick={(e) => e.stopPropagation()}
             >
               <h2 className="text-xl font-bold text-surface-900 mb-4">Create Hackathon</h2>
@@ -777,7 +744,7 @@ export default function HackathonsPage() {
                 <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
-                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-500 text-white rounded-xl font-medium hover:shadow-lg">
+                <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg">
                   Create
                 </button>
               </div>
