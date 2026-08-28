@@ -98,6 +98,34 @@ export const assignmentAPI = {
   delete: (id: string) => api.delete(`/assignments/${id}`).then((r) => r.data),
 }
 
+export const assignmentHubAPI = {
+  getHubs: (params?: { page?: number; limit?: number; search?: string; scope?: string; submissionMode?: string; signal?: AbortSignal }) =>
+    api.get('/assignments/hub', { params, signal: params?.signal }).then(r => {
+      const b = r.data
+      if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
+      return b
+    }),
+  getHub: (id: string) => api.get(`/assignments/hub/${id}`).then(r => r.data),
+  create: (data: any) => {
+    const hasFile = data instanceof FormData
+    return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then(r => r.data)
+  },
+  update: (id: string, data: any) => api.put(`/assignments/hub/${id}`, data).then(r => r.data),
+  delete: (id: string) => api.delete(`/assignments/hub/${id}`).then(r => r.data),
+  submit: (hubId: string, payload: { content?: string; file?: File }) => {
+    const fd = new FormData()
+    if (payload.content) fd.append('content', payload.content)
+    if (payload.file) fd.append('file', payload.file)
+    return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+  },
+  listSubmissions: (hubId: string, params?: { page?: number; limit?: number }) =>
+    api.get(`/assignments/hub/${hubId}/submissions`, { params }).then(r => r.data),
+  grade: (submissionId: string, data: { grade?: string; points?: number; feedback?: string }) =>
+    api.put(`/assignments/submissions/${submissionId}/grade`, data).then(r => r.data),
+  mySubmissions: () => api.get('/assignments/my-submissions').then(r => r.data),
+  stats: (hubId: string) => api.get(`/assignments/hub/${hubId}/stats`).then(r => r.data),
+}
+
 // Notifications (unified via room notifications)
 export const notificationAPI = {
   getAll: (unread?: boolean) => api.get('/rooms/notifications/list').then((r) => r.data),
