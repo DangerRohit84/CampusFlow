@@ -63,6 +63,9 @@ model User {
    announcementsCreated    Announcement[]
   announcementReads     AnnouncementRead[]
   roomReads           RoomRead[]
+  createdAssignmentHubs AssignmentHub[]      @relation("AssignmentHubCreator")
+  assignmentSubmissions AssignmentSubmission[]
+  gradedSubmissions     AssignmentSubmission[] @relation("SubmissionGrader")
 
   @@index([collegeId, role])
   @@index([collegeId])
@@ -139,6 +142,7 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// @deprecated — legacy per-user assignments; use AssignmentHub for scoped assignments
 model Assignment {
   id          String   @id @default(uuid())
   userId      String
@@ -294,6 +298,7 @@ model College {
   internshipStagings InternshipStaging[]
   announcements      Announcement[]
   announcementColleges AnnouncementCollege[]
+  assignmentHubs AssignmentHub[]
 }
 
 model Department {
@@ -305,6 +310,7 @@ model Department {
   college              College                  @relation(fields: [collegeId], references: [id], onDelete: Cascade)
   users                User[]
   announcements        AnnouncementDepartment[]
+  assignmentHubs AssignmentHub[]
 
   @@unique([collegeId, name])
 }
@@ -623,6 +629,7 @@ model Room {
   messages           RoomMessage[]
   chatAllowedMembers RoomChatAllowedMember[]
   reads              RoomRead[]
+  assignmentHubs AssignmentHub[]
 
   @@index([teacherId])
   @@index([joinCode])
@@ -862,6 +869,86 @@ model RoomRead {
   @@unique([roomId, userId])
   @@index([userId])
   @@index([roomId])
+}
+
+enum AssignmentScope {
+  ALL
+  DEPARTMENT
+  ROOM
+}
+
+enum SubmissionMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+model AssignmentHub {
+  id                   String         @id @default(uuid())
+  title                String         @db.VarChar(200)
+  description          String?        @db.Text
+  courseId             String?
+  dueDate              DateTime
+  creatorId            String
+  collegeId            String?
+  scope                AssignmentScope @default(ALL)
+  departmentId         String?
+  roomId               String?
+  submissionMode       SubmissionMode  @default(ONLINE)
+  showGrades           Boolean         @default(true)
+  showFeedback         Boolean         @default(true)
+  showSubmissionStatus Boolean         @default(true)
+  showStats            Boolean         @default(false)
+  maxPoints            Int             @default(100)
+  maxGrade             String?
+  allowLateSubmission  Boolean         @default(false)
+  attachments          String?         @default("[]")
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  creator    User       @relation("AssignmentHubCreator", fields: [creatorId], references: [id])
+  college    College?   @relation(fields: [collegeId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  room       Room?       @relation(fields: [roomId], references: [id])
+  submissions AssignmentSubmission[]
+
+  @@index([collegeId, scope])
+  @@index([departmentId])
+  @@index([roomId])
+  @@index([creatorId])
+  @@index([dueDate])
+  @@index([collegeId, dueDate])
+  @@index([scope, dueDate])
+}
+
+model AssignmentSubmission {
+  id           String   @id @default(uuid())
+  assignmentId String
+  studentId    String
+  content      String?  @db.Text
+  fileUrl      String?
+  fileName     String?
+  fileType     String?
+  fileSize     Int?
+  status       String   @default("SUBMITTED")
+  grade        String?
+  points       Int?
+  feedback     String?  @db.Text
+  submittedAt  DateTime @default(now())
+  gradedAt     DateTime?
+  gradedBy     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignment AssignmentHub @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  grader     User?         @relation("SubmissionGrader", fields: [gradedBy], references: [id])
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId])
+  @@index([studentId])
+  @@index([assignmentId, studentId])
+  @@index([status])
 }
 
 model AiProvider {
