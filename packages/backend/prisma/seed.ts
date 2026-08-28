@@ -410,6 +410,28 @@ async function seedDemoData(): Promise<string> {
 
   console.log('✓ Internships seeded')
 
+  const teacherHub = await prisma.user.findFirst({ where: { role: 'TEACHER' } })
+  const collegeHub = teacherHub ? await prisma.college.findUnique({ where: { id: teacherHub.collegeId! } }) : null
+  const deptHub = collegeHub ? await prisma.department.findFirst({ where: { collegeId: collegeHub.id } }) : null
+  const roomHub = teacherHub ? await prisma.room.findFirst({ where: { teacherId: teacherHub.id } }) : null
+  if (teacherHub && collegeHub) {
+    const hubs = [
+      { title: 'ALL: Campus Survey', scope: 'ALL', submissionMode: 'ONLINE', departmentId: null, roomId: null, showStats: true },
+      { title: 'DEPT: Lab Record', scope: 'DEPARTMENT', submissionMode: 'HYBRID', departmentId: deptHub?.id, roomId: null, showGrades: false },
+      { title: 'ROOM: Project Demo', scope: 'ROOM', submissionMode: 'OFFLINE', departmentId: null, roomId: roomHub?.id, showFeedback: false },
+    ]
+    for (const h of hubs) {
+      if (h.scope==='DEPARTMENT' && !h.departmentId) continue
+      if (h.scope==='ROOM' && !h.roomId) continue
+      await prisma.assignmentHub.upsert({
+        where: { id: `seed-${h.title}` },
+        update: {},
+        create: { id: `seed-${h.title}`, title: h.title, description: `Demo ${h.title}`, dueDate: new Date(Date.now()+7*86400000), creatorId: teacherHub.id, collegeId: collegeHub.id, scope: h.scope as any, departmentId: h.departmentId, roomId: h.roomId, submissionMode: h.submissionMode as any, showGrades: (h as any).showGrades??true, showFeedback: (h as any).showFeedback??true, showStats: (h as any).showStats??false, maxPoints: 100 }
+      })
+    }
+    console.log('✓ AssignmentHub demo seeded')
+  }
+
   return college.id
 }
 
