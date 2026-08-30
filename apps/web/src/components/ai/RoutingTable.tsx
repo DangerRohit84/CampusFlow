@@ -16,6 +16,7 @@ const FEATURES = [
   { id: 'timetable', label: 'Timetable', desc: 'Schedule optimization' },
   { id: 'attendance', label: 'Attendance', desc: 'Attendance image parsing & prediction' },
   { id: 'grades', label: 'Grades', desc: 'Grade image parsing & CGPA calculation' },
+  { id: 'resume', label: 'Resume Studio', desc: 'AI upgrade, ATS score, resume parse' },
 ]
 
 export default function RoutingTable({ providers, routing, onSave }: Props) {

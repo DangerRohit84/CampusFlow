@@ -191,7 +191,7 @@ export default function FormDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -203,20 +203,22 @@ export default function FormDetailPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/forms')} className="p-2 rounded-xl bg-surface-100 hover:bg-surface-200 transition-all">
+        <button onClick={() => navigate('/forms')} className="p-2 rounded-xl bg-surface-100 dark:bg-night-700 hover:bg-surface-200 transition-all">
           <ArrowLeft size={18} />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-surface-900">{form.title}</h1>
-          {form.description && <p className="text-surface-500 text-sm mt-1">{form.description}</p>}
+          <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">{form.title}</h1>
+          {form.description && <p className="text-surface-500 dark:text-night-400 text-sm mt-1">{form.description}</p>}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => formAPI.exportOne(form.id, `${form.title.replace(/\s+/g, '_')}_responses.xlsx`)}
-            className="flex items-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 text-sm font-medium"
-          >
-            <Download size={14} /> Export
-          </button>
+          {isTeacher && (
+            <button
+              onClick={() => formAPI.exportOne(form.id, `${form.title.replace(/\s+/g, '_')}_responses.xlsx`)}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-200 text-sm font-medium"
+            >
+              <Download size={14} /> Export
+            </button>
+          )}
         </div>
       </div>
 
@@ -225,39 +227,39 @@ export default function FormDetailPage() {
         <div className="lg:col-span-2">
           {isTeacher ? (
             /* Teacher View: Responses */
-            <div className="bg-white rounded-2xl border border-surface-100 p-6">
-              <h2 className="font-bold text-surface-900 mb-4">Responses ({form.responses.length})</h2>
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
+              <h2 className="font-bold text-surface-900 dark:text-night-50 mb-4">Responses ({form.responses.length})</h2>
               {form.responses.length === 0 ? (
-                <p className="text-surface-400 text-sm">No responses yet</p>
+                <p className="text-surface-400 dark:text-night-400 text-sm">No responses yet</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-surface-100">
-                        <th className="text-left py-2 text-surface-500 font-medium">Roll No</th>
-                        <th className="text-left py-2 text-surface-500 font-medium">Student</th>
+                      <tr className="border-b border-surface-100 dark:border-night-600">
+                        <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Roll No</th>
+                        <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Student</th>
                         {form.fields.map((f: any) => (
-                          <th key={f.id} className="text-left py-2 text-surface-500 font-medium">{f.label}</th>
+                          <th key={f.id} className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">{f.label}</th>
                         ))}
-                        <th className="text-left py-2 text-surface-500 font-medium">Submitted</th>
+                        <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Submitted</th>
                       </tr>
                     </thead>
                     <tbody>
                       {form.responses.map((resp: any) => {
                         const answersData = JSON.parse(resp.answers)
                         return (
-                          <tr key={resp.id} className="border-b border-surface-50">
-                            <td className="py-2 font-mono text-xs text-surface-600">{resp.user.studentId || '-'}</td>
+                          <tr key={resp.id} className="border-b border-surface-50 dark:border-night-600">
+                            <td className="py-2 font-mono text-xs text-surface-600 dark:text-night-300">{resp.user.studentId || '-'}</td>
                             <td className="py-2">
-                              <p className="font-medium text-surface-900">{resp.user.name}</p>
-                              <p className="text-xs text-surface-400">{resp.user.email}</p>
+                              <p className="font-medium text-surface-900 dark:text-night-50">{resp.user.name}</p>
+                              <p className="text-xs text-surface-400 dark:text-night-400">{resp.user.email}</p>
                             </td>
                             {form.fields.map((f: any) => (
-                              <td key={f.id} className="py-2 text-surface-600">
+                              <td key={f.id} className="py-2 text-surface-600 dark:text-night-300">
                                 {answersData[f.id] || '-'}
                               </td>
                             ))}
-                            <td className="py-2 text-xs text-surface-400">
+                            <td className="py-2 text-xs text-surface-400 dark:text-night-400">
                               {new Date(resp.submittedAt).toLocaleDateString()}
                             </td>
                           </tr>
@@ -270,7 +272,7 @@ export default function FormDetailPage() {
             </div>
           ) : (
             /* Student View: Fill Form */
-            <div className="bg-white rounded-2xl border border-surface-100 p-6">
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
               {submitted && (
                 <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-200 flex items-center gap-2">
                   <CheckCircle size={18} className="text-primary-500" />
@@ -287,7 +289,7 @@ export default function FormDetailPage() {
               <div className="space-y-4">
                 {form.fields.map((field: any) => (
                   <div key={field.id}>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">
                       {field.label}
                       {field.required && <span className="text-danger-500 ml-1">*</span>}
                     </label>
@@ -297,7 +299,7 @@ export default function FormDetailPage() {
                         type="text"
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                         placeholder={`Enter ${field.label.toLowerCase()}`}
                       />
                     )}
@@ -306,7 +308,7 @@ export default function FormDetailPage() {
                       <textarea
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-24"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-24"
                         placeholder={`Enter ${field.label.toLowerCase()}`}
                       />
                     )}
@@ -316,7 +318,7 @@ export default function FormDetailPage() {
                         type="number"
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                         placeholder="Enter number"
                       />
                     )}
@@ -326,7 +328,7 @@ export default function FormDetailPage() {
                         type="email"
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                         placeholder="Enter email"
                       />
                     )}
@@ -336,7 +338,7 @@ export default function FormDetailPage() {
                         type="date"
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       />
                     )}
                     
@@ -344,7 +346,7 @@ export default function FormDetailPage() {
                       <select
                         value={answers[field.id] || ''}
                         onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-                        className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                        className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       >
                         <option value="">Select...</option>
                         {field.options?.map((opt: string) => (
@@ -365,7 +367,7 @@ export default function FormDetailPage() {
                               onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
                               className="text-primary-500"
                             />
-                            <span className="text-sm text-surface-700">{opt}</span>
+                            <span className="text-sm text-surface-700 dark:text-night-200">{opt}</span>
                           </label>
                         ))}
                       </div>
@@ -387,7 +389,7 @@ export default function FormDetailPage() {
                               }}
                               className="text-primary-500 rounded"
                             />
-                            <span className="text-sm text-surface-700">{opt}</span>
+                            <span className="text-sm text-surface-700 dark:text-night-200">{opt}</span>
                           </label>
                         ))}
                       </div>
@@ -416,10 +418,10 @@ export default function FormDetailPage() {
                   {submitted ? 'Update Response' : 'Submit Response'}
                 </button>
               ) : (
-                <div className="mt-6 p-4 bg-surface-50 rounded-xl text-center">
+                <div className="mt-6 p-4 bg-surface-50 dark:bg-night-800 rounded-xl text-center">
                   <CheckCircle size={24} className="mx-auto text-primary-500 mb-2" />
-                  <p className="text-sm font-medium text-surface-700">You've already submitted</p>
-                  <p className="text-xs text-surface-400">Editing is not allowed for this form</p>
+                  <p className="text-sm font-medium text-surface-700 dark:text-night-200">You've already submitted</p>
+                  <p className="text-xs text-surface-400 dark:text-night-400">Editing is not allowed for this form</p>
                 </div>
               )}
             </div>
@@ -428,39 +430,39 @@ export default function FormDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-surface-100 p-5">
-            <h3 className="font-bold text-surface-900 mb-3">Form Info</h3>
+          <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+            <h3 className="font-bold text-surface-900 dark:text-night-50 mb-3">Form Info</h3>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Fields</span>
-                <span className="font-bold text-surface-900">{form.fields.length}</span>
+                <span className="text-surface-500 dark:text-night-400">Fields</span>
+                <span className="font-bold text-surface-900 dark:text-night-50">{form.fields.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Responses</span>
-                <span className="font-bold text-surface-900">{form.responses.length}</span>
+                <span className="text-surface-500 dark:text-night-400">Responses</span>
+                <span className="font-bold text-surface-900 dark:text-night-50">{form.responses.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Created by</span>
-                <span className="font-medium text-surface-700">{form.creator.name}</span>
+                <span className="text-surface-500 dark:text-night-400">Created by</span>
+                <span className="font-medium text-surface-700 dark:text-night-200">{form.creator.name}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Created</span>
-                <span className="text-surface-700">{new Date(form.createdAt).toLocaleDateString()}</span>
+                <span className="text-surface-500 dark:text-night-400">Created</span>
+                <span className="text-surface-700 dark:text-night-200">{new Date(form.createdAt).toLocaleDateString()}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Edit responses</span>
+                <span className="text-surface-500 dark:text-night-400">Edit responses</span>
                 <span className={clsx('font-medium', form.allowEdit ? 'text-primary-600' : 'text-danger-500')}>
                   {form.allowEdit ? 'Allowed' : 'Locked'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-surface-500">Expires</span>
+                <span className="text-surface-500 dark:text-night-400">Expires</span>
                 {form.expiresAt ? (
                   <span className={clsx('font-medium text-xs', isExpired ? 'text-danger-500' : 'text-warning-600')}>
                     {isExpired ? 'Expired' : new Date(form.expiresAt).toLocaleDateString()}
                   </span>
                 ) : (
-                  <span className="font-medium text-surface-400 text-xs">Never</span>
+                  <span className="font-medium text-surface-400 dark:text-night-400 text-xs">Never</span>
                 )}
               </div>
             </div>
@@ -468,13 +470,13 @@ export default function FormDetailPage() {
 
           {/* Targeting Badges */}
           {form.eligibilityEnabled && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5">
-              <h3 className="font-bold text-surface-900 mb-3">Target Audience</h3>
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+              <h3 className="font-bold text-surface-900 dark:text-night-50 mb-3">Target Audience</h3>
               <div className="space-y-3">
                 {targetDeptNames.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <GraduationCap size={14} className="text-accent-500 shrink-0" />
-                    <span className="text-xs font-semibold text-surface-500">Departments:</span>
+                    <span className="text-xs font-semibold text-surface-500 dark:text-night-400">Departments:</span>
                     {targetDeptNames.map(name => (
                       <span key={name} className="px-2 py-0.5 bg-accent-100 text-accent-700 rounded-lg text-xs font-bold">{name}</span>
                     ))}
@@ -483,22 +485,22 @@ export default function FormDetailPage() {
                 {targetYearsList.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <BookOpen size={14} className="text-primary-500 shrink-0" />
-                    <span className="text-xs font-semibold text-surface-500">Years:</span>
+                    <span className="text-xs font-semibold text-surface-500 dark:text-night-400">Years:</span>
                     {targetYearsList.sort().map(y => (
                       <span key={y} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-lg text-xs font-bold">Year {y}</span>
                     ))}
                   </div>
                 )}
                 {targetDeptNames.length === 0 && targetYearsList.length === 0 && (
-                  <p className="text-xs text-surface-500">Open to all departments and years</p>
+                  <p className="text-xs text-surface-500 dark:text-night-400">Open to all departments and years</p>
                 )}
               </div>
             </div>
           )}
 
           {form.formRooms && form.formRooms.length > 0 && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5">
-              <h3 className="font-bold text-surface-900 mb-3">Linked Rooms</h3>
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+              <h3 className="font-bold text-surface-900 dark:text-night-50 mb-3">Linked Rooms</h3>
               <div className="flex flex-wrap gap-2">
                 {form.formRooms.map((fr: any) => (
                   <span key={fr.room.id} className="px-3 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
@@ -510,14 +512,14 @@ export default function FormDetailPage() {
           )}
 
           {canEdit && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5">
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-surface-900">Form Fields</h3>
+                <h3 className="font-bold text-surface-900 dark:text-night-50">Form Fields</h3>
                 {!editingFields ? (
                   <button onClick={startEditFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700">Edit</button>
                 ) : (
                   <div className="flex gap-3">
-                    <button onClick={() => setEditingFields(false)} className="text-xs font-semibold text-surface-500 hover:text-surface-700">Cancel</button>
+                    <button onClick={() => setEditingFields(false)} className="text-xs font-semibold text-surface-500 hover:text-surface-700 dark:text-night-200">Cancel</button>
                     <button onClick={saveFields} disabled={savingFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700 disabled:opacity-50">
                       {savingFields ? 'Saving...' : 'Save'}
                     </button>
@@ -528,14 +530,14 @@ export default function FormDetailPage() {
               {editingFields ? (
                 <div className="space-y-2">
                   {editFields.map((field: any, i: number) => (
-                    <div key={i} className="p-2.5 bg-surface-50 rounded-xl border border-surface-100">
+                    <div key={i} className="p-2.5 bg-surface-50 dark:bg-night-800 rounded-xl border border-surface-100 dark:border-night-600">
                       <div className="flex items-center gap-1.5 mb-1.5">
                         <span className="text-sm">{getFieldIcon(field.type)}</span>
                         <input
                           type="text"
                           value={field.label}
                           onChange={(e) => updateEditField(i, { label: e.target.value })}
-                          className="flex-1 px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
+                          className="flex-1 px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
                           placeholder="Field label"
                         />
                         <button onClick={() => removeEditField(i)} disabled={editFields.length <= 1} className="text-danger-400 hover:text-danger-600 text-xs disabled:opacity-30">✕</button>
@@ -544,7 +546,7 @@ export default function FormDetailPage() {
                         <select
                           value={field.type}
                           onChange={(e) => updateEditField(i, { type: e.target.value })}
-                          className="px-1.5 py-0.5 bg-white border border-surface-200 rounded-lg text-xs"
+                          className="px-1.5 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
                         >
                           <option value="TEXT">Text</option>
                           <option value="TEXTAREA">Long Text</option>
@@ -571,7 +573,7 @@ export default function FormDetailPage() {
                           type="text"
                           value={field.options?.join(', ') || ''}
                           onChange={(e) => updateEditField(i, { options: e.target.value.split(',').map((o: string) => o.trim()).filter(Boolean) })}
-                          className="w-full mt-1.5 px-2 py-1 bg-white border border-surface-200 rounded-lg text-xs"
+                          className="w-full mt-1.5 px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
                           placeholder="Options (comma separated)"
                         />
                       )}
@@ -587,10 +589,10 @@ export default function FormDetailPage() {
                     <div key={field.id} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs">{getFieldIcon(field.type)}</span>
-                        <span className="text-surface-600">{field.label}</span>
+                        <span className="text-surface-600 dark:text-night-300">{field.label}</span>
                         {field.required && <span className="text-danger-500 text-xs">*</span>}
                       </div>
-                      <span className="text-xs text-surface-400">{field.type}</span>
+                      <span className="text-xs text-surface-400 dark:text-night-400">{field.type}</span>
                     </div>
                   ))}
                 </div>
@@ -599,15 +601,15 @@ export default function FormDetailPage() {
           )}
 
           {isTeacher && form.expiresAt && (
-            <div className="bg-white rounded-2xl border border-surface-100 p-5">
-              <h3 className="font-bold text-surface-900 mb-3 flex items-center gap-2">
+            <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+              <h3 className="font-bold text-surface-900 dark:text-night-50 mb-3 flex items-center gap-2">
                 <Clock size={16} /> Extend Expiry
               </h3>
               <div className="flex gap-2">
                 <select
                   value={extendDays}
                   onChange={(e) => setExtendDays(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                  className="flex-1 px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                 >
                   <option value="1">1 day</option>
                   <option value="3">3 days</option>

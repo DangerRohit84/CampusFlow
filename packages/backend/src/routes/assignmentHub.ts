@@ -13,37 +13,67 @@ const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
   else cb(null,true)
 }})
 
+// Middleware to turn multer errors (file type / size) into 400 JSON instead of 500
+function handleHubMulterError(err: any, _req: any, res: Response, next: any) {
+  if (err) {
+    const msg = err.message || 'File upload error'
+    const code = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400
+    return res.status(code).json({ error: msg })
+  }
+  next()
+}
+
 const router = Router()
 router.use(authenticate)
 
+// helpers: empty string => undefined/null so zod optional handling works for FormData
+const emptyToUndef = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v)
+const emptyToNull = (v: unknown) => (v === '' ? null : v)
+
 const assignmentHubSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().optional(),
-  courseId: z.string().optional(),
-  dueDate: z.string().transform(s => new Date(s)).refine(d => !isNaN(d.getTime()), { message: 'Invalid dueDate' }),
+  title: z.string().trim().min(1).max(200),
+  description: z.preprocess(emptyToUndef, z.string().trim().optional()),
+  courseId: z.preprocess(emptyToUndef, z.string().trim().optional()),
+  dueDate: z.string().trim().transform(s => new Date(s)).refine(d => !isNaN(d.getTime()), { message: 'Invalid dueDate' }),
   scope: z.enum(['ALL','DEPARTMENT','ROOM']).default('ALL'),
-  departmentId: z.string().optional().nullable(),
-  roomId: z.string().optional().nullable(),
+  departmentId: z.preprocess(emptyToNull, z.string().optional().nullable()),
+  roomId: z.preprocess(emptyToNull, z.string().optional().nullable()),
   submissionMode: z.enum(['ONLINE','OFFLINE','HYBRID']).default('ONLINE'),
   showGrades: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
   showFeedback: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
   showSubmissionStatus: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(true)),
   showStats: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(false)),
-  maxPoints: z.preprocess(v => typeof v === 'string' ? parseInt(v) : v, z.number().int().min(1).max(1000).default(100)),
-  maxGrade: z.string().optional().nullable(),
+  maxPoints: z.preprocess(v => {
+    if (typeof v === 'string') {
+      const n = parseInt(v, 10)
+      return isNaN(n) ? undefined : n
+    }
+    return v
+  }, z.number().int().min(1).max(1000).default(100)),
+  maxGrade: z.preprocess(emptyToUndef, z.string().optional().nullable()),
   allowLateSubmission: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean().default(false)),
-  attachments: z.string().optional(),
+  attachments: z.preprocess(emptyToUndef, z.string().optional()),
+  // SUPER_ADMIN may explicitly target a college; stripped for other roles
+  collegeId: z.preprocess(emptyToNull, z.string().optional().nullable()),
 })
 
 const updateHubSchema = assignmentHubSchema.partial()
 
-router.post('/', hubUpload.array('attachments', 5), async (req: AuthRequest, res: Response) => {
+router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN'].includes(user.role)) {
+    if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN','SUPER'].includes(user.role)) {
       res.status(403).json({ error: 'Only teachers and admins can create assignments' }); return
     }
+    // multer populates req.body with strings; zod preprocess handles empty -> null/undef
     const body = assignmentHubSchema.parse(req.body)
+    // Non-SUPER must have a collegeId on their user record; otherwise creation would be orphaned
+    const derivedCollegeId = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
+      ? (body.collegeId || user.collegeId || null)
+      : user.collegeId
+    if (!derivedCollegeId && user.role !== 'SUPER_ADMIN' && (user as any).role !== 'SUPER') {
+      res.status(400).json({ error: 'Your account is not linked to a college — contact admin' }); return
+    }
     let attachmentUrls: string[] = []
     if ((req as any).files && Array.isArray((req as any).files)) {
       for (const f of (req as any).files as Express.Multer.File[]) {
@@ -63,18 +93,27 @@ router.post('/', hubUpload.array('attachments', 5), async (req: AuthRequest, res
       const room = await prisma.room.findFirst({ where: { id: body.roomId } })
       if (!room) { res.status(404).json({ error: 'Room not found' }); return }
       const isCreator = room.teacherId === user.id
-      const isCollegeAdmin = user.role === 'COLLEGE_ADMIN' && room.teacherId && (await prisma.user.findUnique({ where: { id: room.teacherId } }))?.collegeId === user.collegeId
-      const isSuper = user.role === 'SUPER_ADMIN'
+      let isCollegeAdmin = false
+      if (user.role === 'COLLEGE_ADMIN' && user.collegeId) {
+        if (!room.teacherId) {
+          // Room without teacher (edge) — allow college admin within same college context
+          isCollegeAdmin = true
+        } else {
+          const teacher = await prisma.user.findUnique({ where: { id: room.teacherId }, select: { collegeId: true } })
+          isCollegeAdmin = teacher?.collegeId === user.collegeId
+        }
+      }
+      const isSuper = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
       if (!isCreator && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Not authorized for this room' }); return }
     }
     const hub = await prisma.assignmentHub.create({
       data: {
         title: body.title.trim(),
-        description: body.description?.trim(),
-        courseId: body.courseId,
+        description: body.description?.trim() || null,
+        courseId: body.courseId || null,
         dueDate: body.dueDate as Date,
         creatorId: user.id,
-        collegeId: user.role === 'SUPER_ADMIN' ? (body as any).collegeId || user.collegeId : user.collegeId,
+        collegeId: derivedCollegeId,
         scope: body.scope as any,
         departmentId: body.scope === 'DEPARTMENT' ? body.departmentId! : null,
         roomId: body.scope === 'ROOM' ? body.roomId! : null,
@@ -92,8 +131,12 @@ router.post('/', hubUpload.array('attachments', 5), async (req: AuthRequest, res
     })
     res.status(201).json(hub)
   } catch (e: any) {
-    if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors }); return }
-    console.error('Create hub error', e); res.status(500).json({ error: 'Failed to create assignment' })
+    if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
+    // multer fileFilter errors surface here when not caught by handleHubMulterError middleware chain
+    if (e.message === 'File type not allowed' || e.code === 'LIMIT_FILE_SIZE') {
+      res.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message }); return
+    }
+    console.error('Create hub error', e); res.status(500).json({ error: 'Failed to create assignment', detail: e?.message })
   }
 })
 
@@ -175,7 +218,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   } catch (e) { console.error('Get hub error', e); res.status(500).json({ error: 'Failed to fetch assignment' }) }
 })
 
-router.put('/:id', hubUpload.array('attachments', 5), async (req: AuthRequest, res: Response) => {
+router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
@@ -230,10 +273,17 @@ router.put('/:id', hubUpload.array('attachments', 5), async (req: AuthRequest, r
       if (data.roomId) {
         const room = await prisma.room.findFirst({ where: { id: data.roomId } })
         if (!room) { res.status(404).json({ error: 'Room not found' }); return }
-        const isCreator = room.teacherId === user.id
-        const isCollegeAdminRoom = user.role === 'COLLEGE_ADMIN' && room.teacherId && (await prisma.user.findUnique({ where: { id: room.teacherId } }))?.collegeId === user.collegeId
-        const isSuperRoom = user.role === 'SUPER_ADMIN'
-        if (!isCreator && !isCollegeAdminRoom && !isSuperRoom) { res.status(403).json({ error: 'Not authorized for this room' }); return }
+        const isCreator2 = room.teacherId === user.id
+        let isCollegeAdminRoom2 = false
+        if (user.role === 'COLLEGE_ADMIN' && user.collegeId) {
+          if (!room.teacherId) isCollegeAdminRoom2 = true
+          else {
+            const teacher2 = await prisma.user.findUnique({ where: { id: room.teacherId }, select: { collegeId: true } })
+            isCollegeAdminRoom2 = teacher2?.collegeId === user.collegeId
+          }
+        }
+        const isSuperRoom2 = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
+        if (!isCreator2 && !isCollegeAdminRoom2 && !isSuperRoom2) { res.status(403).json({ error: 'Not authorized for this room' }); return }
       }
     } else {
       const effectiveScope = existing.scope as string
@@ -266,10 +316,17 @@ router.put('/:id', hubUpload.array('attachments', 5), async (req: AuthRequest, r
         if (body.roomId) {
           const room = await prisma.room.findFirst({ where: { id: body.roomId } })
           if (!room) { res.status(404).json({ error: 'Room not found' }); return }
-          const isCreator = room.teacherId === user.id
-          const isCollegeAdminRoom = user.role === 'COLLEGE_ADMIN' && room.teacherId && (await prisma.user.findUnique({ where: { id: room.teacherId } }))?.collegeId === user.collegeId
-          const isSuperRoom = user.role === 'SUPER_ADMIN'
-          if (!isCreator && !isCollegeAdminRoom && !isSuperRoom) { res.status(403).json({ error: 'Not authorized for this room' }); return }
+          const isCreator3 = room.teacherId === user.id
+          let isCollegeAdminRoom3 = false
+          if (user.role === 'COLLEGE_ADMIN' && user.collegeId) {
+            if (!room.teacherId) isCollegeAdminRoom3 = true
+            else {
+              const teacher3 = await prisma.user.findUnique({ where: { id: room.teacherId }, select: { collegeId: true } })
+              isCollegeAdminRoom3 = teacher3?.collegeId === user.collegeId
+            }
+          }
+          const isSuperRoom3 = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
+          if (!isCreator3 && !isCollegeAdminRoom3 && !isSuperRoom3) { res.status(403).json({ error: 'Not authorized for this room' }); return }
         }
       }
     }
@@ -290,8 +347,11 @@ router.put('/:id', hubUpload.array('attachments', 5), async (req: AuthRequest, r
     const updated = await prisma.assignmentHub.update({ where: { id: existing.id }, data })
     res.json(updated)
   } catch (e: any) {
-    if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors }); return }
-    console.error('Update hub error', e); res.status(500).json({ error: 'Failed to update' })
+    if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
+    if (e.message === 'File type not allowed' || e.code === 'LIMIT_FILE_SIZE') {
+      res.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message }); return
+    }
+    console.error('Update hub error', e); res.status(500).json({ error: 'Failed to update', detail: e?.message })
   }
 })
 

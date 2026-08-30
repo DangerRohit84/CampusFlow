@@ -35,6 +35,8 @@ import gradesRoutes from './routes/grades'
 import announcementsRoutes from './routes/announcements'
 import assignmentHubRouter from './routes/assignmentHub'
 import assignmentSubmissionsRouter from './routes/assignmentSubmissions'
+import resumeRoutes from './routes/resume'
+import publicProfileRoutes from './routes/publicProfile'
 import internalCronRoutes, { runContestsJob, runProfileSyncJob, runOpportunitiesJob, runCleanupJob } from './routes/internalCron'
 
 import prisma from './config/db'
@@ -216,6 +218,10 @@ app.use('/api/ai-manager', aiManagerRoutes)
 app.use('/api/attendance', generalLimiter, attendanceRoutes)
 app.use('/api/grades', generalLimiter, gradesRoutes)
 app.use('/api/announcements', generalLimiter, announcementsRoutes)
+app.use('/api/resume', resumeRoutes)
+app.use('/api/u', publicProfileRoutes)
+// alias for /api/users/u etc if needed
+app.use('/api/users/u', publicProfileRoutes)
 
 
 // 404 handler

@@ -1,0 +1,809 @@
+/**
+ * CampusFlow Resume — Overleaf-like LaTeX templates (client-side fallback)
+ * Mirrors backend/packages/backend/src/services/resumeLatex.ts
+ * Five Overleaf-mimic templates:
+ *  - source-split (Source Sans Split — exact PDF replica, monochrome, 0.5in, hairlines 0.4pt)
+ *  - compact (Compact ATS dense, monochrome, Source Sans, tight)
+ *  - classic (Jake's Resume): 1-col ATS, tight, lmodern serif
+ *  - modern  (AltaCV/Awesome-CV): two-column with paracol + xcolor accent
+ *  - minimal (ATS Minimal): clean sans single-col, helvet
+ * All paste-ready on Overleaf (pdflatex, no custom .cls needed).
+ */
+import type { ResumeData, ResumeTemplateId } from '../types/resume'
+
+export function escapeLatex(input: string | undefined | null): string {
+  if (!input) return ''
+  let s = String(input).replace(/—/g, '---').replace(/–/g, '--').replace(/•/g, ' -- ').replace(/…/g, '...').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+  const BS_PLACEHOLDER = '\uE000BS\uE000'
+  return s
+    .replace(/\\/g, BS_PLACEHOLDER)
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\$/g, '\\$')
+    .replace(/&/g, '\\&')
+    .replace(/%/g, '\\%')
+    .replace(/#/g, '\\#')
+    .replace(/_/g, '\\_')
+    .replace(/\^/g, '\\textasciicircum{}')
+    .replace(/~/g, '\\textasciitilde{}')
+    .replace(/</g, '\\textless{}')
+    .replace(/>/g, '\\textgreater{}')
+    .replace(new RegExp(BS_PLACEHOLDER, 'g'), '\\textbackslash{}')
+}
+
+function fmtDate(s?: string): string {
+  if (!s) return ''
+  const t = String(s).trim()
+  if (!t) return ''
+  if (t.toLowerCase() === 'present') return 'Present'
+  return escapeLatex(t)
+}
+
+function fmtUrlForHref(url: string): string {
+  return String(url).replace(/%/g, '\\%').replace(/#/g, '\\#')
+}
+
+function renderContactLine(p: ResumeData['personalInfo']): string {
+  const parts: string[] = []
+  if (p.email?.trim()) {
+    const rawEmail = String(p.email).trim()
+    parts.push(`\\href{mailto:${fmtUrlForHref(rawEmail)}}{${escapeLatex(rawEmail)}}`)
+  }
+  if (p.phone?.trim()) parts.push(escapeLatex(p.phone.trim()))
+  if (p.location?.trim()) parts.push(escapeLatex(p.location.trim()))
+  const linkParts = (p.links || [])
+    .filter(l => l.url?.trim())
+    .map(l => {
+      const label = escapeLatex(l.label?.trim() || 'Link')
+      const rawUrl = String(l.url).trim()
+      return `\\href{${fmtUrlForHref(rawUrl)}}{${label}}`
+    })
+  if (linkParts.length) parts.push(...linkParts)
+  return parts.join(' $|$ ')
+}
+
+function renderContactLineMinimal(p: ResumeData['personalInfo']): string {
+  return renderContactLine(p)
+}
+
+function renderSkillsInline(skills: string[]): string {
+  if (!skills?.length) return ''
+  return skills.map(s => escapeLatex(s.trim())).filter(Boolean).join(', ')
+}
+
+function formatSummary(raw: string): string {
+  const normalized = String(raw).trim().replace(/\r\n/g, '\n')
+  const paras = normalized
+    .split(/\n{2,}/)
+    .map(p => p.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map(p => escapeLatex(p))
+  return paras.join('\n\n')
+}
+
+function parseSkillRowsForLatex(skills: string[]): { label: string; value: string }[] {
+  if (!skills || skills.length === 0) return []
+  const hasColon = skills.some(s => String(s).includes(':'))
+  if (!hasColon) return [{ label: escapeLatex('Skills'), value: skills.map(s=>escapeLatex(String(s).trim())).filter(Boolean).join(', ') }]
+  const rows: { label: string; value: string }[] = []
+  for (const raw of skills) {
+    const s = String(raw).trim()
+    if (!s) continue
+    const idx = s.indexOf(':')
+    if (idx > 0) {
+      const label = escapeLatex(s.slice(0, idx).trim())
+      const value = escapeLatex(s.slice(idx+1).trim())
+      rows.push({ label, value })
+    } else {
+      if (rows.length > 0) rows[rows.length-1].value += `, ${escapeLatex(s)}`
+      else rows.push({ label: escapeLatex('Other'), value: escapeLatex(s) })
+    }
+  }
+  return rows.filter(r=>r.value)
+}
+
+function formatBulletLatex(raw: string): string {
+  const s = String(raw).trim()
+  if (!s) return ''
+  const esc = escapeLatex(s)
+  // If original contains colon early, make keyword bold: \textbf{Keyword:} rest
+  const idx = s.indexOf(':')
+  if (idx > 1 && idx < 80) {
+    const before = escapeLatex(s.slice(0, idx+1))
+    const after = escapeLatex(s.slice(idx+1).trim())
+    return `\\textbf{${before}} ${after}`.trim()
+  }
+  return esc
+}
+
+// ---------- Source Sans Split — exact PDF replica ----------
+function generateSourceSplitLatex(data: ResumeData): string {
+  const p = data.personalInfo
+  const name = escapeLatex(p.fullName?.trim() || 'Jane Doe')
+  const location = p.location?.trim() ? escapeLatex(p.location.trim()) : ''
+  const headline = p.headline?.trim() ? escapeLatex(p.headline.trim()) : 'FULL STACK DEVELOPER'
+  const summary = p.summary?.trim() ? formatSummary(p.summary) : ''
+  const skillRows = parseSkillRowsForLatex(data.skills || [])
+  const lines: string[] = []
+  lines.push(`% !TEX program = pdflatex`)
+  lines.push(`% Generated by CampusFlow — Source Sans Split (Exact Overleaf PDF Replica)`)
+  lines.push(`% Paste into Overleaf main.tex → Recompile (pdflatex). Requires sourcesanspro, geometry, enumitem, titlesec, xcolor, hyperref, tabularx`)
+  lines.push(`\\documentclass[10pt,a4paper]{article}`)
+  lines.push(`\\usepackage[utf8]{inputenc}`)
+  lines.push(`\\usepackage[T1]{fontenc}`)
+  lines.push(`\\usepackage[default]{sourcesanspro}`)
+  lines.push(`\\usepackage[margin=0.5in]{geometry}`)
+  lines.push(`\\usepackage{enumitem}`)
+  lines.push(`\\usepackage{titlesec}`)
+  lines.push(`\\usepackage{xcolor}`)
+  lines.push(`\\usepackage{tabularx}`)
+  lines.push(`\\usepackage[hidelinks]{hyperref}`)
+  lines.push(`\\pagestyle{empty}`)
+  lines.push(`\\setlength{\\parindent}{0pt}`)
+  lines.push(`\\setlength{\\parskip}{0pt}`)
+  lines.push(`\\titleformat{\\section}{\\vspace{-4pt}\\raggedright\\large\\bfseries}{}{0em}{}[\\vspace{-2pt}{\\color{black}\\hrule height 0.4pt}\\vspace{-5pt}]`)
+  lines.push(`\\titlespacing*{\\section}{0pt}{6pt}{4pt}`)
+  lines.push(`\\setlist[itemize]{leftmargin=*, label={\\textbullet}, itemsep=1pt, parsep=0pt, topsep=3pt, partopsep=0pt}`)
+  lines.push(`\\begin{document}`)
+  lines.push(``)
+  // Header split left/right
+  lines.push(`% ---------- HEADER (split left/right, pipe separators, underline) ----------`)
+  lines.push(`\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r}`)
+  lines.push(`  {\\fontsize{24.8}{28}\\selectfont \\bfseries ${name}} & {\\small ${location}} \\\\`)
+  // second row: links left vs email/phone right
+  const linkCells = (p.links || []).filter(l=>l.url?.trim()).map(l=>{
+    const label = escapeLatex(l.label||'Link')
+    const url = fmtUrlForHref(l.url.trim())
+    return `\\href{${url}}{\\underline{${label}}}`
+  }).join(' $|$ ')
+  const contactRightParts: string[] = []
+  if (p.email?.trim()) contactRightParts.push(`\\href{mailto:${fmtUrlForHref(p.email.trim())}}{\\underline{${escapeLatex(p.email.trim())}}}`)
+  if (p.phone?.trim()) contactRightParts.push(escapeLatex(p.phone.trim()))
+  const rightCell = contactRightParts.join(' $|$ ')
+  if (linkCells || rightCell) {
+    lines.push(`  {\\small ${linkCells || ''}} & {\\small ${rightCell || ''}} \\\\`)
+  }
+  lines.push(`\\end{tabular*}`)
+  lines.push(`\\vspace{2pt}`)
+  lines.push(`{\\color{black}\\hrule height 0.4pt}`)
+  lines.push(`\\vspace{4pt}`)
+  lines.push(`{\\large \\bfseries \\MakeUppercase{${headline}}} \\\\`)
+  lines.push(`\\vspace{4pt}`)
+  lines.push(``)
+
+  if (summary) {
+    lines.push(`\\section{Summary}`)
+    lines.push(summary)
+    lines.push(``)
+  }
+  if (skillRows.length > 0) {
+    lines.push(`\\section{Technical Skills}`)
+    // tabular skills: label width 0.22\\textwidth
+    lines.push(`\\begin{tabular*}{\\textwidth}{@{ } p{0.22\\textwidth} @{\\hspace{6pt}} p{0.76\\textwidth} @{}}`)
+    for (const r of skillRows) {
+      lines.push(`  \\textbf{${r.label}:} & ${r.value} \\\\`)
+    }
+    lines.push(`\\end{tabular*}`)
+    lines.push(`\\vspace{2pt}`)
+    lines.push(``)
+  }
+  if (data.experience?.length) {
+    lines.push(`\\section{Experience}`)
+    for (const exp of data.experience) {
+      const role = escapeLatex((exp.role || 'Role').trim() || 'Role')
+      const company = escapeLatex((exp.company || 'Company').trim() || 'Company')
+      const loc = exp.location?.trim() ? escapeLatex(exp.location.trim()) : ''
+      const start = fmtDate(exp.startDate)
+      const end = fmtDate(exp.endDate)
+      const dateRange = [start, end].filter(Boolean).join(' -- ')
+      const bullets = (exp.bullets || []).map(b => String(b).trim()).filter(Boolean)
+      lines.push(`{\\bfseries ${role}} \\hfill {\\small \\textit{${dateRange}}} \\\\`)
+      lines.push(`{\\small \\textit{${company}}} \\hfill {\\small \\textit{${loc}}} \\\\`)
+      if (bullets.length) {
+        lines.push(`\\begin{itemize}[leftmargin=*, nosep]`)
+        for (const b of bullets) lines.push(`  \\item ${formatBulletLatex(b)}`)
+        lines.push(`\\end{itemize}`)
+      } else lines.push(`\\vspace{2pt}`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.projects?.length) {
+    lines.push(`\\section{Projects}`)
+    for (const proj of data.projects) {
+      const title = escapeLatex((proj.title || 'Untitled Project').trim() || 'Untitled Project')
+      const tech = proj.tech?.length ? `\\textit{${proj.tech.map(t => escapeLatex(t)).join(' $\\cdot$ ')}}` : ''
+      const desc = proj.description?.trim() ? escapeLatex(proj.description.trim()) : ''
+      const link = proj.link?.trim() ? `\\href{${fmtUrlForHref(proj.link.trim())}}{\\underline{Source Code}}` : ''
+      // Title left, tech middle centered, Source Code right — use tabular* for alignment
+      if (tech || link) {
+        lines.push(`\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l c r}`)
+        lines.push(`  \\textbf{${title}} & {\\small ${tech}} & {\\small ${link}} \\\\`)
+        lines.push(`\\end{tabular*}`)
+      } else {
+        lines.push(`\\textbf{${title}} \\\\`)
+      }
+      if (desc) lines.push(`${desc} \\\\`)
+      // fallback raw link if needed
+      if (proj.link?.trim() && !link.includes('Source Code')) {
+        lines.push(`{\\small \\href{${fmtUrlForHref(proj.link.trim())}}{${escapeLatex(proj.link.trim())}}} \\\\`)
+      }
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.education?.length) {
+    lines.push(`\\section{Education}`)
+    for (const ed of data.education) {
+      const degree = escapeLatex((ed.degree || 'Degree').trim() || 'Degree')
+      const school = escapeLatex((ed.school || 'Institution').trim() || 'Institution')
+      const loc2 = ed.location?.trim() ? `, ${escapeLatex(ed.location.trim())}` : ''
+      const start2 = fmtDate(ed.startDate)
+      const end2 = fmtDate(ed.endDate)
+      const dateRange2 = [start2, end2].filter(Boolean).join(' -- ')
+      const cgpaStr = ed.cgpa?.trim() ? `CGPA: ${escapeLatex(ed.cgpa.trim())}` : ''
+      lines.push(`\\textbf{${degree}} \\hfill {\\small \\textit{${dateRange2}}} \\\\`)
+      lines.push(`{\\small \\textit{${school}${loc2}}}${cgpaStr ? ` \\hfill {\\small ${cgpaStr}}` : ''} \\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if ((data as any).certifications?.length) {
+    lines.push(`\\section{Certifications}`)
+    for (const c of (data as any).certifications) {
+      const name2 = escapeLatex((c.name || 'Certification').trim() || 'Certification')
+      const issuer = c.issuer?.trim() ? escapeLatex(c.issuer.trim()) : ''
+      const date2 = c.date?.trim() ? escapeLatex(c.date.trim()) : ''
+      const url2 = c.url?.trim() ? `\\href{${fmtUrlForHref(c.url.trim())}}{\\underline{Verify}}` : ''
+      lines.push(`\\textbf{${name2}}${issuer ? ` --- ${issuer}` : ''} \\hfill {\\small \\textit{${date2}}} ${url2 ? ` \\; ${url2}` : ''} \\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  lines.push(`\\end{document}`)
+  lines.push(``)
+  return lines.join('\n')
+}
+
+function generateCompactLatex(data: ResumeData): string {
+  const p = data.personalInfo
+  const name = escapeLatex(p.fullName?.trim() || 'Your Name')
+  const headline = p.headline?.trim() ? escapeLatex(p.headline.trim()) : ''
+  const summary = p.summary?.trim() ? formatSummary(p.summary) : ''
+  const skillRows = parseSkillRowsForLatex(data.skills || [])
+  const contactLine = renderContactLine(p)
+  const lines: string[] = []
+  lines.push(`% !TEX program = pdflatex`)
+  lines.push(`% Generated by CampusFlow — Compact ATS (Dense, ATS-friendly)`)
+  lines.push(`\\documentclass[10pt,a4paper]{article}`)
+  lines.push(`\\usepackage[utf8]{inputenc}`)
+  lines.push(`\\usepackage[T1]{fontenc}`)
+  lines.push(`\\usepackage[default]{sourcesanspro}`)
+  lines.push(`\\usepackage[margin=0.5in]{geometry}`)
+  lines.push(`\\usepackage{enumitem}`)
+  lines.push(`\\usepackage{titlesec}`)
+  lines.push(`\\usepackage{xcolor}`)
+  lines.push(`\\usepackage[hidelinks]{hyperref}`)
+  lines.push(`\\pagestyle{empty}`)
+  lines.push(`\\setlength{\\parindent}{0pt}`)
+  lines.push(`\\setlength{\\parskip}{0pt}`)
+  lines.push(`\\titleformat{\\section}{\\vspace{-4pt}\\raggedright\\large\\bfseries\\uppercase}{}{0em}{}[\\vspace{-1pt}{\\color{black}\\hrule height 0.4pt}]`)
+  lines.push(`\\titlespacing*{\\section}{0pt}{5pt}{3pt}`)
+  lines.push(`\\setlist[itemize]{leftmargin=*, label={\\textbullet}, itemsep=1pt, parsep=0pt, topsep=2pt}`)
+  lines.push(`\\begin{document}`)
+  lines.push(`\\begin{center}`)
+  lines.push(`  {\\fontsize{20}{22}\\selectfont \\bfseries \\MakeUppercase{${name}}} \\\\`)
+  if (headline) lines.push(`  {\\small \\bfseries \\MakeUppercase{${headline}}} \\\\[3pt]`)
+  if (contactLine) lines.push(`  {\\footnotesize ${contactLine}}`)
+  lines.push(`\\end{center}`)
+  lines.push(`\\vspace{2pt}`)
+  lines.push(`{\\color{black}\\hrule height 0.4pt}`)
+  lines.push(`\\vspace{6pt}`)
+  lines.push(``)
+  if (summary) {
+    lines.push(`\\section{Summary}`)
+    lines.push(summary)
+    lines.push(``)
+  }
+  if (skillRows.length > 0) {
+    // if single flat skills row, render inline, else table
+    if (skillRows.length === 1 && skillRows[0].label === 'Skills') {
+      lines.push(`\\section{Skills}`)
+      lines.push(skillRows[0].value)
+      lines.push(``)
+    } else {
+      lines.push(`\\section{Skills}`)
+      lines.push(`\\begin{tabular*}{\\textwidth}{@{ } p{0.20\\textwidth} @{\\hspace{6pt}} p{0.78\\textwidth} @{}}`)
+      for (const r of skillRows) {
+        lines.push(`  \\textbf{${r.label}:} & ${r.value} \\\\`)
+      }
+      lines.push(`\\end{tabular*}`)
+      lines.push(`\\vspace{2pt}`)
+      lines.push(``)
+    }
+  }
+  if (data.experience?.length) {
+    lines.push(`\\section{Experience}`)
+    for (const exp of data.experience) {
+      const role = escapeLatex((exp.role || 'Role').trim() || 'Role')
+      const company = escapeLatex((exp.company || 'Company').trim() || 'Company')
+      const loc = exp.location?.trim() ? `, ${escapeLatex(exp.location.trim())}` : ''
+      const dateRange = [fmtDate(exp.startDate), fmtDate(exp.endDate)].filter(Boolean).join(' -- ')
+      const bullets = (exp.bullets || []).map(b => String(b).trim()).filter(Boolean)
+      lines.push(`\\textbf{${role}} --- \\textit{${company}${loc}} \\hfill ${dateRange} \\\\`)
+      if (bullets.length) {
+        lines.push(`\\begin{itemize}[nosep]`)
+        for (const b of bullets) lines.push(`  \\item ${formatBulletLatex(b)}`)
+        lines.push(`\\end{itemize}`)
+      } else lines.push(`\\vspace{2pt}`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.projects?.length) {
+    lines.push(`\\section{Projects}`)
+    for (const proj of data.projects) {
+      const title = escapeLatex((proj.title || 'Untitled').trim() || 'Untitled')
+      const tech = proj.tech?.length ? `\\textit{${proj.tech.map(t => escapeLatex(t)).join(' $\\cdot$ ')}}` : ''
+      const dateStr = proj.date?.trim() ? `\\hfill ${escapeLatex(proj.date.trim())}` : ''
+      const desc = proj.description?.trim() ? escapeLatex(proj.description.trim()) : ''
+      const link = proj.link?.trim() ? `\\href{${fmtUrlForHref(proj.link.trim())}}{${escapeLatex(proj.link.trim())}}` : ''
+      lines.push(`\\textbf{${title}} ${dateStr} \\\\`)
+      if (tech) lines.push(`${tech} \\\\`)
+      if (desc) lines.push(`${desc} \\\\`)
+      if (link) lines.push(`{\\small ${link}} \\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.education?.length) {
+    lines.push(`\\section{Education}`)
+    for (const ed of data.education) {
+      const degree = escapeLatex((ed.degree || 'Degree').trim() || 'Degree')
+      const school = escapeLatex((ed.school || 'Institution').trim() || 'Institution')
+      const loc2 = ed.location?.trim() ? `, ${escapeLatex(ed.location.trim())}` : ''
+      const dateRange2 = [fmtDate(ed.startDate), fmtDate(ed.endDate)].filter(Boolean).join(' -- ')
+      const cgpaStr = ed.cgpa?.trim() ? `CGPA: ${escapeLatex(ed.cgpa.trim())}` : ''
+      lines.push(`\\textbf{${degree}} --- ${school}${loc2} \\hfill ${dateRange2} \\\\`)
+      if (cgpaStr) lines.push(`{\\small ${cgpaStr}} \\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if ((data as any).certifications?.length) {
+    lines.push(`\\section{Certifications}`)
+    for (const c of (data as any).certifications) {
+      const name2 = escapeLatex((c.name || 'Certification').trim() || 'Certification')
+      const issuer = c.issuer?.trim() ? `--- ${escapeLatex(c.issuer.trim())}` : ''
+      const date2 = c.date?.trim() ? escapeLatex(c.date.trim()) : ''
+      const url2 = c.url?.trim() ? `\\href{${fmtUrlForHref(c.url.trim())}}{Verify}` : ''
+      lines.push(`\\textbf{${name2}} ${issuer} \\hfill ${date2} ${url2 ? `\\; ${url2}` : ''} \\\\`)
+      lines.push(`\\vspace{2pt}`)
+    }
+    lines.push(``)
+  }
+  lines.push(`\\end{document}`)
+  lines.push(``)
+  return lines.join('\n')
+}
+
+// ---------- Classic (Jake's Resume) ----------
+function generateClassicLatex(data: ResumeData): string {
+  const p = data.personalInfo
+  const hasSummary = Boolean(p.summary?.trim())
+  const hasSkills = Boolean(data.skills?.length)
+  const hasProjects = Boolean(data.projects?.length)
+  const hasExperience = Boolean(data.experience?.length)
+  const hasEducation = Boolean(data.education?.length)
+  const hasCerts = Boolean((data as any).certifications?.length)
+
+  const name = escapeLatex(p.fullName?.trim() || 'Your Name')
+  const headline = p.headline?.trim() ? escapeLatex(p.headline.trim()) : ''
+  const contactLine = renderContactLine(p)
+  const summary = hasSummary ? formatSummary(p.summary) : ''
+
+  const lines: string[] = []
+  lines.push(`% !TEX program = pdflatex`)
+  lines.push(`% Generated by CampusFlow — Jake's Resume (Classic) — Overleaf paste-ready`)
+  lines.push(`% Steps: Overleaf → New Project → Blank → paste into main.tex → Recompile (pdfLaTeX)`)
+  lines.push(`\\documentclass[11pt,a4paper]{article}`)
+  lines.push(`\\usepackage[utf8]{inputenc}`)
+  lines.push(`\\usepackage[T1]{fontenc}`)
+  lines.push(`\\usepackage{lmodern}`)
+  lines.push(`\\usepackage[margin=0.55in]{geometry}`)
+  lines.push(`\\usepackage{enumitem}`)
+  lines.push(`\\usepackage{titlesec}`)
+  lines.push(`\\usepackage{xcolor}`)
+  lines.push(`\\usepackage[hidelinks]{hyperref}`)
+  lines.push(`\\pagestyle{empty}`)
+  lines.push(`\\setlength{\\parindent}{0pt}`)
+  lines.push(`\\setlength{\\parskip}{0pt}`)
+  lines.push(`\\titleformat{\\section}{\\vspace{-4pt}\\scshape\\raggedright\\large}{}{0em}{}[\\color{black}\\titlerule \\vspace{-5pt}]`)
+  lines.push(`\\titlespacing*{\\section}{0pt}{8pt}{4pt}`)
+  lines.push(`\\setlist[itemize]{leftmargin=*, label={\\textbullet}, itemsep=0pt, parsep=0pt, topsep=2pt, partopsep=0pt}`)
+  lines.push(`\\begin{document}`)
+  lines.push(``)
+  lines.push(`% ---------- HEADING ----------`)
+  lines.push(`\\begin{center}`)
+  lines.push(`  {\\Huge \\scshape ${name}} \\\\[4pt]`)
+  if (headline) lines.push(`  {\\small \\textit{${headline}}} \\\\[4pt]`)
+  if (contactLine) lines.push(`  {\\small ${contactLine}}`)
+  lines.push(`\\end{center}`)
+  lines.push(`\\vspace{2pt}`)
+  lines.push(``)
+
+  if (hasSummary) {
+    lines.push(`\\section{Summary}`)
+    lines.push(summary)
+    lines.push(``)
+  }
+  if (hasSkills) {
+    lines.push(`\\section{Skills}`)
+    lines.push(renderSkillsInline(data.skills))
+    lines.push(``)
+  }
+  if (hasExperience) {
+    lines.push(`\\section{Experience}`)
+    for (const exp of data.experience) {
+      const role = escapeLatex((exp.role || 'Role').trim() || 'Role')
+      const company = escapeLatex((exp.company || 'Company').trim() || 'Company')
+      const loc = exp.location?.trim() ? ` --- ${escapeLatex(exp.location.trim())}` : ''
+      const start = fmtDate(exp.startDate)
+      const end = fmtDate(exp.endDate)
+      const dateRange = [start, end].filter(Boolean).join(' -- ')
+      const bullets = (exp.bullets || []).map(b => String(b).trim()).filter(Boolean)
+      lines.push(`\\textbf{${role}} --- \\textit{${company}}${loc} \\hfill ${dateRange} \\\\`)
+      if (bullets.length) {
+        lines.push(`\\begin{itemize}[leftmargin=*, nosep]`)
+        for (const b of bullets) lines.push(`  \\item ${formatBulletLatex(b)}`)
+        lines.push(`\\end{itemize}`)
+      } else lines.push(`\\vspace{2pt}`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if (hasProjects) {
+    lines.push(`\\section{Projects}`)
+    for (const proj of data.projects) {
+      const title = escapeLatex((proj.title || 'Untitled Project').trim() || 'Untitled Project')
+      const tech = proj.tech?.length ? `\\textit{${proj.tech.map(t => escapeLatex(t)).join(' $\\cdot$ ')}}` : ''
+      const dateStr = proj.date?.trim() ? `\\hfill ${escapeLatex(proj.date.trim())}` : ''
+      const desc = proj.description?.trim() ? escapeLatex(proj.description.trim()) : ''
+      const link = proj.link?.trim() ? `\\href{${fmtUrlForHref(proj.link.trim())}}{${escapeLatex(proj.link.trim())}}` : ''
+      if (dateStr || tech) {
+        lines.push(`\\textbf{${title}} ${dateStr} \\\\`)
+        if (tech) lines.push(`${tech} \\\\`)
+      } else lines.push(`\\textbf{${title}} \\\\`)
+      if (desc) lines.push(`${desc} \\\\`)
+      if (link) lines.push(`{\\small ${link}} \\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if (hasEducation) {
+    lines.push(`\\section{Education}`)
+    for (const ed of data.education) {
+      const degree = escapeLatex((ed.degree || 'Degree').trim() || 'Degree')
+      const school = escapeLatex((ed.school || 'Institution').trim() || 'Institution')
+      const loc2 = ed.location?.trim() ? `, ${escapeLatex(ed.location.trim())}` : ''
+      const start2 = fmtDate(ed.startDate)
+      const end2 = fmtDate(ed.endDate)
+      const dateRange2 = [start2, end2].filter(Boolean).join(' -- ')
+      const cgpaStr = ed.cgpa?.trim() ? ` --- CGPA: ${escapeLatex(ed.cgpa.trim())}` : ''
+      lines.push(`\\textbf{${degree}} --- ${school}${loc2} \\hfill ${dateRange2} \\\\`)
+      if (cgpaStr) lines.push(`{\\small ${cgpaStr.trim()}} \\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  if (hasCerts) {
+    lines.push(`\\section{Certifications}`)
+    for (const c of (data as any).certifications) {
+      const name2 = escapeLatex((c.name || 'Certification').trim() || 'Certification')
+      const issuer = c.issuer?.trim() ? `--- ${escapeLatex(c.issuer.trim())}` : ''
+      const date2 = c.date?.trim() ? escapeLatex(c.date.trim()) : ''
+      const url2 = c.url?.trim() ? `\\href{${fmtUrlForHref(c.url.trim())}}{Verify}` : ''
+      lines.push(`\\textbf{${name2}} ${issuer} \\hfill ${date2} ${url2 ? `\\; ${url2}` : ''} \\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+    lines.push(``)
+  }
+  lines.push(`\\end{document}`)
+  lines.push(``)
+  return lines.join('\n')
+}
+
+// ---------- Modern (AltaCV two-column) ----------
+function generateModernLatex(data: ResumeData): string {
+  const p = data.personalInfo
+  const name = escapeLatex(p.fullName?.trim() || 'Your Name')
+  const headline = p.headline?.trim() ? escapeLatex(p.headline.trim()) : ''
+  const summary = p.summary?.trim() ? formatSummary(p.summary) : ''
+
+  const lines: string[] = []
+  lines.push(`% !TEX program = pdflatex`)
+  lines.push(`% Generated by CampusFlow — AltaCV / Awesome-CV Modern (two-column) — Overleaf paste-ready`)
+  lines.push(`% Requires: paracol, xcolor, fontawesome5, enumitem, titlesec, hyperref — all available on Overleaf`)
+  lines.push(`\\documentclass[11pt,a4paper]{article}`)
+  lines.push(`\\usepackage[margin=0.50in]{geometry}`)
+  lines.push(`\\usepackage[utf8]{inputenc}`)
+  lines.push(`\\usepackage[T1]{fontenc}`)
+  lines.push(`\\usepackage{lmodern}`)
+  lines.push(`\\usepackage{xcolor}`)
+  lines.push(`\\definecolor{accent}{HTML}{2D4A9A}`)
+  lines.push(`\\definecolor{accentlight}{HTML}{EEF1FF}`)
+  lines.push(`\\definecolor{textcol}{HTML}{1F2937}`)
+  lines.push(`\\usepackage{paracol}`)
+  lines.push(`\\usepackage{enumitem}`)
+  lines.push(`\\usepackage{titlesec}`)
+  lines.push(`\\usepackage[hidelinks]{hyperref}`)
+  lines.push(`\\usepackage{fontawesome5}`)
+  lines.push(`\\pagestyle{empty}`)
+  lines.push(`\\setlength{\\parindent}{0pt}`)
+  lines.push(`\\setlength{\\parskip}{0pt}`)
+  lines.push(`\\titleformat{\\section}{\\color{accent}\\large\\bfseries\\raggedright}{}{0em}{}[\\color{accent}\\titlerule]`)
+  lines.push(`\\titlespacing*{\\section}{0pt}{6pt}{4pt}`)
+  lines.push(`\\setlist[itemize]{leftmargin=*, label={\\color{accent}\\textbullet}, itemsep=2pt, parsep=0pt, topsep=3pt}`)
+  lines.push(`\\begin{document}`)
+  lines.push(`\\color{textcol}`)
+  lines.push(``)
+  // Header with accent
+  lines.push(`% ---------- HEADER ----------`)
+  lines.push(`{\\color{accent}\\hrule height 2.5pt}`)
+  lines.push(`\\vspace{6pt}`)
+  lines.push(`\\begin{center}`)
+  lines.push(`  {\\Huge \\bfseries \\color{accent} ${name}}\\\\[3pt]`)
+  if (headline) lines.push(`  {\\large \\textit{${headline}}}\\\\[4pt]`)
+  // contact with icons
+  const contactParts: string[] = []
+  if (p.email?.trim()) contactParts.push(`\\faEnvelope\\ ${escapeLatex(p.email.trim())}`)
+  if (p.phone?.trim()) contactParts.push(`\\faPhone\\ ${escapeLatex(p.phone.trim())}`)
+  if (p.location?.trim()) contactParts.push(`\\faMapMarker*\\ ${escapeLatex(p.location.trim())}`)
+  const linkIcons = (p.links || []).filter(l=>l.url?.trim()).map(l=>{
+    const label = escapeLatex(l.label||'Link')
+    const url = fmtUrlForHref(l.url.trim())
+    const icon = /github/i.test(label) ? '\\faGithub' : /linkedin/i.test(label) ? '\\faLinkedin' : /portfolio|website/i.test(label) ? '\\faGlobe' : '\\faLink'
+    return `${icon}\\ \\href{${url}}{${label}}`
+  })
+  const allContact = [...contactParts, ...linkIcons].join(' \\;\\; $|$ \\;\\; ')
+  if (allContact) lines.push(`  {\\small ${allContact}}`)
+  lines.push(`\\end{center}`)
+  lines.push(`\\vspace{4pt}`)
+  lines.push(`{\\color{accent}\\hrule height 0.6pt}`)
+  lines.push(`\\vspace{6pt}`)
+  lines.push(``)
+
+  if (summary) {
+    lines.push(`\\section{\\faUser\\ Summary}`)
+    lines.push(summary)
+    lines.push(`\\vspace{2pt}`)
+    lines.push(``)
+  }
+
+  // Two-column via paracol
+  lines.push(`\\setlength{\\columnsep}{16pt}`)
+  lines.push(`\\columnratio{0.62,0.38}`)
+  lines.push(`\\begin{paracol}{2}`)
+  lines.push(``)
+  // Left column: Experience + Projects
+  lines.push(`\\begin{leftcolumn}`)
+  if (data.experience?.length) {
+    lines.push(`\\section{\\faBriefcase\\ Experience}`)
+    for (const exp of data.experience) {
+      const role = escapeLatex((exp.role||'Role').trim()||'Role')
+      const company = escapeLatex((exp.company||'Company').trim()||'Company')
+      const loc = exp.location?.trim() ? ` \\textbar\\ ${escapeLatex(exp.location.trim())}` : ''
+      const dateRange = [fmtDate(exp.startDate), fmtDate(exp.endDate)].filter(Boolean).join(' -- ')
+      const bullets = (exp.bullets||[]).map(b=>String(b).trim()).filter(Boolean)
+      lines.push(`\\textbf{${role}} \\hfill {\\small \\color{accent} ${dateRange}}\\\\`)
+      lines.push(`{\\small \\textit{${company}}${loc}}\\\\`)
+      if (bullets.length) {
+        lines.push(`\\begin{itemize}[nosep, leftmargin=*]`)
+        for (const b of bullets) lines.push(`  \\item ${formatBulletLatex(b)}`)
+        lines.push(`\\end{itemize}`)
+      }
+      lines.push(`\\vspace{5pt}`)
+    }
+  }
+  if (data.projects?.length) {
+    lines.push(`\\section{\\faCode\\ Projects}`)
+    for (const proj of data.projects) {
+      const title = escapeLatex((proj.title||'Untitled').trim()||'Untitled')
+      const dateStr = proj.date?.trim() ? `\\hfill {\\small ${escapeLatex(proj.date.trim())}}` : ''
+      const tech = proj.tech?.length ? `{\\small \\color{accent} \\textit{${proj.tech.map(t=>escapeLatex(t)).join(' $\\cdot$ ')}}}` : ''
+      const desc = proj.description?.trim() ? escapeLatex(proj.description.trim()) : ''
+      const link = proj.link?.trim() ? `\\href{${fmtUrlForHref(proj.link.trim())}}{${escapeLatex(proj.link.trim())}}` : ''
+      lines.push(`\\textbf{${title}} ${dateStr}\\\\`)
+      if (tech) lines.push(`${tech}\\\\`)
+      if (desc) lines.push(`${desc}\\\\`)
+      if (link) lines.push(`{\\footnotesize ${link}}\\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+  }
+  lines.push(`\\end{leftcolumn}`)
+  lines.push(``)
+  // Right column: Skills + Education + additional
+  lines.push(`\\begin{rightcolumn}`)
+  if (data.skills?.length) {
+    lines.push(`\\section{\\faTools\\ Skills}`)
+    const skillLine = data.skills.map(s=>escapeLatex(s.trim())).filter(Boolean).join(', ')
+    lines.push(skillLine)
+    lines.push(`\\vspace{4pt}`)
+    lines.push(`% Tags mimic: ${data.skills.slice(0,8).map(s=>`\\colorbox{accentlight}{\\small ${escapeLatex(s)}}`).join(' ')}`)
+  }
+  if (data.education?.length) {
+    lines.push(`\\section{\\faGraduationCap\\ Education}`)
+    for (const ed of data.education) {
+      const degree = escapeLatex((ed.degree||'Degree').trim()||'Degree')
+      const school = escapeLatex((ed.school||'Institution').trim()||'Institution')
+      const loc2 = ed.location?.trim() ? `, ${escapeLatex(ed.location.trim())}` : ''
+      const dateRange2 = [fmtDate(ed.startDate), fmtDate(ed.endDate)].filter(Boolean).join(' -- ')
+      const cgpaStr = ed.cgpa?.trim() ? `CGPA: ${escapeLatex(ed.cgpa.trim())}` : ''
+      lines.push(`\\textbf{${degree}}\\\\`)
+      lines.push(`{\\small ${school}${loc2}}\\\\`)
+      if (dateRange2) lines.push(`{\\footnotesize \\color{accent} ${dateRange2}}\\\\`)
+      if (cgpaStr) lines.push(`{\\footnotesize ${cgpaStr}}\\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+  }
+  if ((data as any).certifications?.length) {
+    lines.push(`\\section{\\faCertificate\\ Certifications}`)
+    for (const c of (data as any).certifications) {
+      const name2 = escapeLatex((c.name||'Cert').trim()||'Cert')
+      const issuer = c.issuer?.trim() ? escapeLatex(c.issuer.trim()) : ''
+      const date2 = c.date?.trim() ? escapeLatex(c.date.trim()) : ''
+      lines.push(`\\textbf{${name2}}\\\\`)
+      if (issuer) lines.push(`{\\small ${issuer}}\\\\`)
+      if (date2) lines.push(`{\\footnotesize \\color{accent} ${date2}}\\\\`)
+      if (c.url?.trim()) lines.push(`{\\footnotesize \\href{${fmtUrlForHref(c.url.trim())}}{Verify}}\\\\`)
+      lines.push(`\\vspace{4pt}`)
+    }
+  }
+  lines.push(`\\end{rightcolumn}`)
+  lines.push(`\\end{paracol}`)
+  lines.push(``)
+  lines.push(`\\end{document}`)
+  lines.push(``)
+  return lines.join('\n')
+}
+
+// ---------- Minimal (ATS Minimal clean) ----------
+function generateMinimalLatex(data: ResumeData): string {
+  const p = data.personalInfo
+  const name = escapeLatex(p.fullName?.trim() || 'Your Name')
+  const headline = p.headline?.trim() ? escapeLatex(p.headline.trim()) : ''
+  const contactLine = renderContactLineMinimal(p)
+  const summary = p.summary?.trim() ? formatSummary(p.summary) : ''
+  const lines: string[] = []
+  lines.push(`% !TEX program = pdflatex`)
+  lines.push(`% Generated by CampusFlow — ATS Minimal (Clean) — Overleaf paste-ready`)
+  lines.push(`\\documentclass[11pt,a4paper]{article}`)
+  lines.push(`\\usepackage[utf8]{inputenc}`)
+  lines.push(`\\usepackage[T1]{fontenc}`)
+  lines.push(`\\usepackage[scaled=0.92]{helvet}`)
+  lines.push(`\\renewcommand{\\familydefault}{\\sfdefault}`)
+  lines.push(`\\usepackage[margin=0.60in]{geometry}`)
+  lines.push(`\\usepackage{enumitem}`)
+  lines.push(`\\usepackage{titlesec}`)
+  lines.push(`\\usepackage{xcolor}`)
+  lines.push(`\\definecolor{rulecol}{HTML}{D1D5DB}`)
+  lines.push(`\\definecolor{accent}{HTML}{374151}`)
+  lines.push(`\\usepackage[hidelinks]{hyperref}`)
+  lines.push(`\\pagestyle{empty}`)
+  lines.push(`\\setlength{\\parindent}{0pt}`)
+  lines.push(`\\setlength{\\parskip}{0pt}`)
+  lines.push(`\\titleformat{\\section}{\\vspace{-2pt}\\color{accent}\\raggedright\\normalsize\\bfseries\\uppercase}{}{0em}{}[\\vspace{-2pt}\\color{rulecol}\\titlerule]`)
+  lines.push(`\\titlespacing*{\\section}{0pt}{10pt}{5pt}`)
+  lines.push(`\\setlist[itemize]{leftmargin=1.2em, label={--}, itemsep=2pt, parsep=0pt, topsep=3pt}`)
+  lines.push(`\\begin{document}`)
+  lines.push(``)
+  lines.push(`% ---------- HEADER (left-aligned minimal) ----------`)
+  lines.push(`{\\LARGE \\bfseries ${name}}\\\\`)
+  if (headline) lines.push(`{\\small \\color{accent} ${headline}}\\\\[4pt]`)
+  if (contactLine) lines.push(`{\\footnotesize ${contactLine}}\\\\[2pt]`)
+  lines.push(`\\vspace{2pt}`)
+  lines.push(`{\\color{rulecol}\\hrule height 0.6pt}`)
+  lines.push(`\\vspace{4pt}`)
+  lines.push(``)
+
+  if (summary) {
+    lines.push(`\\section{Summary}`)
+    lines.push(summary)
+    lines.push(``)
+  }
+  if (data.skills?.length) {
+    lines.push(`\\section{Skills}`)
+    lines.push(renderSkillsInline(data.skills))
+    lines.push(``)
+  }
+  if (data.experience?.length) {
+    lines.push(`\\section{Experience}`)
+    for (const exp of data.experience) {
+      const role = escapeLatex((exp.role||'Role').trim()||'Role')
+      const company = escapeLatex((exp.company||'Company').trim()||'Company')
+      const loc = exp.location?.trim() ? ` \\textbar\\ ${escapeLatex(exp.location.trim())}` : ''
+      const dateRange = [fmtDate(exp.startDate), fmtDate(exp.endDate)].filter(Boolean).join(' -- ')
+      const bullets = (exp.bullets||[]).map(b=>String(b).trim()).filter(Boolean)
+      lines.push(`\\textbf{${role}} \\hfill {\\small ${dateRange}}\\\\`)
+      lines.push(`{\\small ${company}${loc}}\\\\`)
+      if (bullets.length) {
+        lines.push(`\\begin{itemize}`)
+        for (const b of bullets) lines.push(`  \\item ${formatBulletLatex(b)}`)
+        lines.push(`\\end{itemize}`)
+      } else lines.push(`\\vspace{2pt}`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.projects?.length) {
+    lines.push(`\\section{Projects}`)
+    for (const proj of data.projects) {
+      const title = escapeLatex((proj.title||'Untitled').trim()||'Untitled')
+      const dateStr = proj.date?.trim() ? `\\hfill {\\small ${escapeLatex(proj.date.trim())}}` : ''
+      const tech = proj.tech?.length ? `{\\footnotesize \\textit{${proj.tech.map(t=>escapeLatex(t)).join(', ')}}}` : ''
+      const desc = proj.description?.trim() ? escapeLatex(proj.description.trim()) : ''
+      const link = proj.link?.trim() ? `\\href{${fmtUrlForHref(proj.link.trim())}}{${escapeLatex(proj.link.trim())}}` : ''
+      lines.push(`\\textbf{${title}} ${dateStr}\\\\`)
+      if (tech) lines.push(`${tech}\\\\`)
+      if (desc) lines.push(`${desc}\\\\`)
+      if (link) lines.push(`{\\footnotesize ${link}}\\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if (data.education?.length) {
+    lines.push(`\\section{Education}`)
+    for (const ed of data.education) {
+      const degree = escapeLatex((ed.degree||'Degree').trim()||'Degree')
+      const school = escapeLatex((ed.school||'Institution').trim()||'Institution')
+      const loc2 = ed.location?.trim() ? `, ${escapeLatex(ed.location.trim())}` : ''
+      const dateRange2 = [fmtDate(ed.startDate), fmtDate(ed.endDate)].filter(Boolean).join(' -- ')
+      const cgpaStr = ed.cgpa?.trim() ? `CGPA: ${escapeLatex(ed.cgpa.trim())}` : ''
+      lines.push(`\\textbf{${degree}} \\hfill {\\small ${dateRange2}}\\\\`)
+      lines.push(`{\\small ${school}${loc2}}\\\\`)
+      if (cgpaStr) lines.push(`{\\footnotesize ${cgpaStr}}\\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  if ((data as any).certifications?.length) {
+    lines.push(`\\section{Certifications}`)
+    for (const c of (data as any).certifications) {
+      const name2 = escapeLatex((c.name||'Certification').trim()||'Certification')
+      const issuer = c.issuer?.trim() ? `--- ${escapeLatex(c.issuer.trim())}` : ''
+      const date2 = c.date?.trim() ? escapeLatex(c.date.trim()) : ''
+      const url2 = c.url?.trim() ? `\\href{${fmtUrlForHref(c.url.trim())}}{Verify}` : ''
+      lines.push(`\\textbf{${name2}} ${issuer} \\hfill ${date2} ${url2 ? `\\; ${url2}` : ''} \\\\`)
+      lines.push(`\\vspace{3pt}`)
+    }
+    lines.push(``)
+  }
+  lines.push(`\\end{document}`)
+  lines.push(``)
+  return lines.join('\n')
+}
+
+export function generateResumeLatex(data: ResumeData): string {
+  const tpl: ResumeTemplateId = (data.template as ResumeTemplateId) || 'source-split'
+  if (tpl === 'source-split') return generateSourceSplitLatex(data)
+  if (tpl === 'compact') return generateCompactLatex(data)
+  if (tpl === 'modern') return generateModernLatex(data)
+  if (tpl === 'minimal') return generateMinimalLatex(data)
+  return generateClassicLatex(data)
+}
+
+export function downloadTexFile(data: ResumeData, latex?: string) {
+  const tex = latex || generateResumeLatex(data)
+  const safeName = (data.personalInfo.fullName || 'Resume').replace(/\s+/g, '_') || 'Resume'
+  const blob = new Blob([tex], { type: 'application/x-tex;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const tpl = (data.template || 'source-split')
+  const suffix = tpl === 'source-split' ? 'SourceSplit' : tpl === 'compact' ? 'Compact' : tpl === 'modern' ? 'Modern' : tpl === 'minimal' ? 'Minimal' : 'Classic'
+  a.download = `${safeName}_Resume_${suffix}.tex`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}

@@ -39,7 +39,7 @@ export default function Pagination({ page, totalPages, onChange, scroll = true, 
         onMouseEnter={() => onPrefetch?.(Math.max(1, page - 1))}
         onFocus={() => onPrefetch?.(Math.max(1, page - 1))}
         disabled={page <= 1}
-        className="px-3 py-1.5 text-sm font-medium text-surface-600 bg-surface-100 dark:bg-night-700 dark:text-night-200 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
+        className="px-3 py-1.5 text-sm font-medium text-surface-600 dark:text-night-200 bg-surface-100 dark:bg-night-700 border border-surface-200 dark:border-night-600 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
       >
         Prev
       </button>
@@ -52,10 +52,10 @@ export default function Pagination({ page, totalPages, onChange, scroll = true, 
             onClick={() => handle(p as number)}
             onMouseEnter={() => onPrefetch?.(p as number)}
             onFocus={() => onPrefetch?.(p as number)}
-            className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${
+            className={`w-9 h-9 rounded-lg text-sm font-medium transition-all border ${
               page === p
-                ? 'bg-primary-500 dark:bg-[#90B9A4] text-white shadow-sm'
-                : 'text-surface-600 bg-surface-100 hover:bg-surface-200 dark:bg-night-700 dark:text-night-200 dark:hover:bg-night-600'
+                ? 'bg-primary-500 dark:bg-[#90B9A4] text-white dark:text-night-950 border-primary-500 dark:border-[#90B9A4] shadow-sm'
+                : 'text-surface-600 dark:text-night-200 bg-surface-100 dark:bg-night-700 border-surface-200 dark:border-night-600 hover:bg-surface-200 dark:hover:bg-night-600'
             }`}
           >
             {p}
@@ -67,7 +67,7 @@ export default function Pagination({ page, totalPages, onChange, scroll = true, 
         onMouseEnter={() => onPrefetch?.(Math.min(totalPages, page + 1))}
         onFocus={() => onPrefetch?.(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
-        className="px-3 py-1.5 text-sm font-medium text-surface-600 bg-surface-100 dark:bg-night-700 dark:text-night-200 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
+        className="px-3 py-1.5 text-sm font-medium text-surface-600 dark:text-night-200 bg-surface-100 dark:bg-night-700 border border-surface-200 dark:border-night-600 rounded-lg hover:bg-surface-200 dark:hover:bg-night-600 transition-all disabled:opacity-40"
       >
         Next
       </button>

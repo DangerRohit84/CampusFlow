@@ -26,15 +26,19 @@ const gradients = [
 ]
 
 export function themeList(): ThemeItem[] {
-  return THEMES
+  // keep 01,02 filtered for now per portfolio 1,2 removal request
+  return THEMES.filter(t => t.id !== 'theme-01' && t.id !== 'theme-02')
 }
 
 export default function ThemeGrid({ selectedId, onSelect }: Props) {
+  // Theme 01, 02 temporarily hidden per request — filtered out for now
+  const visibleThemes = THEMES.filter(t => t.id !== 'theme-01' && t.id !== 'theme-02')
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-      {THEMES.map((t, idx) => {
+      {visibleThemes.map((t, idx) => {
         const selected = selectedId === t.id
-        const grad = gradients[idx % gradients.length]
+        const originalIdx = THEMES.findIndex(x => x.id === t.id)
+        const grad = gradients[originalIdx % gradients.length]
         return (
           <button
             key={t.id}
@@ -42,7 +46,7 @@ export default function ThemeGrid({ selectedId, onSelect }: Props) {
             className={`relative rounded-2xl overflow-hidden border-2 text-left transition-all group ${selected ? 'border-primary-600 ring-2 ring-primary-500/20' : 'border-surface-200 dark:border-night-600 hover:border-surface-300 dark:hover:border-night-500'}`}
           >
             <div className={`h-24 bg-gradient-to-br ${grad} relative flex items-center justify-center`}>
-              <span className="text-white font-bold text-lg drop-shadow">{idx + 1}</span>
+              <span className="text-white font-bold text-lg drop-shadow">{t.name.replace('Theme ', '')}</span>
               {selected && (
                 <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-primary-600 flex items-center justify-center shadow">
                   <Check size={14} />

@@ -12,6 +12,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   name: z.string().min(2),
   password: z.string().min(6),
+  username: z.string().min(3).max(20).optional(),
   departmentId: z.string().optional(),
   department: z.string().optional(),
   role: z.string().optional(),
@@ -21,6 +22,31 @@ const registerSchema = z.object({
   studentId: z.string().optional(),
   incomingYear: z.number().optional(),
 })
+
+function sanitizeUsername(raw: string): string {
+  return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
+}
+function isValidUsername(u: string): boolean {
+  return /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u) && u.length >= 3 && u.length <= 20
+}
+function suggestBase(name: string, email: string): string {
+  const base = sanitizeUsername(name.replace(/\s+/g, '_')) || sanitizeUsername(email.split('@')[0]) || 'user'
+  let s = base
+  if (s.length < 3) s = (s + 'user').slice(0, 20)
+  return s
+}
+async function generateUniqueUsername(name: string, email: string): Promise<string> {
+  let base = suggestBase(name, email)
+  let candidate = base
+  let tries = 0
+  while (tries < 20) {
+    const exists = await (prisma as any).user.findFirst({ where: { username: candidate } }).catch(() => null)
+    if (!exists) return candidate
+    tries++
+    candidate = `${base}${tries}`.slice(0, 20)
+  }
+  return `${base}_${Date.now().toString().slice(-4)}`.slice(0, 20)
+}
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -39,22 +65,66 @@ router.post('/register', async (req: Request, res: Response) => {
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10)
-    const user = await prisma.user.create({
-      data: {
-        email: body.email,
-        name: body.name,
-        passwordHash,
-        departmentId: body.departmentId || undefined,
-        departmentName: body.department || undefined,
-        role: body.role as any || 'STUDENT',
-        collegeId: body.collegeId,
-        collegeName: body.college,
-        empNumber: body.empNumber,
-        studentId: body.studentId,
-        incomingYear: body.incomingYear,
-        outgoingYear: body.incomingYear ? body.incomingYear + 4 : undefined,
-      },
-    })
+    // username: use provided or generate from name/email, ensure unique
+    let username: string | undefined
+    if ((body as any).username) {
+      const s = sanitizeUsername(String((body as any).username))
+      if (!isValidUsername(s)) {
+        res.status(400).json({ error: 'Invalid username: 3-20 chars, letters/numbers/_.-, start/end alphanumeric' })
+        return
+      }
+      const exists = await (prisma as any).user.findFirst({ where: { username: s } }).catch(() => null)
+      if (exists) {
+        res.status(400).json({ error: 'Username already taken' })
+        return
+      }
+      username = s
+    } else {
+      username = await generateUniqueUsername(body.name, body.email)
+    }
+
+    let user: any
+    try {
+      user = await (prisma as any).user.create({
+        data: {
+          email: body.email,
+          name: body.name,
+          username,
+          passwordHash,
+          departmentId: body.departmentId || undefined,
+          departmentName: body.department || undefined,
+          role: body.role as any || 'STUDENT',
+          collegeId: body.collegeId,
+          collegeName: body.college,
+          empNumber: body.empNumber,
+          studentId: body.studentId,
+          incomingYear: body.incomingYear,
+          outgoingYear: body.incomingYear ? body.incomingYear + 4 : undefined,
+        },
+      })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('username') || msg.includes('Unknown argument') || msg.includes('column') || msg.includes('field')) {
+        // fallback for DB not yet migrated (leave dirty mode) — create without username
+        user = await prisma.user.create({
+          data: {
+            email: body.email,
+            name: body.name,
+            passwordHash,
+            departmentId: body.departmentId || undefined,
+            departmentName: body.department || undefined,
+            role: body.role as any || 'STUDENT',
+            collegeId: body.collegeId,
+            collegeName: body.college,
+            empNumber: body.empNumber,
+            studentId: body.studentId,
+            incomingYear: body.incomingYear,
+            outgoingYear: body.incomingYear ? body.incomingYear + 4 : undefined,
+          },
+        })
+        username = undefined
+      } else throw e
+    }
 
     const token = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as any })
 
@@ -62,6 +132,7 @@ router.post('/register', async (req: Request, res: Response) => {
       user: {
         id: user.id,
         name: user.name,
+        username: (user as any).username || username,
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
@@ -107,10 +178,20 @@ router.post('/login', async (req: Request, res: Response) => {
       include: { college: { select: { id: true, name: true } }, department: true },
     })
 
+    // backfill username if missing (legacy users)
+    let username = (user as any).username
+    if (!username) {
+      try {
+        username = await generateUniqueUsername(user.name, user.email)
+        await (prisma as any).user.update({ where: { id: user.id }, data: { username } as any })
+      } catch {}
+    }
+
     res.json({
       user: {
         id: user.id,
         name: user.name,
+        username: username || (user as any).username || null,
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
@@ -150,6 +231,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     res.json({
       id: user.id,
       name: user.name,
+      username: (user as any).username || null,
       email: user.email,
       role: user.role,
       departmentId: user.departmentId,

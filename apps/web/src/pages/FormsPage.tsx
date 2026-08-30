@@ -251,7 +251,7 @@ export default function FormsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -319,13 +319,13 @@ export default function FormsPage() {
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <h3 className="font-bold text-surface-900 truncate">{f.title}</h3>
+                      <h3 className="font-bold text-surface-900 dark:text-night-50 truncate">{f.title}</h3>
                       {getStatusBadge(f)}
                     </div>
                     {f.description && (
-                      <p className="text-sm text-surface-500 truncate">{f.description}</p>
+                      <p className="text-sm text-surface-500 dark:text-night-400 truncate">{f.description}</p>
                     )}
-                    <div className="flex items-center gap-4 mt-1.5 text-xs text-surface-400">
+                    <div className="flex items-center gap-4 mt-1.5 text-xs text-surface-400 dark:text-night-400">
                       {f.expiresAt && (
                         <span className="flex items-center gap-1">
                           <Calendar size={12} />
@@ -337,7 +337,7 @@ export default function FormsPage() {
                         {f.responses?.length || 0} responses
                       </span>
                       {f.creator?.name && (
-                        <span className="text-surface-400">by {f.creator.name}</span>
+                        <span className="text-surface-400 dark:text-night-400">by {f.creator.name}</span>
                       )}
                     </div>
                   </div>
@@ -347,7 +347,7 @@ export default function FormsPage() {
                     {isTeacher && (
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditModal(f) }}
-                        className="p-1.5 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
+                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
                       >
                         <Pencil size={14} />
                       </button>
@@ -355,7 +355,7 @@ export default function FormsPage() {
                     {f.creatorId === user?.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(f.id) }}
-                        className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
+                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>

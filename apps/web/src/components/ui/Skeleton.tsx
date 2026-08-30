@@ -10,7 +10,7 @@ export default function Skeleton({ className = '', lines = 1 }: { className?: st
 
 export function CardSkeleton() {
   return (
-    <div className="bg-white rounded-2xl border border-surface-100 p-6 animate-pulse">
+    <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
       <div className="flex items-start justify-between">
         <div className="space-y-3 flex-1">
           <div className="h-4 bg-surface-200 rounded-lg w-1/3" />
@@ -27,7 +27,7 @@ export function ListSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="bg-white rounded-2xl border border-surface-100 p-5 animate-pulse">
+        <div key={i} className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5 animate-pulse">
           <div className="flex items-center gap-4">
             <div className="w-1 h-12 bg-surface-200 rounded-full" />
             <div className="flex-1 space-y-2">
@@ -44,7 +44,7 @@ export function ListSkeleton({ count = 4 }: { count?: number }) {
 
 export function StatSkeleton() {
   return (
-    <div className="bg-white rounded-2xl border border-surface-100 p-6 animate-pulse">
+    <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
           <div className="h-3 bg-surface-200 rounded w-20" />

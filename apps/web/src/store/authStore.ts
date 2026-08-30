@@ -9,9 +9,10 @@ interface AuthState {
   isAuthenticated: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (data: { email: string; name: string; password: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) => Promise<void>
+  register: (data: { email: string; name: string; password: string; username?: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) => Promise<void>
   logout: () => void
   updateUser: (user: Partial<User>) => void
+  setUser: (user: User) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -42,6 +43,7 @@ export const useAuthStore = create<AuthState>()(
         }
       },
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
+      setUser: (user) => set({ user, isAuthenticated: true }),
       updateUser: (updates) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...updates } : null,

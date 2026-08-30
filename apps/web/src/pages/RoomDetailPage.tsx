@@ -204,7 +204,7 @@ export default function RoomDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )

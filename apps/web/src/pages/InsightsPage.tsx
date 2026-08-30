@@ -33,7 +33,7 @@ export default function InsightsPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-4xl">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">AI Insights</h1>
+        <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">AI Insights</h1>
         <p className="text-surface-500 dark:text-night-200 mt-1">AI-powered analysis of your academic performance</p>
       </motion.div>
 
@@ -51,7 +51,7 @@ export default function InsightsPage() {
               <span className="text-surface-500 dark:text-night-200">Analyzing your performance...</span>
             </div>
           ) : (
-            <div className="prose prose-sm max-w-none text-surface-700 whitespace-pre-wrap leading-relaxed"
+            <div className="prose prose-sm max-w-none text-surface-700 dark:text-night-200 whitespace-pre-wrap leading-relaxed"
               dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(insights) }}
             />
           )}

@@ -12,8 +12,10 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import CommandPalette from '../CommandPalette'
 import ThemeToggle from '../ThemeToggle'
+import AvatarDropdown from './AvatarDropdown'
+import UsernameSetupModal from '../UsernameSetupModal'
 import toast from 'react-hot-toast'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI, authAPI } from '../../lib/api'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
 
 type NavItem = { path: string; label: string; icon: any }
@@ -121,17 +123,79 @@ const navByRole: Record<string, NavSection[]> = {
 }
 
 export default function Layout() {
-  const { user, logout, token } = useAuthStore()
+  const { user, logout, token, updateUser } = useAuthStore()
   const { sidebarOpen, setSidebarOpen } = useAppStore()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpenLocal] = useState(false)
+  const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
   // Assignments urgent badge: overdue + due within 3 days (for students: only if not yet submitted)
   const [assignmentUrgent, setAssignmentUrgent] = useState({ count: 0, hasOverdue: false })
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [roomUnreadCount, setRoomUnreadCount] = useState(0)
+
+  // username setup flow: STUDENT mandatory, TEACHER/COLLEGE_ADMIN/SUPER optional with 7-day snooze.
+  // WHY: students need /u/:username for portfolio sharing (mandatory); staff/admins can optionally set later. Skipping remembers dismissal for 7 days so not asked every time.
+  const USERNAME_SKIP_TTL_MS = 7 * 24 * 60 * 60 * 1000
+  const isStudent = user?.role === 'STUDENT'
+  const getUsernameSkipKey = (uid: string) => `campusflow:username-skip:${uid}`
+  const hasSkippedRecently = (uid: string): boolean => {
+    try {
+      const raw = localStorage.getItem(getUsernameSkipKey(uid))
+      if (!raw) return false
+      const ts = Number(raw)
+      if (!ts || Number.isNaN(ts)) return false
+      return Date.now() - ts < USERNAME_SKIP_TTL_MS
+    } catch { return false }
+  }
+
+  useEffect(() => {
+    if (!token || !user) return
+    const uname = (user as any)?.username
+    if (uname) {
+      // username exists — ensure modal is closed
+      setShowUsernameModal(false)
+      return
+    }
+    // For non-students: respect 7-day snooze — don't nag every load
+    if (!isStudent && hasSkippedRecently(user.id)) {
+      setShowUsernameModal(false)
+      return
+    }
+    let cancelled = false
+    const check = async () => {
+      try {
+        const me = await authAPI.me().catch(() => null)
+        if (cancelled) return
+        const remoteHasUsername = !!(me as any)?.username
+        const localHasUsername = !!(user as any)?.username
+        const hasUsername = remoteHasUsername || localHasUsername
+        if (hasUsername) {
+          const newU = (me as any)?.username
+          if (newU && newU !== (user as any)?.username) updateUser({ username: newU } as any)
+          setShowUsernameModal(false)
+          return
+        }
+        // still no username
+        if (!isStudent && hasSkippedRecently(user.id)) {
+          setShowUsernameModal(false)
+          return
+        }
+        setShowUsernameModal(true)
+      } catch {
+        // on error, fallback to local state; still respect snooze for non-students
+        if (!cancelled && !(user as any)?.username) {
+          if (!isStudent && hasSkippedRecently(user.id)) setShowUsernameModal(false)
+          else setShowUsernameModal(true)
+        }
+      }
+    }
+    // slight delay so page loads first, like a welcome prompt
+    const t = setTimeout(check, 900)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [token, user, updateUser, isStudent])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -279,14 +343,14 @@ export default function Layout() {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo — hallway plate */}
-      <div className="px-4 py-5 flex items-center gap-3 border-b border-surface-200/70">
+      <div className="px-4 py-5 flex items-center gap-3 border-b border-surface-200 dark:border-night-600/70">
         <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center shrink-0">
           <GraduationCap className="w-6 h-6 text-white" />
         </div>
         {sidebarOpen && (
           <div>
-            <span className="text-[15px] font-bold tracking-tight text-surface-900 font-display">CampusFlow</span>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-surface-400">Hall 01 · Campus OS</p>
+            <span className="text-[15px] font-bold tracking-tight text-surface-900 dark:text-night-50 font-display">CampusFlow</span>
+            <p className="text-[10px] font-semibold tracking-widest uppercase text-surface-400 dark:text-night-400">Hall 01 · Campus OS</p>
           </div>
         )}
       </div>
@@ -296,7 +360,7 @@ export default function Layout() {
         {(navByRole[user?.role || 'STUDENT'] || navByRole.STUDENT).map((section)=>(
           <div key={section.label} className="mb-5">
             {sidebarOpen && section.label && (
-              <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-surface-400">
+              <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-surface-400 dark:text-night-400">
                 {section.label}
               </p>
             )}
@@ -352,15 +416,15 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Locker bottom — registrar card */}
+      {/* Locker bottom — registrar card — dark:bg-night-800 keeps contrast (light text on dark) */}
       {sidebarOpen && (
         <div className="px-3 pb-3">
-          <div className="rounded-xl border border-brass-400/30 bg-brass-50 p-3">
+          <div className="rounded-xl border border-brass-400/30 dark:border-night-650 bg-brass-50 dark:bg-night-800 p-3">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-1.5 h-1.5 rounded-full bg-brass-400" />
-              <span className="text-xs font-bold tracking-wide uppercase text-surface-700">Registrar Desk</span>
+              <span className="text-xs font-bold tracking-wide uppercase text-surface-700 dark:text-night-200">Registrar Desk</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-surface-500">Questions? Visit the desk or ask the assistant.</p>
+            <p className="text-[11px] leading-relaxed text-surface-500 dark:text-night-400">Questions? Visit the desk or ask the assistant.</p>
             <button onClick={()=>navigate('/chat')} className="mt-3 w-full min-h-[36px] px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5">
               <Sparkles size={14} /> Ask Assistant
             </button>
@@ -369,7 +433,7 @@ export default function Layout() {
       )}
 
       {/* User */}
-      <div className="px-3 py-3 border-t border-surface-200">
+      <div className="px-3 py-3 border-t border-surface-200 dark:border-night-600">
         <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
           <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
             {user?.name?.charAt(0) || 'S'}
@@ -378,12 +442,12 @@ export default function Layout() {
             <>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-surface-900 truncate">{user?.name || 'Student'}</p>
+                  <p className="text-sm font-semibold text-surface-900 dark:text-night-50 truncate">{user?.name || 'Student'}</p>
                   <CheckSquare size={12} className="text-primary-600 shrink-0" />
                 </div>
-                <p className="text-[11px] text-surface-400 truncate">{user?.email || 'student@campus.edu'}</p>
+                <p className="text-[11px] text-surface-400 dark:text-night-400 truncate">{user?.email || 'student@campus.edu'}</p>
               </div>
-              <button onClick={()=>{logout(); navigate('/login')}} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-danger-600 hover:bg-danger-50 transition-colors" title="Sign out">
+              <button onClick={()=>{logout(); navigate('/login')}} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 dark:text-night-400 hover:text-danger-600 hover:bg-danger-50 transition-colors" title="Sign out">
                 <LogOut size={16} />
               </button>
             </>
@@ -394,61 +458,54 @@ export default function Layout() {
   )
 
   return (
-    <div className="flex h-screen bg-surface-50 overflow-hidden">
-      {/* Desktop Sidebar — 280 / 72 hallway locker */}
+    <div className="flex h-screen bg-surface-50 dark:bg-night-800 overflow-hidden isolate">
+      {/* Desktop Sidebar — 280 / 72 hallway locker — keep z lower than portals (portals use 9998-10000) */}
       <aside className={clsx(
-        'hidden lg:flex flex-col shrink-0 locker-rail transition-all duration-200 overflow-hidden',
+        'hidden lg:flex flex-col shrink-0 locker-rail transition-[width] duration-200 overflow-hidden relative z-10',
         sidebarOpen ? 'w-[280px]' : 'w-[72px]'
-      )}>
+      )} style={{ transform: 'none', filter: 'none', contain: 'none' }}>
         <SidebarContent />
       </aside>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-surface-50">
+      {/* Main — isolate so animate-slideUp transform doesn't become containing block for portaled fixed */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-surface-50 dark:bg-night-800 relative z-0 isolate">
         {/* Header — paper bar, flat, 44px controls */}
-        <header className="h-16 border-b border-surface-200 bg-white flex items-center justify-between px-4 lg:px-6 shrink-0">
+        <header className="h-16 border-b border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 flex items-center justify-between px-4 lg:px-6 shrink-0">
           <div className="flex items-center gap-3">
             <button
               onClick={()=> window.innerWidth>=1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpenLocal(true)}
-              className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 transition-colors shrink-0"
+              className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors shrink-0"
               aria-label="Toggle navigation"
             >
               {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
             {/* search — card look */}
             <div className="relative hidden sm:block">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" />
               <input
                 type="text"
                 placeholder="Search courses, rooms…  ⌘K"
-                className="w-[280px] xl:w-[360px] pl-10 pr-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 transition-colors"
+                className="w-[280px] xl:w-[360px] pl-10 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 transition-colors"
                 readOnly
                 onClick={()=> document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true}))}
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button className="relative w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 transition-colors" onClick={()=>navigate('/notifications')} aria-label="Notifications">
+          <div className="flex items-center gap-2.5">
+            <button className="relative w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors" onClick={()=>navigate('/notifications')} aria-label="Notifications">
               <Bell size={18} />
-              {unreadCount>0 && <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-danger-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border-2 border-white">{unreadCount>99?'99+':unreadCount}</span>}
+              {unreadCount>0 && <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-danger-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border-2 border-white dark:border-night-800">{unreadCount>99?'99+':unreadCount}</span>}
             </button>
-            <div className="hidden sm:block w-px h-6 bg-surface-200" />
-            <button onClick={()=>navigate('/settings')} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-surface-50 transition-colors">
-              <div className="w-8 h-8 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold text-xs">
-                {user?.name?.charAt(0) || 'A'}
-              </div>
-              <div className="hidden sm:block text-left">
-                <p className="text-sm font-semibold leading-none text-surface-900">{user?.name || 'Admin'}</p>
-                <p className="text-[10px] tracking-wide uppercase font-semibold text-surface-400">{user?.role?.replace('_',' ') || 'Super Admin'}</p>
-              </div>
-            </button>
+            <div className="hidden sm:block w-px h-6 bg-surface-200 dark:bg-night-650" />
+            {/* avatar only — circular (spec) */}
+            <AvatarDropdown />
           </div>
         </header>
 
-        {/* hanging lamp — moved left to avoid covering announcement count badge (right side) */}
-        <div className="relative h-0 pointer-events-none">
-          <div className="absolute right-16 lg:right-24 top-0 z-10 pointer-events-auto">
+        {/* hanging lamp — moved left to avoid covering announcement count badge (right side) — z-50 above page sticky bars */}
+        <div className="relative h-0 pointer-events-none z-50">
+          <div className="absolute right-16 lg:right-24 top-0 z-50 pointer-events-auto">
             <ThemeToggle />
           </div>
         </div>
@@ -468,13 +525,39 @@ export default function Layout() {
         <>
           <div className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm" onClick={()=>setMobileOpenLocal(false)} />
           <aside className="fixed inset-y-0 left-0 w-[280px] bg-[#F5F1E8] z-50 lg:hidden shadow-e3 animate-slideUp locker-rail overflow-hidden flex flex-col">
-            <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100"><X size={20} /></button>
+            <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700"><X size={20} /></button>
             <SidebarContent />
           </aside>
         </>
       )}
 
       <CommandPalette open={showCommandPalette} onClose={()=>setShowCommandPalette(false)} />
+      <UsernameSetupModal
+        open={showUsernameModal}
+        force={isStudent}
+        onClose={() => {
+          // Student mandatory guard: only allow close if username actually exists
+          // Teacher/admin optional: allow dismiss and remember snooze for 7 days
+          const fresh = (useAuthStore.getState().user as any)?.username
+          const local = (user as any)?.username
+          const hasUsername = !!(fresh || local)
+          if (isStudent && !hasUsername) {
+            toast.error('Please save a username to continue')
+            return
+          }
+          if (!isStudent && !hasUsername && user?.id) {
+            try { localStorage.setItem(getUsernameSkipKey(user.id), String(Date.now())) } catch {}
+          }
+          setShowUsernameModal(false)
+        }}
+        onSkip={() => {
+          // Teacher/admin skip: remember dismissal for 7 days so don't ask every time
+          if (user?.id) {
+            try { localStorage.setItem(getUsernameSkipKey(user.id), String(Date.now())) } catch {}
+          }
+          setShowUsernameModal(false)
+        }}
+      />
     </div>
   )
 }

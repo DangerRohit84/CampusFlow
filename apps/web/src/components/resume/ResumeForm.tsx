@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, X, ChevronDown, Link as LinkIcon, GraduationCap, Briefcase, FolderKanban, User, Sparkles } from 'lucide-react'
+import { Plus, Trash2, X, ChevronDown, Link as LinkIcon, GraduationCap, Briefcase, FolderKanban, User, Sparkles, Award } from 'lucide-react'
 import type { ResumeData, ResumeTemplateId } from '../../types/resume'
 import { RESUME_TEMPLATES } from '../../types/resume'
 
@@ -12,10 +12,10 @@ function Section({ title, icon, children, defaultOpen=false }: { title: string; 
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 overflow-hidden">
-      <button onClick={()=>setOpen(!open)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-surface-50 dark:hover:bg-night-700 transition-colors">
+      <button onClick={()=>setOpen(!open)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors">
         <span className="w-8 h-8 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-300">{icon}</span>
         <span className="flex-1 font-semibold text-sm text-surface-900 dark:text-night-50">{title}</span>
-        <ChevronDown size={16} className={`text-surface-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`text-surface-400 dark:text-night-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div className="px-4 pb-4 pt-1 border-t border-surface-100 dark:border-night-700 space-y-3">{children}</div>}
     </div>
@@ -79,12 +79,20 @@ export default function ResumeForm({ data, onChange }: Props) {
   }
   const removeEdu = (id:string) => update({ education: data.education.filter(e=>e.id!==id) })
 
+  const addCert = () => {
+    update({ certifications: [...(data.certifications||[]), { id: Date.now().toString(), name:'', issuer:'', date:'', url:'' }] })
+  }
+  const updateCert = (id:string, patch: Partial<ResumeData['certifications'][number]>) => {
+    update({ certifications: (data.certifications||[]).map(c=> c.id===id ? { ...c, ...patch } : c) })
+  }
+  const removeCert = (id:string) => update({ certifications: (data.certifications||[]).filter(c=>c.id!==id) })
+
   return (
     <div className="space-y-4">
       {/* Template Picker */}
       <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 p-4">
-        <p className="text-xs font-bold tracking-widest uppercase text-surface-400 mb-2 flex items-center gap-2"><Sparkles size={12}/> Template</p>
-        <div className="grid grid-cols-3 gap-2">
+        <p className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400 mb-2 flex items-center gap-2"><Sparkles size={12}/> Template</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {RESUME_TEMPLATES.map(t=>(
             <button key={t.id} onClick={()=>update({ template: t.id as ResumeTemplateId })}
               className={`p-3 rounded-xl border text-left transition-all ${data.template===t.id ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 ring-1 ring-primary-500' : 'border-surface-200 dark:border-night-600 hover:border-surface-300 bg-white dark:bg-night-850'}`}>
@@ -93,6 +101,7 @@ export default function ResumeForm({ data, onChange }: Props) {
             </button>
           ))}
         </div>
+        <p className="text-[11px] text-surface-500 dark:text-night-400 mt-2">Tip: <b>Source Sans — Split</b> is pixel-match of Overleaf PDF (0.5in, hairlines 0.4pt, tabular skills). Use <code className="px-1 py-0.5 bg-surface-100 dark:bg-night-700 rounded">Languages: Python, JS</code> for categorized table.</p>
       </div>
 
       <Section title="Personal Information" icon={<User size={16} />} defaultOpen>
@@ -118,7 +127,7 @@ export default function ResumeForm({ data, onChange }: Props) {
                 }} placeholder="https://..." className="flex-1 px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-sm" />
                 <button onClick={()=>{
                   const next=data.personalInfo.links.filter((_,idx)=>idx!==i); updatePersonal({ links: next.length? next: [{label:'LinkedIn',url:''}] })
-                }} className="p-2 rounded-xl text-surface-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={16}/></button>
+                }} className="p-2 rounded-xl text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={16}/></button>
               </div>
             ))}
             <button onClick={()=>updatePersonal({ links: [...data.personalInfo.links, {label:'GitHub', url:''}] })}
@@ -130,9 +139,10 @@ export default function ResumeForm({ data, onChange }: Props) {
       <Section title={`Skills (${data.skills.length})`} icon={<Sparkles size={16} />}>
         <div className="flex gap-2">
           <input value={skillInput} onChange={e=>setSkillInput(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addSkill() } }}
-            placeholder="Type skill and press Enter" className="flex-1 px-3 py-2.5 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-sm" />
+            placeholder="E.g. Languages: Python, Java  or  React" className="flex-1 px-3 py-2.5 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-sm" />
           <button onClick={addSkill} className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-medium">Add</button>
         </div>
+        <p className="text-[11px] text-surface-500 dark:text-night-400">For <b>Source Sans Split</b> table: use <code className="px-1 py-0.5 bg-surface-100 dark:bg-night-700 rounded">Category: item, item</code> — e.g. <em>Languages: Python, JavaScript</em>, <em>Frameworks: React, Node.js</em>. Without colon, skills show inline.</p>
         {data.skills.length>0 && (
           <div className="flex flex-wrap gap-2 mt-2">
             {data.skills.map((s,i)=>(
@@ -143,14 +153,21 @@ export default function ResumeForm({ data, onChange }: Props) {
             ))}
           </div>
         )}
+        <div className="flex gap-2 mt-2">
+          <button onClick={()=>{
+            const demo = ['Languages: JavaScript, TypeScript, Python, Java', 'Frameworks: React, Node.js, Express, Next.js', 'Tools: Git, Docker, PostgreSQL, AWS', 'Concepts: REST, DSA, System Design']
+            update({ skills: demo })
+          }} className="text-xs px-3 py-1.5 rounded-full border border-surface-200 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 text-surface-600 dark:text-night-300">Load categorized example</button>
+          {data.skills.length>0 && <button onClick={()=>update({ skills: [] })} className="text-xs px-3 py-1.5 rounded-full border border-surface-200 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 text-surface-600 dark:text-night-300">Clear</button>}
+        </div>
       </Section>
 
       <Section title={`Projects (${data.projects.length})`} icon={<FolderKanban size={16} />}>
         {data.projects.map(proj=>(
           <div key={proj.id} className="border border-surface-200 dark:border-night-600 rounded-xl p-3 space-y-2 bg-surface-50/50 dark:bg-night-850/50">
             <div className="flex justify-between items-center">
-              <p className="text-xs font-bold text-surface-500 tracking-widest uppercase">Project</p>
-              <button onClick={()=>removeProject(proj.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
+              <p className="text-xs font-bold text-surface-500 dark:text-night-400 tracking-widest uppercase">Project</p>
+              <button onClick={()=>removeProject(proj.id)} className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
             </div>
             <Input label="Title" value={proj.title} onChange={v=>updateProject(proj.id,{title:v})} placeholder="CampusFlow — Campus OS" />
             <Textarea label="Description" value={proj.description} onChange={v=>updateProject(proj.id,{description:v})} placeholder="What did you build?" rows={2} />
@@ -161,7 +178,7 @@ export default function ResumeForm({ data, onChange }: Props) {
             </div>
           </div>
         ))}
-        <button onClick={addProject} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
+        <button onClick={addProject} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 dark:text-night-400 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
           <Plus size={14}/> Add Project
         </button>
       </Section>
@@ -170,8 +187,8 @@ export default function ResumeForm({ data, onChange }: Props) {
         {data.experience.map(exp=>(
           <div key={exp.id} className="border border-surface-200 dark:border-night-600 rounded-xl p-3 space-y-2 bg-surface-50/50 dark:bg-night-850/50">
             <div className="flex justify-between items-center">
-              <p className="text-xs font-bold text-surface-500 tracking-widest uppercase">Experience</p>
-              <button onClick={()=>removeExp(exp.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
+              <p className="text-xs font-bold text-surface-500 dark:text-night-400 tracking-widest uppercase">Experience</p>
+              <button onClick={()=>removeExp(exp.id)} className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Input label="Role" value={exp.role} onChange={v=>updateExp(exp.id,{role:v})} placeholder="Frontend Intern" />
@@ -192,7 +209,7 @@ export default function ResumeForm({ data, onChange }: Props) {
                     }} placeholder="Achievement or responsibility" className="flex-1 px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-sm" />
                     <button onClick={()=>{
                       const next=exp.bullets.filter((_,i)=>i!==idx); updateExp(exp.id,{bullets: next.length? next: ['']})
-                    }} className="p-2 text-surface-400 hover:text-danger-500"><Trash2 size={14}/></button>
+                    }} className="p-2 text-surface-400 dark:text-night-400 hover:text-danger-500"><Trash2 size={14}/></button>
                   </div>
                 ))}
                 <button onClick={()=>updateExp(exp.id,{bullets:[...exp.bullets,'']})} className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1"><Plus size={12}/> Add bullet</button>
@@ -200,7 +217,7 @@ export default function ResumeForm({ data, onChange }: Props) {
             </div>
           </div>
         ))}
-        <button onClick={addExperience} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
+        <button onClick={addExperience} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 dark:text-night-400 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
           <Plus size={14}/> Add Experience
         </button>
       </Section>
@@ -209,8 +226,8 @@ export default function ResumeForm({ data, onChange }: Props) {
         {data.education.map(ed=>(
           <div key={ed.id} className="border border-surface-200 dark:border-night-600 rounded-xl p-3 space-y-2 bg-surface-50/50 dark:bg-night-850/50">
             <div className="flex justify-between items-center">
-              <p className="text-xs font-bold text-surface-500 tracking-widest uppercase">Education</p>
-              <button onClick={()=>removeEdu(ed.id)} className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
+              <p className="text-xs font-bold text-surface-500 dark:text-night-400 tracking-widest uppercase">Education</p>
+              <button onClick={()=>removeEdu(ed.id)} className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
             </div>
             <Input label="Degree" value={ed.degree} onChange={v=>updateEdu(ed.id,{degree:v})} placeholder="B.Tech Computer Science" />
             <Input label="School" value={ed.school} onChange={v=>updateEdu(ed.id,{school:v})} placeholder="ABC Institute of Technology" />
@@ -222,12 +239,32 @@ export default function ResumeForm({ data, onChange }: Props) {
             </div>
           </div>
         ))}
-        <button onClick={addEducation} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
+        <button onClick={addEducation} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 dark:text-night-400 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
           <Plus size={14}/> Add Education
         </button>
       </Section>
 
-      <div className="flex items-center gap-2 text-xs text-surface-400">
+      <Section title={`Certifications (${(data.certifications||[]).length})`} icon={<Award size={16} />}>
+        {(data.certifications||[]).map(c=>(
+          <div key={c.id} className="border border-surface-200 dark:border-night-600 rounded-xl p-3 space-y-2 bg-surface-50/50 dark:bg-night-850/50">
+            <div className="flex justify-between items-center">
+              <p className="text-xs font-bold text-surface-500 dark:text-night-400 tracking-widest uppercase">Certification</p>
+              <button onClick={()=>removeCert(c.id)} className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"><Trash2 size={14}/></button>
+            </div>
+            <Input label="Name" value={c.name} onChange={v=>updateCert(c.id,{name:v})} placeholder="AWS Certified Developer — Associate" />
+            <div className="grid grid-cols-2 gap-2">
+              <Input label="Issuer" value={c.issuer||''} onChange={v=>updateCert(c.id,{issuer:v})} placeholder="Amazon Web Services" />
+              <Input label="Date" value={c.date||''} onChange={v=>updateCert(c.id,{date:v})} placeholder="2025-06" />
+            </div>
+            <Input label="Verification URL" value={c.url||''} onChange={v=>updateCert(c.id,{url:v})} placeholder="https://credly.com/..." />
+          </div>
+        ))}
+        <button onClick={addCert} className="w-full py-2.5 rounded-xl border-2 border-dashed border-surface-200 dark:border-night-600 text-sm font-medium text-surface-500 dark:text-night-400 hover:border-primary-300 hover:text-primary-600 flex items-center justify-center gap-2">
+          <Plus size={14}/> Add Certification
+        </button>
+      </Section>
+
+      <div className="flex items-center gap-2 text-xs text-surface-400 dark:text-night-400">
         <LinkIcon size={12}/> Links like LinkedIn/GitHub show as clickable in Classic/Modern. Minimal puts them in sidebar.
       </div>
     </div>

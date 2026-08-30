@@ -22,9 +22,16 @@ export function loadResume(userId: string): ResumeData | null {
     const key = getResumeKey(userId)
     const raw = localStorage.getItem(key)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as ResumeData
+    const parsed: any = JSON.parse(raw) as ResumeData
     if (!parsed || typeof parsed !== 'object') return null
-    return parsed
+    if (!Array.isArray(parsed.certifications)) parsed.certifications = []
+    if (!parsed.template) parsed.template = 'source-split'
+    if (!Array.isArray(parsed.skills)) parsed.skills = []
+    if (!Array.isArray(parsed.projects)) parsed.projects = []
+    if (!Array.isArray(parsed.experience)) parsed.experience = []
+    if (!Array.isArray(parsed.education)) parsed.education = []
+    if (!parsed.personalInfo?.links) parsed.personalInfo.links = [{ label: 'LinkedIn', url: '' }]
+    return parsed as ResumeData
   } catch {
     return null
   }
@@ -76,7 +83,8 @@ export function emptyResumeData(user?: { name?: string; email?: string }): Resum
     projects: [],
     experience: [],
     education: [],
-    template: 'classic',
+    certifications: [],
+    template: 'source-split',
     updatedAt: new Date().toISOString(),
   }
 }

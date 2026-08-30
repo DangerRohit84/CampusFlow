@@ -266,7 +266,7 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -278,15 +278,15 @@ export default function AdminPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-surface-900">Super Admin Panel</h1>
-            <p className="text-surface-500 text-sm mt-1">Select a college to manage</p>
+            <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">Super Admin Panel</h1>
+            <p className="text-surface-500 dark:text-night-400 text-sm mt-1">Select a college to manage</p>
           </div>
         </div>
 
         {/* Pending Colleges */}
         {colleges.filter(c => c.status === 'PENDING').length > 0 && (
-          <div className="bg-white rounded-2xl border border-surface-100 p-6">
-            <h2 className="font-bold text-surface-900 mb-4 flex items-center gap-2">
+          <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
+            <h2 className="font-bold text-surface-900 dark:text-night-50 mb-4 flex items-center gap-2">
               <Shield size={18} className="text-warning-500" />
               Pending Approval ({colleges.filter(c => c.status === 'PENDING').length})
             </h2>
@@ -295,10 +295,10 @@ export default function AdminPage() {
                 <div key={c.id} className="p-4 bg-warning-50 rounded-xl border border-warning-200">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-bold text-surface-900">{c.name}</h3>
-                      <p className="text-xs text-surface-500">Code: {c.code}</p>
-                      {c.address && <p className="text-xs text-surface-500">{c.address}</p>}
-                      {c.adminEmail && <p className="text-xs text-surface-500">Admin: {c.adminEmail}</p>}
+                      <h3 className="font-bold text-surface-900 dark:text-night-50">{c.name}</h3>
+                      <p className="text-xs text-surface-500 dark:text-night-400">Code: {c.code}</p>
+                      {c.address && <p className="text-xs text-surface-500 dark:text-night-400">{c.address}</p>}
+                      {c.adminEmail && <p className="text-xs text-surface-500 dark:text-night-400">Admin: {c.adminEmail}</p>}
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => handleApproveCollege(c.id)}
@@ -318,9 +318,9 @@ export default function AdminPage() {
         )}
 
         {/* All Colleges - clickable cards */}
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
+        <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-surface-900">All Colleges ({colleges.length})</h2>
+            <h2 className="font-bold text-surface-900 dark:text-night-50">All Colleges ({colleges.length})</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {colleges.map((c) => (
@@ -341,19 +341,19 @@ export default function AdminPage() {
                     <div className="w-9 h-9 rounded-xl bg-primary-100 flex items-center justify-center">
                       <Building2 size={18} className="text-primary-600" />
                     </div>
-                    <h3 className="font-bold text-surface-900 text-sm">{c.name}</h3>
+                    <h3 className="font-bold text-surface-900 dark:text-night-50 text-sm">{c.name}</h3>
                   </div>
                   {isSuperAdmin && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteCollege(c.id) }}
-                      className="p-1 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"
+                      className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"
                     >
                       <Trash2 size={14} />
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-surface-500 mb-2">Code: {c.code}</p>
-                {c.address && <p className="text-xs text-surface-500 mb-2">{c.address}</p>}
+                <p className="text-xs text-surface-500 dark:text-night-400 mb-2">Code: {c.code}</p>
+                {c.address && <p className="text-xs text-surface-500 dark:text-night-400 mb-2">{c.address}</p>}
                 <div className="flex items-center gap-2 mb-2">
                   <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold',
                     c.status === 'APPROVED' ? 'bg-primary-100 text-primary-700' :
@@ -363,7 +363,7 @@ export default function AdminPage() {
                     {c.status}
                   </span>
                 </div>
-                <div className="flex gap-4 text-xs text-surface-500">
+                <div className="flex gap-4 text-xs text-surface-500 dark:text-night-400">
                   <span>{c._count?.users ?? 0} users</span>
                   <span>{c._count?.hackathons ?? 0} hackathons</span>
                 </div>
@@ -386,21 +386,21 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           {isSuperAdmin && (
             <button onClick={handleBackToColleges}
-              className="p-2 rounded-xl hover:bg-surface-100 text-surface-500 transition-all">
+              className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 dark:text-night-400 transition-all">
               <ArrowLeft size={20} />
             </button>
           )}
           <div>
-            <h1 className="text-2xl font-bold text-surface-900">
+            <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">
               {isSuperAdmin ? selectedCollegeName : 'College Admin Panel'}
             </h1>
-            <p className="text-surface-500 text-sm mt-1">Manage users, departments, and content</p>
+            <p className="text-surface-500 dark:text-night-400 text-sm mt-1">Manage users, departments, and content</p>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-surface-100 pb-2 overflow-x-auto">
+      <div className="flex gap-2 border-b border-surface-100 dark:border-night-600 pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('analytics')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
@@ -439,53 +439,53 @@ export default function AdminPage() {
       {activeTab === 'analytics' && analytics && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5">
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
                 <Users size={20} className="text-primary-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{analytics.totalStudents}</p>
-                <p className="text-xs text-surface-500">Students</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{analytics.totalStudents}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Students</p>
               </div>
             </div>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5">
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
                 <Shield size={20} className="text-primary-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{analytics.totalTeachers}</p>
-                <p className="text-xs text-surface-500">Teachers</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{analytics.totalTeachers}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Teachers</p>
               </div>
             </div>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5">
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-warning-100 flex items-center justify-center">
                 <Trophy size={20} className="text-warning-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{analytics.hackathons}</p>
-                <p className="text-xs text-surface-500">Hackathons</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{analytics.hackathons}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Hackathons</p>
               </div>
             </div>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5">
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
                 <FileText size={20} className="text-primary-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{analytics.forms}</p>
-                <p className="text-xs text-surface-500">Forms</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{analytics.forms}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Forms</p>
               </div>
             </div>
           </motion.div>
@@ -494,9 +494,9 @@ export default function AdminPage() {
 
       {/* Departments Tab */}
       {activeTab === 'departments' && (
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
+        <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-surface-900">Departments ({departments.length})</h2>
+            <h2 className="font-bold text-surface-900 dark:text-night-50">Departments ({departments.length})</h2>
             <button onClick={() => setShowAddDept(true)}
               className="flex items-center gap-2 px-3 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium">
               <FolderPlus size={14} /> Add Department
@@ -504,7 +504,7 @@ export default function AdminPage() {
           </div>
           <div className="space-y-2">
             {departments.map((d) => (
-              <div key={d.id} className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
+              <div key={d.id} className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-800 rounded-xl">
                 <div className="flex items-center gap-3 flex-1">
                   {renamingDept === d.id ? (
                     <div className="flex items-center gap-2 flex-1">
@@ -516,7 +516,7 @@ export default function AdminPage() {
                       <button onClick={() => handleRenameDept(d.id)}
                         className="px-2 py-1 bg-primary-500 text-white rounded-lg text-xs font-medium">Save</button>
                       <button onClick={() => setRenamingDept(null)}
-                        className="px-2 py-1 bg-surface-200 text-surface-600 rounded-lg text-xs font-medium">Cancel</button>
+                        className="px-2 py-1 bg-surface-200 text-surface-600 dark:text-night-300 rounded-lg text-xs font-medium">Cancel</button>
                     </div>
                   ) : (
                     <>
@@ -524,8 +524,8 @@ export default function AdminPage() {
                         {d.name.charAt(0)}
                       </div>
                       <div>
-                        <p className="font-medium text-surface-900 text-sm">{d.name}</p>
-                        <p className="text-xs text-surface-400">{d._count?.users || 0} users</p>
+                        <p className="font-medium text-surface-900 dark:text-night-50 text-sm">{d.name}</p>
+                        <p className="text-xs text-surface-400 dark:text-night-400">{d._count?.users || 0} users</p>
                       </div>
                     </>
                   )}
@@ -537,7 +537,7 @@ export default function AdminPage() {
                       Rename
                     </button>
                     <button onClick={() => handleDeleteDept(d.id, d.name, d._count?.users || 0)}
-                      className="p-1 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50">
+                      className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -545,7 +545,7 @@ export default function AdminPage() {
               </div>
             ))}
             {departments.length === 0 && (
-              <p className="text-center text-surface-400 py-8">No departments yet. Add one to get started.</p>
+              <p className="text-center text-surface-400 dark:text-night-400 py-8">No departments yet. Add one to get started.</p>
             )}
           </div>
         </div>
@@ -553,9 +553,9 @@ export default function AdminPage() {
 
       {/* Users Tab */}
       {activeTab === 'users' && (
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
+        <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-surface-900">Users ({users.length})</h2>
+            <h2 className="font-bold text-surface-900 dark:text-night-50">Users ({users.length})</h2>
             <div className="flex gap-2">
               <button onClick={() => navigate('/admin/add-teachers')}
                 className="flex items-center gap-2 px-3 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium">
@@ -569,7 +569,7 @@ export default function AdminPage() {
           </div>
 
           {/* Sub-tabs for roles */}
-          <div className="flex gap-2 mb-4 border-b border-surface-100 pb-2">
+          <div className="flex gap-2 mb-4 border-b border-surface-100 dark:border-night-600 pb-2">
             <button
               onClick={() => setUserSubTab('students')}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
@@ -600,20 +600,20 @@ export default function AdminPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-surface-100">
-                  <th className="text-left py-2 text-surface-500 font-medium">Name</th>
-                  <th className="text-left py-2 text-surface-500 font-medium">Email</th>
+                <tr className="border-b border-surface-100 dark:border-night-600">
+                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Name</th>
+                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Email</th>
                   {userSubTab === 'students' && (
                     <>
-                      <th className="text-left py-2 text-surface-500 font-medium">Roll Number</th>
-                      <th className="text-left py-2 text-surface-500 font-medium">Department</th>
-                      <th className="text-left py-2 text-surface-500 font-medium">Year</th>
+                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Roll Number</th>
+                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Department</th>
+                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Year</th>
                     </>
                   )}
                   {userSubTab === 'teachers' && (
-                    <th className="text-left py-2 text-surface-500 font-medium">Emp Number</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Emp Number</th>
                   )}
-                  <th className="text-left py-2 text-surface-500 font-medium">Actions</th>
+                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -625,18 +625,18 @@ export default function AdminPage() {
                     return true
                   })
                   .map((u) => (
-                    <tr key={u.id} className="border-b border-surface-50 hover:bg-surface-50 transition-all">
-                      <td className="py-2 font-medium text-surface-900">{u.name}</td>
-                      <td className="py-2 text-surface-600">{u.email}</td>
+                    <tr key={u.id} className="border-b border-surface-50 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 transition-all">
+                      <td className="py-2 font-medium text-surface-900 dark:text-night-50">{u.name}</td>
+                      <td className="py-2 text-surface-600 dark:text-night-300">{u.email}</td>
                       {userSubTab === 'students' && (
                         <>
-                          <td className="py-2 text-surface-600">{u.studentId || '-'}</td>
-                          <td className="py-2 text-surface-600">{u.department?.name || '-'}</td>
-                          <td className="py-2 text-surface-600">{u.incomingYear ? `Year ${Math.min(new Date().getFullYear() - u.incomingYear + 1, 4)}` : '-'}</td>
+                          <td className="py-2 text-surface-600 dark:text-night-300">{u.studentId || '-'}</td>
+                          <td className="py-2 text-surface-600 dark:text-night-300">{u.department?.name || '-'}</td>
+                          <td className="py-2 text-surface-600 dark:text-night-300">{u.incomingYear ? `Year ${Math.min(new Date().getFullYear() - u.incomingYear + 1, 4)}` : '-'}</td>
                         </>
                       )}
                       {userSubTab === 'teachers' && (
-                        <td className="py-2 text-surface-600">{u.empNumber || '-'}</td>
+                        <td className="py-2 text-surface-600 dark:text-night-300">{u.empNumber || '-'}</td>
                       )}
                       <td className="py-2">
                         <div className="flex items-center gap-1">
@@ -657,7 +657,7 @@ export default function AdminPage() {
                           </select>
                           <button
                             onClick={() => handleDeleteUser(u.id)}
-                            className="p-1 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"
+                            className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -673,7 +673,7 @@ export default function AdminPage() {
               if (userSubTab === 'college_admins') return u.role === 'COLLEGE_ADMIN'
               return false
             }).length === 0 && (
-              <p className="text-center text-surface-400 py-8">No users in this category</p>
+              <p className="text-center text-surface-400 dark:text-night-400 py-8">No users in this category</p>
             )}
           </div>
         </div>
@@ -683,30 +683,30 @@ export default function AdminPage() {
       {activeTab === 'content' && (
         <div className="space-y-6">
           {/* Hackathons */}
-          <div className="bg-white rounded-2xl border border-surface-100 p-6">
+          <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-surface-900">Hackathons ({hackathons.length})</h2>
+              <h2 className="font-bold text-surface-900 dark:text-night-50">Hackathons ({hackathons.length})</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-surface-100">
-                    <th className="text-left py-2 text-surface-500 font-medium">Name</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Creator</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Registrations</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Actions</th>
+                  <tr className="border-b border-surface-100 dark:border-night-600">
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Name</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Creator</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Registrations</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {hackathons.map((h) => (
-                    <tr key={h.id} className="border-b border-surface-50">
-                      <td className="py-2 font-medium text-surface-900">{h.name}</td>
-                      <td className="py-2 text-surface-600">{h.creator?.name || 'Unknown'}</td>
-                      <td className="py-2 text-surface-600">{h.registrations?.length || 0}</td>
+                    <tr key={h.id} className="border-b border-surface-50 dark:border-night-600">
+                      <td className="py-2 font-medium text-surface-900 dark:text-night-50">{h.name}</td>
+                      <td className="py-2 text-surface-600 dark:text-night-300">{h.creator?.name || 'Unknown'}</td>
+                      <td className="py-2 text-surface-600 dark:text-night-300">{h.registrations?.length || 0}</td>
                       <td className="py-2">
                         <button
                           onClick={() => handleDeleteHackathon(h.id)}
-                          className="p-1 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"
+                          className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -715,7 +715,7 @@ export default function AdminPage() {
                   ))}
                   {hackathons.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-surface-400">No hackathons found</td>
+                      <td colSpan={4} className="py-8 text-center text-surface-400 dark:text-night-400">No hackathons found</td>
                     </tr>
                   )}
                 </tbody>
@@ -724,30 +724,30 @@ export default function AdminPage() {
           </div>
 
           {/* Forms */}
-          <div className="bg-white rounded-2xl border border-surface-100 p-6">
+          <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-surface-900">Forms ({forms.length})</h2>
+              <h2 className="font-bold text-surface-900 dark:text-night-50">Forms ({forms.length})</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-surface-100">
-                    <th className="text-left py-2 text-surface-500 font-medium">Title</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Creator</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Responses</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Actions</th>
+                  <tr className="border-b border-surface-100 dark:border-night-600">
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Title</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Creator</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Responses</th>
+                    <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {forms.map((f) => (
-                    <tr key={f.id} className="border-b border-surface-50">
-                      <td className="py-2 font-medium text-surface-900">{f.title}</td>
-                      <td className="py-2 text-surface-600">{f.creator?.name || 'Unknown'}</td>
-                      <td className="py-2 text-surface-600">{f.responses?.length || 0}</td>
+                    <tr key={f.id} className="border-b border-surface-50 dark:border-night-600">
+                      <td className="py-2 font-medium text-surface-900 dark:text-night-50">{f.title}</td>
+                      <td className="py-2 text-surface-600 dark:text-night-300">{f.creator?.name || 'Unknown'}</td>
+                      <td className="py-2 text-surface-600 dark:text-night-300">{f.responses?.length || 0}</td>
                       <td className="py-2">
                         <button
                           onClick={() => handleDeleteForm(f.id)}
-                          className="p-1 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50"
+                          className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -756,7 +756,7 @@ export default function AdminPage() {
                   ))}
                   {forms.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-surface-400">No forms found</td>
+                      <td colSpan={4} className="py-8 text-center text-surface-400 dark:text-night-400">No forms found</td>
                     </tr>
                   )}
                 </tbody>
@@ -780,35 +780,35 @@ export default function AdminPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-md p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-md p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Add User</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Add User</h2>
               <div className="space-y-3">
                 <input type="text" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="Name" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="Name" />
                 <input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="Email" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="Email" />
                 <input type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="Password (default: password123)" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="Password (default: password123)" />
                 <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm">
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm">
                   <option value="STUDENT">Student</option>
                   <option value="TEACHER">Teacher</option>
                   <option value="COLLEGE_ADMIN">College Admin</option>
                 </select>
                 <select value={newUser.departmentId} onChange={(e) => setNewUser({ ...newUser, departmentId: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm">
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm">
                   <option value="">Select department</option>
                   {departments.map(d => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
                 <input type="text" value={newUser.studentId} onChange={(e) => setNewUser({ ...newUser, studentId: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="Student ID (optional)" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="Student ID (optional)" />
               </div>
               <div className="flex gap-3 mt-5">
-                <button onClick={() => setShowAddUser(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
+                <button onClick={() => setShowAddUser(false)} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium">Cancel</button>
                 <button onClick={handleAddUser} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Add</button>
               </div>
             </motion.div>
@@ -830,20 +830,20 @@ export default function AdminPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-md p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-md p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Add College</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Add College</h2>
               <div className="space-y-3">
                 <input type="text" value={newCollege.name} onChange={(e) => setNewCollege({ ...newCollege, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="College name" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="College name" />
                 <input type="text" value={newCollege.code} onChange={(e) => setNewCollege({ ...newCollege, code: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="College code (e.g., MIT)" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="College code (e.g., MIT)" />
                 <input type="text" value={newCollege.address} onChange={(e) => setNewCollege({ ...newCollege, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm" placeholder="Address (optional)" />
+                  className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm" placeholder="Address (optional)" />
               </div>
               <div className="flex gap-3 mt-5">
-                <button onClick={() => setShowAddCollege(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
+                <button onClick={() => setShowAddCollege(false)} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium">Cancel</button>
                 <button onClick={handleAddCollege} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Create</button>
               </div>
             </motion.div>
@@ -865,17 +865,17 @@ export default function AdminPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-md p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-md p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Add Department</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Add Department</h2>
               <input type="text" value={newDept.name}
                 onChange={(e) => setNewDept({ name: e.target.value })}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddDept()}
-                className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="e.g., Computer Science" autoFocus />
               <div className="flex gap-3 mt-5">
-                <button onClick={() => setShowAddDept(false)} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium">Cancel</button>
+                <button onClick={() => setShowAddDept(false)} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium">Cancel</button>
                 <button onClick={handleAddDept} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium">Create</button>
               </div>
             </motion.div>

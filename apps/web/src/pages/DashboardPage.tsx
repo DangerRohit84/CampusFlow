@@ -62,13 +62,13 @@ export default function DashboardPage() {
       {/* Header — registrar line */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold tracking-widest uppercase text-surface-400">Hall 01 · {todayLabel}</p>
-          <h1 className="font-display text-[30px] leading-none font-extrabold text-surface-900 mt-1">
+          <p className="text-[11px] font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Hall 01 · {todayLabel}</p>
+          <h1 className="font-display text-[30px] leading-none font-extrabold text-surface-900 dark:text-night-50 mt-1">
             Good morning, <span className="text-primary-600">{firstName}</span>
           </h1>
-          <p className="text-sm text-surface-500 mt-1.5">Here&apos;s your day on the board.</p>
+          <p className="text-sm text-surface-500 dark:text-night-400 mt-1.5">Here&apos;s your day on the board.</p>
         </div>
-        <button onClick={()=>navigate('/announcements')} className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white border border-surface-200 rounded-xl text-sm font-semibold hover:bg-surface-50 transition-colors">
+        <button onClick={()=>navigate('/announcements')} className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm font-semibold hover:bg-surface-50 dark:hover:bg-night-700 transition-colors">
           <Megaphone size={16} className="text-primary-600" /> Announcements
           {unreadCount>0 && <span className="ml-1 min-w-[20px] h-5 px-1.5 bg-danger-500 text-white rounded-full text-xs font-bold inline-flex items-center justify-center">{unreadCount>99?'99+':unreadCount}</span>}
         </button>
@@ -78,12 +78,12 @@ export default function DashboardPage() {
       <div className="paper overflow-hidden">
         <div className="h-[3px] bg-brass-400" />
         <div className="px-5 py-4 flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-surface-600 border border-surface-200 rounded-full px-3 py-1.5 bg-surface-50">
+          <span className="inline-flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-surface-600 dark:text-night-300 border border-surface-200 dark:border-night-600 rounded-full px-3 py-1.5 bg-surface-50 dark:bg-night-800">
             <Clock size={12} /> My Day — Today
           </span>
-          <span className="text-sm text-surface-500 hidden sm:inline">·</span>
-          <span className="text-sm font-medium text-surface-700">{todayLabel}</span>
-          <span className="ml-auto inline-flex items-center gap-2 text-xs font-semibold text-surface-600">
+          <span className="text-sm text-surface-500 dark:text-night-400 hidden sm:inline">·</span>
+          <span className="text-sm font-medium text-surface-700 dark:text-night-200">{todayLabel}</span>
+          <span className="ml-auto inline-flex items-center gap-2 text-xs font-semibold text-surface-600 dark:text-night-300">
             <span className="w-2 h-2 rounded-full bg-emerald-500" /> {todayClasses.length} periods today
           </span>
         </div>
@@ -92,15 +92,15 @@ export default function DashboardPage() {
         <div className="px-5 pb-5">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {Array.from({length:4}).map((_,i)=><div key={i} className="h-28 rounded-[14px] bg-surface-50 border border-surface-200 animate-pulse" />)}
+              {Array.from({length:4}).map((_,i)=><div key={i} className="h-28 rounded-[14px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 animate-pulse" />)}
             </div>
           ) : todayClasses.length===0 ? (
-            <div className="rounded-[14px] border border-dashed border-surface-300 bg-surface-50 p-8 text-center">
-              <div className="w-12 h-12 rounded-xl bg-white border border-surface-200 flex items-center justify-center mx-auto">
-                <BookOpen size={20} className="text-surface-400" />
+            <div className="rounded-[14px] border border-dashed border-surface-300 dark:border-night-600 bg-surface-50 dark:bg-night-800 p-8 text-center">
+              <div className="w-12 h-12 rounded-xl bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center mx-auto">
+                <BookOpen size={20} className="text-surface-400 dark:text-night-400" />
               </div>
-              <p className="mt-3 font-semibold text-surface-700">No periods today</p>
-              <p className="text-sm text-surface-500">Enjoy the open quad — or add your timetable.</p>
+              <p className="mt-3 font-semibold text-surface-700 dark:text-night-200">No periods today</p>
+              <p className="text-sm text-surface-500 dark:text-night-400">Enjoy the open quad — or add your timetable.</p>
               <button onClick={()=>navigate('/schedule')} className="mt-4 inline-flex items-center gap-1.5 min-h-[44px] px-5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">Open Timetable <ChevronRight size={16}/></button>
             </div>
           ) : (
@@ -108,11 +108,11 @@ export default function DashboardPage() {
               {todayClasses.slice(0,8).map((c:any, idx:number)=>(
                 <div key={c.id} className="due-slip p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold tracking-widest uppercase text-surface-400">Period {periodLabels[idx] ?? idx+1}</span>
-                    <span className="text-xs font-medium text-surface-500 font-mono">{c.startTime} — {c.endTime}</span>
+                    <span className="text-[11px] font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Period {periodLabels[idx] ?? idx+1}</span>
+                    <span className="text-xs font-medium text-surface-500 dark:text-night-400 font-mono">{c.startTime} — {c.endTime}</span>
                   </div>
-                  <p className="mt-2 font-bold text-surface-900 leading-tight line-clamp-2">{c.title}</p>
-                  <p className="mt-1 text-xs text-surface-500 inline-flex items-center gap-1.5">
+                  <p className="mt-2 font-bold text-surface-900 dark:text-night-50 leading-tight line-clamp-2">{c.title}</p>
+                  <p className="mt-1 text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-1.5">
                     {c.location && <><MapPin size={12}/> {c.location}</>}
                     {c.teacher && <span className="truncate">· {c.teacher}</span>}
                   </p>
@@ -125,11 +125,11 @@ export default function DashboardPage() {
           <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
             {stats.map(s=>(
               <div key={s.label} className="stat-card">
-                <div className="flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase text-surface-400">
+                <div className="flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">
                   <s.icon size={12} /> {s.label}
                 </div>
-                <p className="mt-2 font-display text-2xl font-extrabold text-surface-900">{s.value}</p>
-                { (s as any).sub && <p className="text-xs text-surface-500">{(s as any).sub}</p>}
+                <p className="mt-2 font-display text-2xl font-extrabold text-surface-900 dark:text-night-50">{s.value}</p>
+                { (s as any).sub && <p className="text-xs text-surface-500 dark:text-night-400">{(s as any).sub}</p>}
               </div>
             ))}
           </div>
@@ -142,10 +142,10 @@ export default function DashboardPage() {
           <div className="notice-board">
             <div className="notice-head">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-brass-400 flex items-center justify-center"><Megaphone size={16} className="text-surface-900"/></div>
+                <div className="w-9 h-9 rounded-xl bg-brass-400 flex items-center justify-center"><Megaphone size={16} className="text-surface-900 dark:text-night-50"/></div>
                 <div>
-                  <p className="font-bold text-surface-900 leading-none">Pinned Notices</p>
-                  <p className="text-xs text-surface-500">From the registrar</p>
+                  <p className="font-bold text-surface-900 dark:text-night-50 leading-none">Pinned Notices</p>
+                  <p className="text-xs text-surface-500 dark:text-night-400">From the registrar</p>
                 </div>
               </div>
               <button onClick={()=>navigate('/announcements')} className="text-sm font-semibold text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">View all <ChevronRight size={14}/></button>
@@ -153,17 +153,17 @@ export default function DashboardPage() {
             {announcements.length===0 ? (
               <div className="p-8 text-center">
                 <Megaphone size={28} className="mx-auto text-surface-300" />
-                <p className="mt-2 text-sm font-medium text-surface-500">No pinned notices</p>
-                <p className="text-xs text-surface-400">Announcements will be pinned here when posted.</p>
+                <p className="mt-2 text-sm font-medium text-surface-500 dark:text-night-400">No pinned notices</p>
+                <p className="text-xs text-surface-400 dark:text-night-400">Announcements will be pinned here when posted.</p>
               </div>
             ) : (
               <div className="p-4 space-y-3">
                 {announcements.slice(0,4).map((ann:any)=>(
-                  <button key={ann.id} onClick={()=>navigate('/announcements')} className="w-full text-left flex items-start gap-3 p-3 rounded-xl border border-surface-200 bg-surface-50 hover:bg-white transition-colors">
+                  <button key={ann.id} onClick={()=>navigate('/announcements')} className="w-full text-left flex items-start gap-3 p-3 rounded-xl border border-surface-200 dark:border-night-600 bg-surface-50 hover:bg-white dark:hover:bg-night-700 dark:bg-night-800 transition-colors">
                     <span className="w-2 h-2 rounded-full bg-brass-400 mt-2 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-surface-900 truncate">{ann.title}</p>
-                      <p className="text-xs text-surface-500">{ann.creator?.name} · {new Date(ann.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
+                      <p className="font-semibold text-surface-900 dark:text-night-50 truncate">{ann.title}</p>
+                      <p className="text-xs text-surface-500 dark:text-night-400">{ann.creator?.name} · {new Date(ann.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
                     </div>
                     <ChevronRight size={16} className="text-surface-300 shrink-0 mt-1" />
                   </button>
@@ -176,27 +176,27 @@ export default function DashboardPage() {
         <div className="col-span-12 lg:col-span-5">
           <div className="paper p-5">
             <div className="flex items-center justify-between">
-              <p className="font-bold text-surface-900">Up Next</p>
+              <p className="font-bold text-surface-900 dark:text-night-50">Up Next</p>
               <button onClick={()=>navigate('/hackathons')} className="text-xs font-semibold text-primary-600 hover:text-primary-700">View events →</button>
             </div>
             <div className="mt-4 space-y-3">
               {upcomingHackathons.length===0 ? (
-                <p className="text-sm text-surface-400 py-6 text-center border border-dashed border-surface-200 rounded-xl">No upcoming events</p>
+                <p className="text-sm text-surface-400 dark:text-night-400 py-6 text-center border border-dashed border-surface-200 dark:border-night-600 rounded-xl">No upcoming events</p>
               ) : upcomingHackathons.map((h:any)=>(
-                <div key={h.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 border border-surface-200">
+                <div key={h.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600">
                   <span className="w-2 h-2 rounded-full bg-primary-600 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-surface-900 text-sm truncate">{h.title}</p>
-                    <p className="text-xs text-surface-500">{new Date(h.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
+                    <p className="font-semibold text-surface-900 dark:text-night-50 text-sm truncate">{h.title}</p>
+                    <p className="text-xs text-surface-500 dark:text-night-400">{new Date(h.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
                   </div>
-                  <span className="text-xs text-surface-400">{Math.max(0, Math.ceil((new Date(h.startDate).getTime()-Date.now())/86400000))}d</span>
+                  <span className="text-xs text-surface-400 dark:text-night-400">{Math.max(0, Math.ceil((new Date(h.startDate).getTime()-Date.now())/86400000))}d</span>
                 </div>
               ))}
             </div>
 
             {/* quick actions — flat, paper */}
             <div className="mt-5">
-              <p className="text-xs font-bold tracking-widest uppercase text-surface-400">Quick Actions</p>
+              <p className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Quick Actions</p>
               <div className="mt-3 grid grid-cols-1 gap-2">
                 {[
                   {label:'Browse Hackathons', sub:'Find events', action:()=>navigate('/hackathons')},
@@ -204,13 +204,13 @@ export default function DashboardPage() {
                   {label:'Open Rooms', sub:'Your lockers', action:()=>navigate('/rooms')},
                   {label:'My Timetable', sub:'Period grid', action:()=>navigate('/schedule')},
                 ].slice(0, user?.role==='STUDENT' ? 4 : 3).map(a=>(
-                  <button key={a.label} onClick={a.action} className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 bg-white hover:bg-surface-50 text-left transition-colors">
+                  <button key={a.label} onClick={a.action} className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 hover:bg-surface-50 dark:hover:bg-night-700 text-left transition-colors">
                     <span className="w-9 h-9 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center shrink-0">
                       <FileText size={16} className="text-primary-600" />
                     </span>
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-semibold text-surface-900">{a.label}</span>
-                      <span className="block text-xs text-surface-500">{a.sub}</span>
+                      <span className="block text-sm font-semibold text-surface-900 dark:text-night-50">{a.label}</span>
+                      <span className="block text-xs text-surface-500 dark:text-night-400">{a.sub}</span>
                     </span>
                     <ChevronRight size={14} className="text-surface-300" />
                   </button>
@@ -225,16 +225,16 @@ export default function DashboardPage() {
       {forms.length>0 && (
         <div className="paper p-5">
           <div className="flex items-center gap-2">
-            <ClipboardList size={16} className="text-surface-500" />
-            <p className="font-bold text-surface-900">Forms needing attention</p>
+            <ClipboardList size={16} className="text-surface-500 dark:text-night-400" />
+            <p className="font-bold text-surface-900 dark:text-night-50">Forms needing attention</p>
             <span className="ml-auto text-xs font-semibold bg-warning-50 text-warning-600 border border-warning-100 rounded-full px-2.5 py-1">{forms.length} open</span>
           </div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             {forms.slice(0,3).map((f:any)=>(
               <button key={f.id} onClick={()=>navigate(`/forms/${f.id}`)} className="due-slip p-4 text-left hover:shadow-e2 transition-shadow">
-                <p className="font-semibold text-surface-900 line-clamp-1">{f.title}</p>
-                <p className="text-xs text-surface-500 mt-1 line-clamp-2">{f.description || 'No description'}</p>
-                <p className="text-xs font-mono text-surface-400 mt-3">{f.expiresAt ? `Due ${new Date(f.expiresAt).toLocaleDateString()}` : 'No due date'}</p>
+                <p className="font-semibold text-surface-900 dark:text-night-50 line-clamp-1">{f.title}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400 mt-1 line-clamp-2">{f.description || 'No description'}</p>
+                <p className="text-xs font-mono text-surface-400 dark:text-night-400 mt-3">{f.expiresAt ? `Due ${new Date(f.expiresAt).toLocaleDateString()}` : 'No due date'}</p>
               </button>
             ))}
           </div>

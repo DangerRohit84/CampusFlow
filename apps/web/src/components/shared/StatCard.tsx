@@ -15,14 +15,14 @@ export default function StatCard({ label, value, icon: Icon, loading, trend }: S
     <div className="stat-card">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold tracking-widest uppercase text-surface-400 truncate">{label}</p>
+          <p className="text-[11px] font-bold tracking-widest uppercase text-surface-400 dark:text-night-400 truncate">{label}</p>
           {loading ? (
-            <div className="mt-2 h-9 w-20 rounded-lg bg-surface-100 animate-pulse" />
+            <div className="mt-2 h-9 w-20 rounded-lg bg-surface-100 dark:bg-night-700 animate-pulse" />
           ) : (
-            <p className="font-display text-3xl font-extrabold text-surface-900 mt-1 tracking-tight">{value}</p>
+            <p className="font-display text-3xl font-extrabold text-surface-900 dark:text-night-50 mt-1 tracking-tight">{value}</p>
           )}
           {trend && !loading && (
-            <p className="mt-1 text-xs font-medium text-surface-500">{trend.value}</p>
+            <p className="mt-1 text-xs font-medium text-surface-500 dark:text-night-400">{trend.value}</p>
           )}
         </div>
         <div className="w-11 h-11 rounded-xl bg-primary-600 flex items-center justify-center text-white shrink-0">

@@ -79,11 +79,11 @@ export default function CodingContestsPage() {
   const { data: contestsData, isLoading: loading } = useQuery({
     queryKey: ['contests', platformFilter],
     queryFn: ({ signal }) => {
-      const params: any = {}
+      const params: any = { limit: 100 }
       if (platformFilter !== 'ALL') params.platform = platformFilter
       return codingContestAPI.getAll({ ...params, signal } as any)
     },
-    staleTime: 2 * 60 * 1000,
+    staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   })
   const contests = (contestsData as any[]) ?? []
@@ -91,17 +91,12 @@ export default function CodingContestsPage() {
   const prefetchContestPage = (_p: number) => { void _p }
 
   useEffect(() => {
+    // Fix: remove 6h LS cache (stale) — always fetch-now for teachers on mount and rely on React Query staleTime
+    // This ensures tomorrow's LeetCode contest appears immediately after fetchAndStoreContests runs
     if (isTeacher) {
-      const CACHE_KEY = 'campusflow-last-contest-fetch'
-      const SIX_HOURS_MS = 6 * 60 * 60 * 1000
-      const lastFetch = localStorage.getItem(CACHE_KEY)
-      const now = Date.now()
-      if (!lastFetch || now - parseInt(lastFetch, 10) > SIX_HOURS_MS) {
-        codingContestAPI.fetchNow().then(() => {
-          localStorage.setItem(CACHE_KEY, String(now))
-          queryClient.invalidateQueries({ queryKey: ['contests'] })
-        }).catch(() => {})
-      }
+      codingContestAPI.fetchNow()
+        .then(() => queryClient.invalidateQueries({ queryKey: ['contests'] }))
+        .catch(() => {})
     }
     codingContestAPI.getParticipantCounts().then(setParticipantCounts).catch(() => {})
     if (user?.role === 'STUDENT') {
@@ -407,7 +402,7 @@ export default function CodingContestsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -425,13 +420,13 @@ export default function CodingContestsPage() {
               <>
                 <button
                   onClick={() => navigate('/contests/leaderboard')}
-                  className="flex items-center gap-2 px-4 py-2 bg-brass-400 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-brass-400 dark:bg-brass-400 text-surface-900 dark:text-night-950 rounded-xl hover:shadow-lg hover:bg-brass-500 dark:hover:bg-brass-500 transition-all text-sm font-medium border border-transparent dark:border-brass-400"
                 >
                   <Trophy size={16} /> Leaderboard
                 </button>
                 <button
                   onClick={createModal.open}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium dark:bg-[#90B9A4] dark:text-night-950 dark:hover:bg-[#A8C2B3]"
                 >
                   <Plus size={16} /> Add Contest
                 </button>
@@ -455,10 +450,10 @@ export default function CodingContestsPage() {
                 loadContests(p)
               }}
               className={clsx(
-                'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all border',
                 isActive
-                  ? 'bg-primary-500 text-white shadow-md'
-                  : 'bg-surface-100 text-surface-600 hover:bg-surface-200 dark:bg-night-600 dark:text-night-200 dark:hover:bg-[#232F3B]'
+                  ? 'bg-primary-500 text-white shadow-md dark:bg-[#90B9A4] dark:text-night-950 border-transparent dark:border-[#90B9A4]'
+                  : 'bg-white dark:bg-night-700 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-600'
               )}
             >
               {p === 'ALL' ? (
@@ -485,14 +480,14 @@ export default function CodingContestsPage() {
 
       {/* Selected Date Indicator */}
       {selectedDate && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-primary-50 rounded-xl border border-primary-100">
-          <Calendar size={14} className="text-primary-500" />
-          <span className="text-sm font-medium text-primary-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-primary-50 dark:bg-[#90B9A4]/10 rounded-xl border border-primary-100 dark:border-[#90B9A4]/20">
+          <Calendar size={14} className="text-primary-500 dark:text-[#90B9A4]" />
+          <span className="text-sm font-medium text-primary-700 dark:text-[#90B9A4]">
             Showing contests for {formatDate(selectedDate)}
           </span>
           <button
             onClick={() => setSelectedDate(null)}
-            className="ml-auto text-primary-500 hover:text-primary-700 dark:hover:text-primary-400"
+            className="ml-auto text-primary-500 hover:text-primary-700 dark:text-[#90B9A4] dark:hover:text-[#A8C2B3]"
           >
             <Trash2 size={14} />
           </button>
@@ -515,7 +510,7 @@ export default function CodingContestsPage() {
               {pagedContests.map((c) => {
                 const status = getContestStatus(c)
                 const sCfg = statusConfig[status]
-                const pCfg = platformConfig[c.platform] || { color: 'text-surface-700', bg: 'bg-surface-100', label: c.platform }
+                const pCfg = platformConfig[c.platform] || { color: 'text-surface-700 dark:text-night-200', bg: 'bg-surface-100 dark:bg-night-700', label: c.platform }
                 const contestSolutions = solutions[c.id] || []
                 const isExpanded = expandedContest === c.id
 
@@ -537,7 +532,7 @@ export default function CodingContestsPage() {
                             {sCfg.label}
                           </span>
                           {c.contestType && c.contestType !== 'OTHER' && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-100 text-surface-600 dark:bg-night-600 dark:text-night-200">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-100 text-surface-600 dark:bg-night-700 dark:text-night-200 border border-surface-200 dark:border-night-600">
                               {c.contestType}
                             </span>
                           )}
@@ -574,7 +569,7 @@ export default function CodingContestsPage() {
                           )
                         })()}
 
-                        <div className="flex items-center gap-4 text-xs text-surface-500">
+                        <div className="flex items-center gap-4 text-xs text-surface-500 dark:text-night-300">
                           <span className="flex items-center gap-1">
                             <Calendar size={12} className="text-primary-500" />
                             {formatDate(c.startTime)}
@@ -595,7 +590,7 @@ export default function CodingContestsPage() {
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => toggleSolutions(c.id)}
-                                className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+                                className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-[#90B9A4] dark:hover:text-[#A8C2B3]"
                               >
                                 <Youtube size={14} />
                                 Solutions ({solutionCounts[c.id] ?? 0})
@@ -604,7 +599,7 @@ export default function CodingContestsPage() {
                               {isTeacher && (
                                 <button
                                   onClick={() => { setShowAddSolution(showAddSolution === c.id ? null : c.id); setSolProblem(''); setSolUrl('') }}
-                                  className="flex items-center gap-1 text-xs font-medium text-accent-600 hover:text-accent-700"
+                                  className="flex items-center gap-1 text-xs font-medium text-accent-600 hover:text-accent-700 dark:text-accent-300 dark:hover:text-accent-200"
                                 >
                                   <Plus size={12} /> Add
                                 </button>
@@ -632,7 +627,7 @@ export default function CodingContestsPage() {
                                   <button
                                     onClick={() => handleAddSolution(c.id)}
                                     disabled={savingSolution}
-                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-lg disabled:opacity-50 flex items-center gap-1"
+                                    className="px-3 py-1.5 text-xs font-medium bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white dark:text-night-950 rounded-lg disabled:opacity-50 flex items-center gap-1"
                                   >
                                     {savingSolution ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
                                   </button>
@@ -656,7 +651,7 @@ export default function CodingContestsPage() {
                                 >
                                   <div className="mt-2 space-y-2">
                                     {contestSolutions.length === 0 ? (
-                                      <p className="text-xs text-surface-400 italic">No solutions available yet</p>
+                                      <p className="text-xs text-surface-400 dark:text-night-400 italic">No solutions available yet</p>
                                     ) : (
                                       contestSolutions.map((sol: any, idx: number) => {
                                         const url = sol.url || sol.solutionUrl
@@ -689,14 +684,14 @@ export default function CodingContestsPage() {
                                               )}
                                               <div className="flex-1 min-w-0">
                                                 <p className="text-xs font-medium text-surface-700 dark:text-night-50 line-clamp-1">{title}</p>
-                                                {sol.language && <p className="text-[10px] text-surface-400">{sol.language}</p>}
+                                                {sol.language && <p className="text-[10px] text-surface-400 dark:text-night-400">{sol.language}</p>}
                                               </div>
-                                              <ExternalLink size={12} className="text-surface-400 shrink-0" />
+                                              <ExternalLink size={12} className="text-surface-400 dark:text-night-400 shrink-0" />
                                             </a>
                                             {isTeacher && (
                                               <button
                                                 onClick={() => handleRemoveSolution(c.id, idx)}
-                                                className="text-surface-400 hover:text-red-500 shrink-0"
+                                                className="text-surface-400 dark:text-night-400 hover:text-red-500 shrink-0"
                                                 title="Remove solution"
                                               >
                                                 <Trash2 size={12} />
@@ -718,7 +713,7 @@ export default function CodingContestsPage() {
                           <div className="mt-3">
                             <button
                               onClick={() => loadParticipants(c.id)}
-                              className="flex items-center gap-1.5 text-xs font-medium text-surface-600 hover:text-surface-800"
+                              className="flex items-center gap-1.5 text-xs font-medium text-surface-600 hover:text-surface-800 dark:text-night-300 dark:hover:text-night-50"
                             >
                                 View Participants ({participantCounts[c.id] ?? 0})
                             </button>
@@ -731,7 +726,7 @@ export default function CodingContestsPage() {
                           href={c.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-2 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
+                          className="p-2 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors dark:text-night-400 dark:hover:text-[#90B9A4] dark:hover:bg-[#90B9A4]/10"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <ExternalLink size={16} />
@@ -739,7 +734,7 @@ export default function CodingContestsPage() {
                         {isTeacher && !c.isAutoFetched && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }}
-                            className="p-2 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
+                            className="p-2 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 transition-colors dark:text-night-400 dark:hover:text-red-400 dark:hover:bg-red-500/10"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -767,7 +762,7 @@ export default function CodingContestsPage() {
               >
                 <ChevronLeft size={18} className="text-surface-600 dark:text-night-200" />
               </button>
-              <h3 className="font-semibold text-surface-900">
+              <h3 className="font-semibold text-surface-900 dark:text-night-50">
                 {currentMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
               </h3>
               <button
@@ -804,7 +799,7 @@ export default function CodingContestsPage() {
                     className={clsx(
                       'relative h-8 rounded-lg text-sm font-medium transition-all',
                       isSelected
-                        ? 'bg-primary-500 text-white'
+                        ? 'bg-primary-500 text-white dark:bg-[#90B9A4] dark:text-night-950'
                         : isToday
                         ? 'bg-primary-50 text-primary-700 dark:bg-[#90B9A4]/10 dark:text-[#90B9A4]'
                         : item.hasContests
@@ -818,10 +813,10 @@ export default function CodingContestsPage() {
                         'absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5',
                       )}>
                         {item.platforms.map((p) => {
-                          const dotColor = p === 'LEETCODE' ? (isSelected ? 'bg-white' : 'bg-yellow-500')
-                            : p === 'CODECHEF' ? (isSelected ? 'bg-white' : 'bg-warning-500')
-                            : p === 'CODEFORCES' ? (isSelected ? 'bg-white' : 'bg-primary-500')
-                            : (isSelected ? 'bg-white' : 'bg-surface-400')
+                          const dotColor = p === 'LEETCODE' ? (isSelected ? 'bg-white dark:bg-night-800' : 'bg-yellow-500')
+                            : p === 'CODECHEF' ? (isSelected ? 'bg-white dark:bg-night-800' : 'bg-warning-500')
+                            : p === 'CODEFORCES' ? (isSelected ? 'bg-white dark:bg-night-800' : 'bg-primary-500')
+                            : (isSelected ? 'bg-white dark:bg-night-800' : 'bg-surface-400')
                           return (
                             <span key={p} className={clsx('w-1 h-1 rounded-full', dotColor)} />
                           )
@@ -950,7 +945,7 @@ export default function CodingContestsPage() {
                 </button>
                 <button
                   onClick={handleCreate}
-                  className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg"
+                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg dark:bg-[#90B9A4] dark:text-night-950 dark:hover:bg-[#A8C2B3]"
                 >
                   Create
                 </button>
@@ -981,12 +976,14 @@ export default function CodingContestsPage() {
               <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 dark:border-night-600">
                 <h2 className="text-xl font-bold text-surface-900 dark:text-night-50">Participants</h2>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={exportParticipantsToCSV}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium"
-                  >
-                    <Download size={16} /> Export CSV
-                  </button>
+                  {isTeacher && (
+                    <button
+                      onClick={exportParticipantsToCSV}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:shadow-lg transition-all text-sm font-medium dark:bg-[#90B9A4] dark:text-night-950 dark:hover:bg-[#A8C2B3]"
+                    >
+                      <Download size={16} /> Export CSV
+                    </button>
+                  )}
                   <button
                     onClick={participantsModal.close}
                     className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-night-600 transition-colors text-surface-500 dark:text-night-200"
@@ -999,7 +996,7 @@ export default function CodingContestsPage() {
               {/* Modal Body */}
               <div className="overflow-y-auto flex-1 p-6">
                 {participants.length === 0 ? (
-                  <p className="text-center text-surface-400 py-8">No participants found</p>
+                  <p className="text-center text-surface-400 dark:text-night-400 py-8">No participants found</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -1013,7 +1010,7 @@ export default function CodingContestsPage() {
                       </thead>
                         <tbody className="divide-y divide-surface-50 dark:divide-night-600">
                         {pagedParticipants.map((p) => (
-                          <tr key={p.id} className="hover:bg-surface-50 dark:hover:bg-night-600 transition-colors">
+                          <tr key={p.id} className="hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-600 transition-colors">
                             <td className="px-4 py-3 font-medium text-surface-900 dark:text-night-50">{p.user?.name || p.name}</td>
                             <td className="px-4 py-3 text-surface-500 dark:text-night-200">{p.user?.department?.name || p.department}</td>
                             <td className="px-4 py-3 text-center font-semibold text-surface-900 dark:text-night-50">{p.rank ? `#${p.rank}` : '—'}</td>

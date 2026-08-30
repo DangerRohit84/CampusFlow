@@ -87,8 +87,8 @@ export default function AiManagerPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-primary-600 dark:text-[#90B9A4]" size={32} />
+      <div className="flex items-center justify-center min-h-[45vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
   }
@@ -101,13 +101,13 @@ export default function AiManagerPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><Zap size={18} className="text-brass-400" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">AI Manager — Routing Desk</h1>
-              <p className="text-xs text-surface-500">Providers & feature routing. Flat, paper, no gradients.</p>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">AI Manager — Routing Desk</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Providers & feature routing. Flat, paper, no gradients.</p>
             </div>
           </div>
           <div className="flex gap-2">
             <button onClick={handleTestAll}
-              className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl border border-surface-200 bg-white text-surface-700 hover:bg-surface-50 text-sm font-semibold">
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-700 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-night-700 text-sm font-semibold">
               <Zap size={16} /> Test All
             </button>
             <button onClick={() => { setEditing(null); setModalOpen(true) }}

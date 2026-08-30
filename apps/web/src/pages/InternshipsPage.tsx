@@ -230,7 +230,7 @@ export default function InternshipsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -243,23 +243,25 @@ export default function InternshipsPage() {
         <div className="h-[3px] bg-brass-400" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Briefcase size={18} className="text-surface-900" /></div>
+            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Briefcase size={18} className="text-surface-900 dark:text-night-50" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Notice Board — Internships</h1>
-              <p className="text-xs text-surface-500">Training & placement desk · Due slips below</p>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Notice Board — Internships</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Training & placement desk · Due slips below</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
               <input type="text" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15" />
+                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15" />
             </div>
-            <button
-              onClick={() => internshipAPI.exportAll().then(() => toast.success('Exported!')).catch(() => toast.error('Export failed'))}
-              className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 bg-white text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold"
-            >
-              <Download size={16} /> Export
-            </button>
+            {isTeacher && (
+              <button
+                onClick={() => internshipAPI.exportAll().then(() => toast.success('Exported!')).catch(() => toast.error('Export failed'))}
+                className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 text-sm font-semibold"
+              >
+                <Download size={16} /> Export
+              </button>
+            )}
             {isTeacher && (
               <button
                 onClick={createModal.open}
@@ -271,7 +273,7 @@ export default function InternshipsPage() {
           </div>
         </div>
         <div className="px-5 pb-4 sm:hidden">
-          <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 min-h-[44px] bg-surface-50 border border-surface-200 rounded-xl text-sm" />
+          <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm" />
         </div>
       </div>
 
@@ -321,23 +323,23 @@ export default function InternshipsPage() {
                 className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow', isUrgent && 'due-slip--urgent')}
               >
                   <div className="flex items-center justify-between">
-                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='active'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 text-surface-600 border-surface-200')}>
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='active'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
                       <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='active'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
                     </span>
-                    {i.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 border border-surface-200 rounded-full px-2 py-1">{i.mode}</span>}
+                    {i.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 dark:text-night-400 border border-surface-200 dark:border-night-600 rounded-full px-2 py-1">{i.mode}</span>}
                   </div>
-                  <h3 className="mt-3 font-display font-bold text-surface-900 line-clamp-1 hover:text-primary-700">
+                  <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 line-clamp-1 hover:text-primary-700">
                     {i.title}
                   </h3>
                   {i.company && <p className="text-sm font-semibold text-primary-600 flex items-center gap-1.5 mt-1"><Building2 size={13}/> {i.company}</p>}
-                  {i.description && <p className="text-sm text-surface-500 line-clamp-2 mt-2 flex-1">{i.description}</p>}
+                  {i.description && <p className="text-sm text-surface-500 dark:text-night-400 line-clamp-2 mt-2 flex-1">{i.description}</p>}
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     {i.stipend && <span className="px-2 py-1 bg-success-50 text-success-700 border border-success-100 rounded-full text-xs font-semibold">{i.stipend}</span>}
-                    {i.duration && <span className="inline-flex items-center gap-1 text-surface-500"><Timer size={12}/> {i.duration}</span>}
-                    {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 text-surface-600 border-surface-200')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
+                    {i.duration && <span className="inline-flex items-center gap-1 text-surface-500 dark:text-night-400"><Timer size={12}/> {i.duration}</span>}
+                    {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
                   </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 pt-3">
-                    <span className="text-xs text-surface-500 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12}/> {i.role}</span>}</span>
+                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
+                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12}/> {i.role}</span>}</span>
                     <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14}/></span>
                   </div>
               </div>
@@ -362,21 +364,21 @@ export default function InternshipsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6"
+              className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Post Internship</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Post Internship</h2>
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Quick Fill from URL</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Quick Fill from URL</label>
                   <div className="flex gap-2">
                     <input
                       type="url"
                       value={form.url}
                       onChange={(e) => setForm({ ...form, url: e.target.value })}
                       placeholder="Paste internship link..."
-                      className="flex-1 px-3 py-2 bg-white border border-surface-200 rounded-lg text-sm"
+                      className="flex-1 px-3 py-2 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-sm"
                     />
                     <button
                       onClick={handleFetchDetails}
@@ -389,83 +391,83 @@ export default function InternshipsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Title *</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Title *</label>
                   <input
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     placeholder="e.g., Software Development Intern"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Company *</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Company *</label>
                     <input
                       type="text"
                       value={form.company}
                       onChange={(e) => setForm({ ...form, company: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="Company name"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Role</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Role</label>
                     <input
                       type="text"
                       value={form.role}
                       onChange={(e) => setForm({ ...form, role: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="e.g., Frontend Developer"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
                   <textarea
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20"
                     placeholder="About the internship"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Application URL</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Application URL</label>
                   <input
                     type="url"
                     value={form.url}
                     onChange={(e) => setForm({ ...form, url: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     placeholder="https://..."
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Stipend</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Stipend</label>
                     <input
                       type="text"
                       value={form.stipend}
                       onChange={(e) => setForm({ ...form, stipend: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="e.g., ₹15,000/mo"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Duration</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Duration</label>
                     <input
                       type="text"
                       value={form.duration}
                       onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="e.g., 3 months"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Mode</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Mode</label>
                     <select
                       value={form.mode}
                       onChange={(e) => setForm({ ...form, mode: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm bg-white"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800"
                     >
                       <option value="REMOTE">Remote</option>
                       <option value="ONSITE">On-site</option>
@@ -475,28 +477,28 @@ export default function InternshipsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Start Date</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Start Date</label>
                     <input
                       type="date"
                       value={form.startDate}
                       onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Deadline</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Deadline</label>
                     <input
                       type="date"
                       value={form.deadline}
                       onChange={(e) => setForm({ ...form, deadline: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Eligibility Section - Inline */}
-              <div className="mt-5 p-4 rounded-xl bg-surface-50 border border-surface-200">
+              <div className="mt-5 p-4 rounded-xl bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -510,12 +512,12 @@ export default function InternshipsPage() {
                     }}
                     className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500"
                   />
-                  <span className="text-sm font-medium text-surface-700">Restrict eligibility (departments/years)</span>
+                  <span className="text-sm font-medium text-surface-700 dark:text-night-200">Restrict eligibility (departments/years)</span>
                 </label>
                 {eligibilityEnabled && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-xs font-medium text-surface-600 mb-2">Departments</label>
+                      <label className="block text-xs font-medium text-surface-600 dark:text-night-300 mb-2">Departments</label>
                       <div className="flex flex-wrap gap-2">
                         {departments.map((dept) => (
                           <button
@@ -530,7 +532,7 @@ export default function InternshipsPage() {
                               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
                               targetDepartments.includes(dept.name)
                                 ? 'bg-primary-500 text-white border-primary-500'
-                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                                : 'bg-white dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600 hover:border-primary-300'
                             )}
                           >
                             {dept.name}
@@ -539,7 +541,7 @@ export default function InternshipsPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-surface-600 mb-2">Years</label>
+                      <label className="block text-xs font-medium text-surface-600 dark:text-night-300 mb-2">Years</label>
                       <div className="flex flex-wrap gap-2">
                         {[1, 2, 3, 4].map((year) => (
                           <button
@@ -554,7 +556,7 @@ export default function InternshipsPage() {
                               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
                               targetYears.includes(year)
                                 ? 'bg-primary-500 text-white border-primary-500'
-                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                                : 'bg-white dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600 hover:border-primary-300'
                             )}
                           >
                             Year {year}
@@ -567,7 +569,7 @@ export default function InternshipsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg">

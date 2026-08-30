@@ -69,5 +69,8 @@ export function parsePortyMessage(
 }
 
 export function buildPortyPublicUrl(slug: string): string {
-  return `${PORTY_BASE}/${slug.replace(/^\/+/, '')}`
+  // Porty public portfolios live at /p/<slug> — e.g. https://porty-eight.vercel.app/p/chakradhar-chowdary-gunnam-ms9sqtd2
+  // Normalize: strip leading "/" and optional "p/" prefix so both "p/xyz" and "xyz" work, then force /p/<slug>
+  const clean = slug.replace(/^\/+/, '').replace(/^p\/+/, '').split('?')[0].split('#')[0].trim()
+  return `${PORTY_BASE}/p/${clean}`
 }

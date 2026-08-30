@@ -322,7 +322,7 @@ export default function CalendarPage() {
               <div
                 key={dateStr}
                 onClick={() => setSelectedDate(dateStr)}
-                className={`h-24 border-b border-r border-surface-100 dark:border-night-650 p-1.5 cursor-pointer transition-colors hover:bg-surface-50 dark:hover:bg-night-850 ${
+                className={`h-24 border-b border-r border-surface-100 dark:border-night-650 p-1.5 cursor-pointer transition-colors hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-850 ${
                   isSelected ? 'bg-primary-50 dark:bg-[rgba(45,106,79,0.12)]' : ''
                 }`}
               >

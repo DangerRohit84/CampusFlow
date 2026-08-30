@@ -41,6 +41,7 @@ import StudentRoomsPage from './pages/StudentRoomsPage'
 import StudentRoomDetailPage from './pages/StudentRoomDetailPage'
 import ResumeStudioPage from './pages/ResumeStudioPage'
 import PortfolioStudioPage from './pages/PortfolioStudioPage'
+import PublicProfilePage from './pages/PublicProfilePage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -81,6 +82,8 @@ export default function App() {
           <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
           <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
           <Route path="/register-college" element={<CollegeRegistrationPage />} />
+          {/* public profile - accessible without layout but also needs auth for private data; keep outside ProtectedRoute but still render */}
+          <Route path="/u/:username" element={<PublicProfilePage />} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />

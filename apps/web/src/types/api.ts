@@ -1,6 +1,7 @@
 export interface User {
   id: string
   name: string
+  username?: string | null
   email: string
   role: 'STUDENT' | 'TEACHER' | 'COLLEGE_ADMIN' | 'SUPER_ADMIN'
   departmentId?: string
@@ -13,6 +14,7 @@ export interface User {
   empNumber?: string
   studentId?: string
   avatarUrl?: string
+  avatar?: string | null
 }
 
 export interface Department {

@@ -1,11 +1,30 @@
+/* Hanging pull-cord lamp — OLD design preserved, free 360° drag + unlimited stretch */
 .theme-lamp {
   display: flex;
   flex-direction: column;
   align-items: center;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  position: relative;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   animation: lampSwing 4s ease-in-out infinite;
   transform-origin: top center;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0 8px 8px;
+  overflow: visible;
+  /* FIX: thread cutting — ensure lamp can extend beyond h-0 wrapper without clipping */
+  transform-box: fill-box;
+}
+
+.theme-lamp:active { cursor: grabbing; }
+
+.theme-lamp:focus-visible {
+  outline: 2px solid #2d6a4f;
+  outline-offset: 3px;
+  border-radius: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -24,18 +43,38 @@
   animation-duration: 1.5s;
 }
 
+.theme-lamp.is-dragging {
+  animation: none !important;
+  cursor: grabbing;
+}
+
 .theme-lamp__cord {
   width: 8px;
   height: 20px;
   color: var(--text-light);
   flex-shrink: 0;
+  will-change: height;
+  transition: color 0.18s, filter 0.18s;
+  overflow: visible;
+  transform-origin: top center;
+  display: block;
+  /* FIX: cord clipping — allow unlimited stretch without container overflow-hidden cutting */
+  vector-effect: non-scaling-stroke;
+}
+
+.theme-lamp.is-ready .theme-lamp__cord {
+  color: #f59e0b;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.45));
 }
 
 .theme-lamp__bulb {
   width: 30px;
   height: 36px;
   flex-shrink: 0;
-  transition: transform 0.3s;
+  transition: transform 0.3s, filter 0.22s;
+  will-change: transform;
+  overflow: visible;
+  transform-origin: top center;
 }
 
 .theme-lamp:hover .theme-lamp__bulb {
@@ -44,6 +83,10 @@
 
 .theme-lamp:active .theme-lamp__bulb {
   transform: scale(0.85);
+}
+
+.theme-lamp.is-dragging .theme-lamp__bulb {
+  transform: none !important;
 }
 
 .theme-lamp__icon {
@@ -60,4 +103,11 @@
 @keyframes bulbGlow {
   0% { filter: drop-shadow(0 0 6px rgba(251,191,36,0.4)) drop-shadow(0 0 16px rgba(251,191,36,0.2)) drop-shadow(0 0 30px rgba(251,191,36,0.1)); }
   100% { filter: drop-shadow(0 0 10px rgba(251,191,36,0.6)) drop-shadow(0 0 24px rgba(251,191,36,0.35)) drop-shadow(0 0 50px rgba(251,191,36,0.2)); }
+}
+
+/* expanded hit area for drag anywhere */
+.theme-lamp::before {
+  content: "";
+  position: absolute;
+  inset: -12px -18px -18px -18px;
 }

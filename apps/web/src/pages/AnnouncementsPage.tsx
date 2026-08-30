@@ -99,7 +99,7 @@ export default function AnnouncementsPage() {
       {/* Super Admin College Filter */}
       {isSuperAdmin && (
         <div className="flex items-center gap-3">
-          <Filter size={16} className="text-surface-400" />
+          <Filter size={16} className="text-surface-400 dark:text-night-400" />
           <select
             value={collegeFilter}
             onChange={(e) => { setCollegeFilter(e.target.value); setPage(1) }}
@@ -174,7 +174,7 @@ export default function AnnouncementsPage() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="p-2 rounded-lg border border-surface-200 dark:border-night-600 disabled:opacity-40 hover:bg-surface-50 dark:hover:bg-night-700 transition-colors"
+            className="p-2 rounded-lg border border-surface-200 dark:border-night-600 disabled:opacity-40 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors"
           >
             <ChevronLeft size={16} className="text-surface-600 dark:text-night-300" />
           </button>
@@ -184,7 +184,7 @@ export default function AnnouncementsPage() {
           <button
             onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
             disabled={page === pagination.totalPages}
-            className="p-2 rounded-lg border border-surface-200 dark:border-night-600 disabled:opacity-40 hover:bg-surface-50 dark:hover:bg-night-700 transition-colors"
+            className="p-2 rounded-lg border border-surface-200 dark:border-night-600 disabled:opacity-40 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors"
           >
             <ChevronRight size={16} className="text-surface-600 dark:text-night-300" />
           </button>

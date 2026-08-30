@@ -35,13 +35,13 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
       />
       <div
         className={clsx(
-          'relative bg-white rounded-[14px] shadow-e3 w-full overflow-hidden animate-slideUp border border-surface-200',
+          'relative bg-white dark:bg-night-800 rounded-[14px] shadow-e3 w-full overflow-hidden animate-slideUp border border-surface-200 dark:border-night-600',
           { 'max-w-sm': size === 'sm', 'max-w-md': size === 'md', 'max-w-lg': size === 'lg' }
         )}
       >
-        <div className="flex items-center justify-between p-5 pb-4 border-b border-surface-200">
-          <h2 className="text-base font-bold text-surface-900 font-display">{title}</h2>
-          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-surface-600 hover:bg-surface-100 transition-colors">
+        <div className="flex items-center justify-between p-5 pb-4 border-b border-surface-200 dark:border-night-600">
+          <h2 className="text-base font-bold text-surface-900 dark:text-night-50 font-display">{title}</h2>
+          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-surface-600 dark:text-night-300 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors">
             <X size={18} />
           </button>
         </div>

@@ -117,7 +117,7 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
             {canEdit && onEdit && (
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit(announcement) }}
-                className="p-1.5 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                 title="Edit announcement"
               >
                 <Pencil size={14} />
@@ -126,7 +126,7 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
             {canDelete && onDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(announcement.id) }}
-                className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                 title="Delete announcement"
               >
                 <Trash2 size={14} />

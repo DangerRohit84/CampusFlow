@@ -3,15 +3,16 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Neon pooled: -pooler host + pgbouncer=true&connection_limit=10&pool_timeout=30&channel_binding=prefer&connect_timeout=30 (keeps Render+Neon warm via /api/health)
+  directUrl = env("DIRECT_URL") // Neon direct (no pooler, no pgbouncer) for migrations, channel_binding=prefer&connect_timeout=30
 }
 
 model User {
   id             String   @id @default(uuid())
   email          String   @unique
   name           String
+  username       String?  @unique
   passwordHash   String
   role           String   @default("STUDENT")
   collegeId      String?
@@ -72,6 +73,7 @@ model User {
   @@index([role])
   @@index([departmentId])
   @@index([collegeId, departmentId])
+  @@index([username])
 }
 
 model CodingProfile {
@@ -82,6 +84,7 @@ model CodingProfile {
   codechefHandle   String?
   hackerrankHandle String?
   gfgHandle        String?
+  githubUsername   String?
   platformStats    String?
   lastSyncedAt     DateTime?
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -292,7 +292,7 @@ export default function HackathonsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -305,29 +305,31 @@ export default function HackathonsPage() {
         <div className="h-[3px] bg-brass-400" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Trophy size={18} className="text-surface-900" /></div>
+            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Trophy size={18} className="text-surface-900 dark:text-night-50" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Notice Board — Hackathons</h1>
-              <p className="text-xs text-surface-500">Pinned by the registrar · Due slips below</p>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Notice Board — Hackathons</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Pinned by the registrar · Due slips below</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={14} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" size={14} />
               <input
                 type="text"
                 placeholder="Search notices…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 rounded-xl text-sm bg-surface-50 placeholder:text-surface-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15"
+                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15"
               />
             </div>
-            <button
-              onClick={() => hackathonAPI.exportAll()}
-              className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 bg-white text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold"
-            >
-              <Download size={16} /> Export
-            </button>
+            {isTeacher && (
+              <button
+                onClick={() => hackathonAPI.exportAll()}
+                className="inline-flex items-center gap-2 min-h-[44px] px-4 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 text-sm font-semibold"
+              >
+                <Download size={16} /> Export
+              </button>
+            )}
             {isTeacher && (
               <button
                 onClick={createModal.open}
@@ -341,13 +343,13 @@ export default function HackathonsPage() {
         {/* mobile search */}
         <div className="px-5 pb-4 sm:hidden">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" size={16} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" size={16} />
             <input
               type="text"
               placeholder="Search hackathons..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 min-h-[44px] border border-surface-200 rounded-xl text-sm bg-surface-50"
+              className="w-full pl-10 pr-4 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800"
             />
           </div>
         </div>
@@ -399,25 +401,25 @@ export default function HackathonsPage() {
                 onClick={() => navigate(`/hackathons/${h.id}`)}
               >
                   <div className="flex items-center justify-between">
-                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='ongoing'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 text-surface-600 border-surface-200')}>
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='ongoing'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
                       <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='ongoing'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
                     </span>
-                    {h.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 border border-surface-200 rounded-full px-2 py-1">{getModeLabel(h.mode)}</span>}
+                    {h.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 dark:text-night-400 border border-surface-200 dark:border-night-600 rounded-full px-2 py-1">{getModeLabel(h.mode)}</span>}
                   </div>
-                  <h3 className="mt-3 font-display font-bold text-surface-900 line-clamp-2 leading-tight group-hover:text-primary-700">
+                  <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 line-clamp-2 leading-tight group-hover:text-primary-700">
                     {h.title}
                   </h3>
-                  {h.description && <p className="text-sm text-surface-500 line-clamp-2 mt-1.5 flex-1">{h.description}</p>}
+                  {h.description && <p className="text-sm text-surface-500 dark:text-night-400 line-clamp-2 mt-1.5 flex-1">{h.description}</p>}
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     {(h.startDate || h.deadline) && (
-                      <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 text-surface-600 border-surface-200')}>
+                      <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
                         <Calendar size={12} /> {h.startDate ? new Date(h.startDate).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : new Date(h.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short' })} {isUrgent && '· Due soon'}
                       </span>
                     )}
-                    {h.location && <span className="inline-flex items-center gap-1 text-surface-500"><MapPin size={12}/> {h.location}</span>}
+                    {h.location && <span className="inline-flex items-center gap-1 text-surface-500 dark:text-night-400"><MapPin size={12}/> {h.location}</span>}
                   </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 pt-3">
-                    <span className="text-xs text-surface-500 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
+                  <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
+                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
                     <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14} /></span>
                   </div>
               </div>
@@ -442,21 +444,21 @@ export default function HackathonsPage() {
               initial={{ scale: 0.98, opacity: 0, y: 8 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.98, opacity: 0, y: 8 }}
-              className="bg-white rounded-[14px] border border-surface-200 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 shadow-e3"
+              className="bg-white dark:bg-night-800 rounded-[14px] border border-surface-200 dark:border-night-600 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 shadow-e3"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold text-surface-900 mb-4">Create Hackathon</h2>
+              <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Create Hackathon</h2>
 
               {/* URL Fetch */}
               <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-100">
-                <label className="text-sm font-medium text-surface-700 mb-1 block">Quick Fill from URL</label>
+                <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Quick Fill from URL</label>
                 <div className="flex gap-2">
                   <input
                     type="url"
                     value={form.url}
                     onChange={(e) => setForm({ ...form, url: e.target.value })}
                     placeholder="Paste hackathon link..."
-                    className="flex-1 px-3 py-2 bg-white border border-surface-200 rounded-lg text-sm"
+                    className="flex-1 px-3 py-2 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-sm"
                   />
                   <button
                     onClick={handleFetchDetails}
@@ -471,112 +473,112 @@ export default function HackathonsPage() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Title *</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Title *</label>
                   <input
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     placeholder="Hackathon name"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
                   <textarea
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20"
                     placeholder="About the hackathon"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Organizer</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Organizer</label>
                     <input
                       type="text"
                       value={form.organizer}
                       onChange={(e) => setForm({ ...form, organizer: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="Who organizes"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Team Size</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Team Size</label>
                     <input
                       type="number"
                       value={form.teamSize}
                       onChange={(e) => setForm({ ...form, teamSize: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="Max team size"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Registration URL</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Registration URL</label>
                   <input
                     type="url"
                     value={form.registrationUrl}
                     onChange={(e) => setForm({ ...form, registrationUrl: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     placeholder="Registration link"
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Start Date</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Start Date</label>
                     <input
                       type="date"
                       value={form.startDate}
                       onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">End Date</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">End Date</label>
                     <input
                       type="date"
                       value={form.endDate}
                       onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Deadline</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Deadline</label>
                     <input
                       type="date"
                       value={form.deadline}
                       onChange={(e) => setForm({ ...form, deadline: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Themes (comma separated)</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Themes (comma separated)</label>
                   <input
                     type="text"
                     value={form.themes}
                     onChange={(e) => setForm({ ...form, themes: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                     placeholder="AI, HealthTech, FinTech"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Location</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Location</label>
                     <input
                       type="text"
                       value={form.location}
                       onChange={(e) => setForm({ ...form, location: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="Venue or city"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Mode</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Mode</label>
                     <select
                       value={form.mode}
                       onChange={(e) => setForm({ ...form, mode: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm bg-white"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800"
                     >
                       <option value="OFFLINE">Offline</option>
                       <option value="ONLINE">Online</option>
@@ -586,79 +588,79 @@ export default function HackathonsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Prize Pool</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Prize Pool</label>
                     <input
                       type="text"
                       value={form.prizePool}
                       onChange={(e) => setForm({ ...form, prizePool: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="e.g., ₹2,50,000"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-surface-700 mb-1 block">Duration</label>
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Duration</label>
                     <input
                       type="text"
                       value={form.duration}
                       onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
                       placeholder="e.g., 30 hours"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Eligibility</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Eligibility</label>
                   <textarea
                     value={form.eligibility}
                     onChange={(e) => setForm({ ...form, eligibility: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
                     placeholder="Departments, years, etc."
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Event Schedule</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Event Schedule</label>
                   <textarea
                     value={form.schedule}
                     onChange={(e) => setForm({ ...form, schedule: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
                     placeholder="Day 1: ... Day 2: ..."
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Bootcamps (optional)</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Bootcamps (optional)</label>
                   <textarea
                     value={form.bootcamps}
                     onChange={(e) => setForm({ ...form, bootcamps: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
                     placeholder="DSA Bootcamp, Agentic AI Bootcamp, etc."
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-surface-700 mb-1 block">Highlights</label>
+                  <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Highlights</label>
                   <textarea
                     value={form.highlights}
                     onChange={(e) => setForm({ ...form, highlights: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
                     placeholder="Key gains, placement info, etc."
                   />
                 </div>
 
                 {aiRounds.length > 0 && (
                   <div className="mt-4">
-                    <label className="text-sm font-medium text-surface-700 mb-2 block">
+                    <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-2 block">
                       AI-Fetched Rounds ({aiRounds.length})
                     </label>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {aiRounds.map((r, i) => (
-                        <div key={i} className="p-3 bg-surface-50 border border-surface-200 rounded-xl text-sm">
+                        <div key={i} className="p-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm">
                           <div className="flex items-center gap-2">
                             <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold shrink-0">
                               {r.roundNumber}
                             </span>
-                            <span className="font-medium text-surface-900">{r.title}</span>
+                            <span className="font-medium text-surface-900 dark:text-night-50">{r.title}</span>
                           </div>
-                          {r.description && <p className="text-surface-500 text-xs mt-1 ml-8">{r.description}</p>}
-                          <div className="flex gap-3 mt-1 ml-8 text-xs text-surface-400">
+                          {r.description && <p className="text-surface-500 dark:text-night-400 text-xs mt-1 ml-8">{r.description}</p>}
+                          <div className="flex gap-3 mt-1 ml-8 text-xs text-surface-400 dark:text-night-400">
                             {r.date && <span>Date: {r.date}</span>}
                             {r.resultDate && <span>Results: {r.resultDate}</span>}
                           </div>
@@ -670,7 +672,7 @@ export default function HackathonsPage() {
               </div>
 
               {/* Eligibility Section - Inline */}
-              <div className="mt-5 p-4 rounded-xl bg-surface-50 border border-surface-200">
+              <div className="mt-5 p-4 rounded-xl bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -684,12 +686,12 @@ export default function HackathonsPage() {
                     }}
                     className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500"
                   />
-                  <span className="text-sm font-medium text-surface-700">Restrict eligibility (departments/years)</span>
+                  <span className="text-sm font-medium text-surface-700 dark:text-night-200">Restrict eligibility (departments/years)</span>
                 </label>
                 {eligibilityEnabled && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-xs font-medium text-surface-600 mb-2">Departments</label>
+                      <label className="block text-xs font-medium text-surface-600 dark:text-night-300 mb-2">Departments</label>
                       <div className="flex flex-wrap gap-2">
                         {departments.map((dept) => (
                           <button
@@ -704,7 +706,7 @@ export default function HackathonsPage() {
                               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
                               targetDepartments.includes(dept.name)
                                 ? 'bg-primary-500 text-white border-primary-500'
-                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                                : 'bg-white dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600 hover:border-primary-300'
                             )}
                           >
                             {dept.name}
@@ -713,7 +715,7 @@ export default function HackathonsPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-surface-600 mb-2">Years</label>
+                      <label className="block text-xs font-medium text-surface-600 dark:text-night-300 mb-2">Years</label>
                       <div className="flex flex-wrap gap-2">
                         {[1, 2, 3, 4].map((year) => (
                           <button
@@ -728,7 +730,7 @@ export default function HackathonsPage() {
                               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
                               targetYears.includes(year)
                                 ? 'bg-primary-500 text-white border-primary-500'
-                                : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300'
+                                : 'bg-white dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600 hover:border-primary-300'
                             )}
                           >
                             Year {year}
@@ -741,7 +743,7 @@ export default function HackathonsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200">
                   Cancel
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg">

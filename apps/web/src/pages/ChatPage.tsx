@@ -90,10 +90,10 @@ export default function ChatPage() {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-e1"><Bot className="w-6 h-6 text-white" /></div>
           <div>
-            <h1 className="text-2xl font-bold text-surface-900">AI Assistant</h1>
+            <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">AI Assistant</h1>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
-              <span className="text-sm text-surface-500">Always online</span>
+              <span className="text-sm text-surface-500 dark:text-night-400">Always online</span>
               <Badge variant="accent" className="ml-1"><Sparkles size={10} /> {activeProviderName || 'Default AI'}</Badge>
             </div>
           </div>
@@ -108,7 +108,7 @@ export default function ChatPage() {
                 {msg.role === 'assistant' && (
                   <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center shrink-0 shadow-md"><GraduationCap size={18} className="text-white" /></div>
                 )}
-                <div className={`max-w-[75%] rounded-2xl px-5 py-3.5 ${msg.role === 'user' ? 'bg-gradient-to-br from-primary-600 to-primary-600 text-white rounded-br-md' : 'bg-surface-100 text-surface-900 rounded-bl-md'}`}>
+                <div className={`max-w-[75%] rounded-2xl px-5 py-3.5 ${msg.role === 'user' ? 'bg-gradient-to-br from-primary-600 to-primary-600 text-white rounded-br-md' : 'bg-surface-100 dark:bg-night-700 text-surface-900 dark:text-night-50 rounded-bl-md'}`}>
                   <div className="whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(msg.content) }} />
                   {msg.suggestions && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/10">
@@ -125,7 +125,7 @@ export default function ChatPage() {
           {isTyping && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3">
               <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center shrink-0"><GraduationCap size={18} className="text-white" /></div>
-              <div className="bg-surface-100 rounded-2xl rounded-bl-md px-5 py-4">
+              <div className="bg-surface-100 dark:bg-night-700 rounded-2xl rounded-bl-md px-5 py-4">
                 <div className="flex gap-1.5">
                   <span className="w-2 h-2 bg-surface-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                   <span className="w-2 h-2 bg-surface-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -141,7 +141,7 @@ export default function ChatPage() {
           <div className="px-6 pb-3">
             <div className="flex gap-2 overflow-x-auto pb-2">
               {quickActions.map((action) => (
-                <button key={action.label} onClick={() => handleSend(action.query)} className="flex items-center gap-2 px-4 py-2.5 bg-surface-50 hover:bg-surface-100 border border-surface-200 rounded-xl text-sm font-medium text-surface-700 transition-all hover:border-primary-200 shrink-0">
+                <button key={action.label} onClick={() => handleSend(action.query)} className="flex items-center gap-2 px-4 py-2.5 bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 border border-surface-200 dark:border-night-600 rounded-xl text-sm font-medium text-surface-700 dark:text-night-200 transition-all hover:border-primary-200 shrink-0">
                   <action.icon size={16} className="text-primary-500" />{action.label}
                 </button>
               ))}
@@ -149,11 +149,11 @@ export default function ChatPage() {
           </div>
         )}
 
-        <div className="p-4 border-t border-surface-100 bg-white/50 backdrop-blur-sm">
+        <div className="p-4 border-t border-surface-100 dark:border-night-600 bg-white/50 dark:bg-night-800/50 backdrop-blur-sm">
           <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex items-center gap-3">
             <div className="flex-1 relative">
-              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask me anything about campus life..." className="w-full px-5 py-3.5 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all pr-12" disabled={isTyping} />
-              <Zap size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-400" />
+              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask me anything about campus life..." className="w-full px-5 py-3.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all pr-12" disabled={isTyping} />
+              <Zap size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" />
             </div>
             <button type="submit" disabled={!input.trim() || isTyping} className="p-3.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-lg hover:shadow-xl hover:shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
               <Send size={18} />

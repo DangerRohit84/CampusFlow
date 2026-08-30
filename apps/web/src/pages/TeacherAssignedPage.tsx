@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, internshipAPI } from '../lib/api'
 import { motion } from 'framer-motion'
@@ -83,8 +83,8 @@ export default function TeacherAssignedPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface-50 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
-        <div className="flex items-center justify-center h-64">
+      <div className="min-h-screen bg-surface-50 dark:bg-night-800 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+        <div className="flex items-center justify-center min-h-[45vh]">
           <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
         </div>
       </div>
@@ -92,7 +92,7 @@ export default function TeacherAssignedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+    <div className="min-h-screen bg-surface-50 dark:bg-night-800 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
       <PageHeader
         title="Assigned to Me"
         subtitle="Review and approve/reject opportunities assigned to you"
@@ -101,8 +101,8 @@ export default function TeacherAssignedPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Type Filter */}
         <div className="flex items-center gap-2 mb-6">
-          <Filter size={16} className="text-surface-500" />
-          <span className="text-sm font-medium text-surface-700">Type:</span>
+          <Filter size={16} className="text-surface-500 dark:text-night-400" />
+          <span className="text-sm font-medium text-surface-700 dark:text-night-200">Type:</span>
           <div className="flex gap-1.5">
             {(['all', 'HACKATHON', 'INTERNSHIP'] as const).map((filter) => (
               <button
@@ -126,15 +126,15 @@ export default function TeacherAssignedPage() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5"
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
                 <CheckCircle2 size={20} className="text-primary-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{allItems.length}</p>
-                <p className="text-xs text-surface-500">Total Assigned</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{allItems.length}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Total Assigned</p>
               </div>
             </div>
           </motion.div>
@@ -143,15 +143,15 @@ export default function TeacherAssignedPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5"
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-warning-100 flex items-center justify-center">
                 <Trophy size={20} className="text-warning-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{hackathons.length}</p>
-                <p className="text-xs text-surface-500">Hackathons</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{hackathons.length}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Hackathons</p>
               </div>
             </div>
           </motion.div>
@@ -160,15 +160,15 @@ export default function TeacherAssignedPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-white rounded-2xl border border-surface-100 p-5"
+            className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
                 <Briefcase size={20} className="text-primary-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-surface-900">{internships.length}</p>
-                <p className="text-xs text-surface-500">Internships</p>
+                <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{internships.length}</p>
+                <p className="text-xs text-surface-500 dark:text-night-400">Internships</p>
               </div>
             </div>
           </motion.div>
@@ -194,7 +194,7 @@ export default function TeacherAssignedPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  className="bg-white rounded-2xl border border-surface-100 p-5 hover:border-surface-200 transition-all"
+                  className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5 hover:border-surface-200 transition-all"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -221,27 +221,27 @@ export default function TeacherAssignedPage() {
                           )}
                         </span>
                         {item.source && (
-                          <span className="px-2.5 py-1 bg-surface-100 text-surface-600 rounded-full text-xs font-semibold">
+                          <span className="px-2.5 py-1 bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 rounded-full text-xs font-semibold">
                             {item.source}
                           </span>
                         )}
                       </div>
 
                       {/* Title */}
-                      <h3 className="font-bold text-surface-900 mb-1">
+                      <h3 className="font-bold text-surface-900 dark:text-night-50 mb-1">
                         {item.title || 'Untitled'}
                       </h3>
 
                       {/* Description (truncated) */}
                       {item.description && (
-                        <p className="text-surface-500 text-sm mb-2 line-clamp-2">
+                        <p className="text-surface-500 dark:text-night-400 text-sm mb-2 line-clamp-2">
                           {item.description}
                         </p>
                       )}
 
                       {/* Hackathon-specific: themes, organizer, mode */}
                       {item._type === 'HACKATHON' && (
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-surface-500 mb-2">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-surface-500 dark:text-night-400 mb-2">
                           {themes.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {themes.map((t: string) => (
@@ -258,14 +258,14 @@ export default function TeacherAssignedPage() {
                             </span>
                           )}
                           {item.mode && (
-                            <span className="px-2 py-0.5 bg-surface-50 rounded-md">{item.mode}</span>
+                            <span className="px-2 py-0.5 bg-surface-50 dark:bg-night-800 rounded-md">{item.mode}</span>
                           )}
                         </div>
                       )}
 
                       {/* Internship-specific: company, role, stipend */}
                       {item._type === 'INTERNSHIP' && (
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-surface-500 mb-2">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-surface-500 dark:text-night-400 mb-2">
                           {item.company && (
                             <span className="flex items-center gap-1">
                               <Building2 size={11} className="text-primary-500" />
@@ -285,7 +285,7 @@ export default function TeacherAssignedPage() {
                             </span>
                           )}
                           {item.duration && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 bg-surface-50 rounded-md">
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-surface-50 dark:bg-night-800 rounded-md">
                               <Clock size={10} />
                               {item.duration}
                             </span>
@@ -340,7 +340,7 @@ export default function TeacherAssignedPage() {
                           href={item.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 px-3 py-2 bg-surface-100 text-surface-700 rounded-xl text-sm font-medium hover:bg-surface-200 transition-all"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl text-sm font-medium hover:bg-surface-200 transition-all"
                         >
                           <ExternalLink size={14} />
                           Details

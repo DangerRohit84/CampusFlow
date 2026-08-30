@@ -16,18 +16,18 @@ const PROVIDER_COLORS: Record<string, string> = {
   'OpenCode Serve': '#A855F7',
 }
 
-const FEATURES = ['Chat', 'Fetch', 'Enrichment', 'Tasks', 'Timetable', 'Attendance', 'Grades']
+const FEATURES = ['Chat', 'Fetch', 'Enrichment', 'Tasks', 'Timetable', 'Attendance', 'Grades', 'Resume']
 
 export default function AiGraph({ providers, routing }: Props) {
   const allProviders = providers
   const providerY = (i: number) => 60 + i * 70
   const featureY = (i: number) => 60 + i * 70
-  const totalHeight = Math.max(320, allProviders.length * 70 + 40)
+  const totalHeight = Math.max(320, Math.max(allProviders.length, FEATURES.length) * 70 + 40)
 
   const lines = routing.map(r => {
     const provider = providers.find(p => p.id === r.providerId)
     if (!provider) return null
-    const featureIdx = ['chat', 'fetch', 'enrichment', 'tasks', 'timetable', 'attendance', 'grades'].indexOf(r.feature)
+    const featureIdx = ['chat', 'fetch', 'enrichment', 'tasks', 'timetable', 'attendance', 'grades', 'resume'].indexOf(r.feature)
     if (featureIdx < 0) return null
     return {
       provider,

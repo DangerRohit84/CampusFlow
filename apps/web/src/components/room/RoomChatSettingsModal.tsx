@@ -148,7 +148,7 @@ export default function RoomChatSettingsModal({
               </div>
             </div>
             <div className="relative mb-2">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" />
               <input
                 type="text"
                 value={search}
@@ -175,7 +175,7 @@ export default function RoomChatSettingsModal({
                     <button
                       key={member.id}
                       onClick={() => toggleMember(member.id)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface-50 dark:hover:bg-night-700 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors text-left"
                     >
                       <div
                         className={clsx(

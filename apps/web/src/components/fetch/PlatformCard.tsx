@@ -92,21 +92,21 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
   }
 
   return (
-    <div className={`bg-white rounded-xl border border-surface-200 p-4 border-l-4 ${platform.color}`}>
+    <div className={`bg-white dark:bg-night-800 rounded-xl border border-surface-200 dark:border-night-600 p-4 border-l-4 ${platform.color}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xl">{platform.icon}</span>
-          <h3 className="font-semibold text-surface-900">{platform.name}</h3>
+          <h3 className="font-semibold text-surface-900 dark:text-night-50">{platform.name}</h3>
         </div>
         <div className="flex items-center gap-2">
           {/* Limit setter */}
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-surface-500">Limit:</span>
+            <span className="text-xs text-surface-500 dark:text-night-400">Limit:</span>
             <select
               value={limit}
               onChange={(e) => handleLimitChange(Number(e.target.value))}
               disabled={savingLimit}
-              className="text-xs border border-surface-300 rounded px-1.5 py-0.5 bg-white text-surface-700 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:opacity-50"
+              className="text-xs border border-surface-300 dark:border-night-600 rounded px-1.5 py-0.5 bg-white dark:bg-night-800 text-surface-700 dark:text-night-200 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:opacity-50"
             >
               {LIMIT_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -114,7 +114,7 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
                 </option>
               ))}
             </select>
-            {savingLimit && <Loader2 className="w-3 h-3 animate-spin text-surface-400" />}
+            {savingLimit && <Loader2 className="w-3 h-3 animate-spin text-surface-400 dark:text-night-400" />}
           </div>
           {fetched > 0 && (
             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -132,21 +132,21 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
 
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
-          <p className="text-2xl font-bold text-surface-900">{fetched}</p>
-          <p className="text-xs text-surface-500">Fetched</p>
+          <p className="text-2xl font-bold text-surface-900 dark:text-night-50">{fetched}</p>
+          <p className="text-xs text-surface-500 dark:text-night-400">Fetched</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-green-600">{enriched}</p>
-          <p className="text-xs text-surface-500">Enriched</p>
+          <p className="text-xs text-surface-500 dark:text-night-400">Enriched</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-yellow-600">{pending}</p>
-          <p className="text-xs text-surface-500">Pending</p>
+          <p className="text-xs text-surface-500 dark:text-night-400">Pending</p>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-surface-100 rounded-full h-2 mb-4">
+      <div className="w-full bg-surface-100 dark:bg-night-700 rounded-full h-2 mb-4">
         <div
           className="bg-primary-500 h-2 rounded-full transition-all duration-300"
           style={{ width: `${enrichedPercent}%` }}
@@ -169,7 +169,7 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
         <button
           onClick={handleEnrich}
           disabled={enriching || pending === 0}
-          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200 transition-colors disabled:opacity-50 text-sm"
+          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-lg hover:bg-surface-200 transition-colors disabled:opacity-50 text-sm"
         >
           {enriching ? (
             <Loader2 className="w-4 h-4 animate-spin" />

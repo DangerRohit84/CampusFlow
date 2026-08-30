@@ -1,6 +1,7 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { fetchAndStoreContests } from '../services/contestFetcher'
 
 const router = Router()
 router.use(authenticate)
@@ -57,7 +58,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const { status, platform, search } = req.query as Record<string, string | undefined>
     const page = Math.max(1, parseInt(req.query.page as string) || 1)
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50))
     const skip = (page - 1) * limit
 
     let where: any = {}
@@ -89,11 +90,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Leverage index on (collegeId, status, platform) via orderBy startTime
+    // Fix: order by contest startTime (not createdAt) so UPCOMING pagination never hides future contests
+    const orderBy = status === 'UPCOMING' ? { startTime: 'asc' as const } : { startTime: 'desc' as const }
     const [contests, total] = await Promise.all([
       prisma.codingContest.findMany({
         where,
         include: { creator: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),
@@ -528,7 +531,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
   }
 })
 
-// Auto-fetch upcoming contests from competitive programming platforms
+// Auto-fetch upcoming contests from competitive programming platforms — delegates to central fetcher (all 3 platforms)
 router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -537,66 +540,12 @@ router.post('/fetch-now', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const contests: any[] = []
-
-    // Fetch from Codeforces API
-    try {
-      const cfResp = await fetch('https://codeforces.com/api/contest.list', {
-        signal: AbortSignal.timeout(10000),
-      })
-      const cfData = await cfResp.json() as any
-      if (cfData.status === 'OK') {
-        for (const c of cfData.result.slice(0, 10)) {
-          contests.push({
-            title: c.name,
-            platform: 'CODEFORCES',
-            url: `https://codeforces.com/contest/${c.id}`,
-            startTime: new Date(c.startTimeSeconds * 1000).toISOString(),
-            duration: c.durationSeconds ? Math.round(c.durationSeconds / 60) : null,
-            contestType: c.type || 'CF',
-            status: c.phase === 'BEFORE' ? 'UPCOMING' : c.phase === 'CODING' ? 'ONGOING' : 'PAST',
-          })
-        }
-      }
-    } catch (e) {
-      console.log('Codeforces fetch failed:', e)
-    }
-
-    // CodeChef API is deprecated/unreliable — skipped
-
-    if (contests.length === 0) {
-      res.json({ message: 'No contests found from external sources', contests: [] })
-      return
-    }
-
-    // Save fetched contests to database
-    const savedContests = []
-    for (const c of contests) {
-      // Check for duplicates by URL
-      const existing = await prisma.codingContest.findFirst({ where: { url: c.url } })
-      if (existing) continue
-
-      const saved = await prisma.codingContest.create({
-        data: {
-          title: c.title,
-          platform: c.platform,
-          url: c.url,
-          startTime: c.startTime,
-          duration: c.duration,
-          contestType: c.contestType,
-          status: c.status,
-          solutions: '[]',
-          isAutoFetched: true,
-          creatorId: req.userId!,
-          collegeId: user.collegeId,
-        },
-      })
-      savedContests.push(saved)
-    }
+    // Use shared service that fetches LeetCode + Codeforces + CodeChef and handles upserts/status
+    const result = await fetchAndStoreContests()
 
     res.json({
-      message: `Fetched ${savedContests.length} new contests (${contests.length - savedContests.length} duplicates skipped)`,
-      contests: savedContests,
+      message: `Fetched ${result.fetched} new contests (${result.updated} updated)`,
+      ...result,
     })
   } catch (error) {
     console.error('Auto-fetch contests error:', error)

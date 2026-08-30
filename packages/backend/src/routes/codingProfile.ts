@@ -4,6 +4,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
 import { emitToUser } from '../services/socket'
+import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
 
 const router = Router()
 
@@ -13,17 +14,91 @@ const router = Router()
 const SYNC_THROTTLE_MS = 5 * 60 * 1000
 const syncThrottle = new Map<string, number>()
 
+// Github throttle for calendar fetches — per IP or per user
+const githubThrottle = new Map<string, number>()
+const GITHUB_THROTTLE_MS = 15 * 1000 // 15s per user/IP
+
 // GET /coding-profile — get own profile
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const profile = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+    const profile = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
     res.json(profile || { userId: req.userId })
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch coding profile' })
   }
 })
 
-// PUT /coding-profile — update handles
+// GET /coding-profile/github-calendar — authenticated user's GitHub calendar (uses stored githubUsername)
+// Must be before /:param routes
+router.get('/github-calendar', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const profile = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
+    const githubUsername = (profile as any)?.githubUsername as string | null | undefined
+    if (!githubUsername) {
+      res.status(404).json({ error: 'GitHub username not set. Add it in your coding profile first.', code: 'NO_GITHUB_USERNAME' })
+      return
+    }
+    // per-user throttle
+    const key = `cal:${req.userId}`
+    const last = githubThrottle.get(key)
+    if (last && Date.now() - last < GITHUB_THROTTLE_MS) {
+      // still serve cached data (githubActivity service has its own cache), just avoid hammering
+    }
+    githubThrottle.set(key, Date.now())
+
+    const daysParam = parseInt(String(req.query.days || '364'), 10)
+    const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364
+
+    const calendar = await getGithubCalendar(githubUsername, days)
+    if (!calendar) {
+      res.status(502).json({ error: `Could not fetch GitHub contributions for "${githubUsername}". Check username or try again later.` })
+      return
+    }
+    res.json(calendar)
+  } catch (error) {
+    console.error('github-calendar error', error)
+    res.status(500).json({ error: 'Failed to fetch GitHub calendar' })
+  }
+})
+
+// GET /coding-profile/github/:username — fetch calendar for any GitHub username (validated). Useful for preview/validation.
+router.get('/github/:githubUsername', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const raw = String(req.params.githubUsername || '').trim()
+    if (!isValidGithubUsername(raw)) {
+      res.status(400).json({ error: 'Invalid GitHub username. Must be 1-39 chars, alphanumeric or hyphen, cannot start/end with hyphen.' })
+      return
+    }
+    const key = `gh:${req.userId}:${raw.toLowerCase()}`
+    const last = githubThrottle.get(key)
+    if (last && Date.now() - last < GITHUB_THROTTLE_MS) {
+      // allow but update timestamp
+    }
+    githubThrottle.set(key, Date.now())
+
+    const daysParam = parseInt(String(req.query.days || '364'), 10)
+    const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364
+
+    // lightweight existence check + calendar
+    const calendar = await getGithubCalendar(raw, days)
+    if (!calendar) {
+      // try raw contributions to distinguish 404 vs transient
+      const check = await fetchGithubContributions(raw)
+      if (!check) {
+        res.status(404).json({ error: `GitHub user "${raw}" not found or has no contributions` })
+        return
+      }
+      res.status(502).json({ error: 'Failed to fetch GitHub calendar' })
+      return
+    }
+    res.json(calendar)
+  } catch (error) {
+    console.error('github fetch error', error)
+    res.status(500).json({ error: 'Failed to fetch GitHub calendar' })
+  }
+})
+
+// PUT /coding-profile — update handles (including githubUsername)
 // If a platform's handle changes, purge that platform's stale participation
 // rows and stats so History/leaderboard only reflect the CURRENT handles.
 router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
@@ -35,19 +110,30 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
       hackerrank: req.body.hackerrankHandle,
       gfg: req.body.gfgHandle,
     }
+    const rawGithub: unknown = (req.body as any).githubUsername ?? (req.body as any).githubHandle ?? (req.body as any).github
+    let githubUsername: string | null = null
+    if (typeof rawGithub === 'string' && rawGithub.trim()) {
+      const trimmed = rawGithub.trim()
+      if (!isValidGithubUsername(trimmed)) {
+        res.status(400).json({ error: 'Invalid GitHub username. Must be 1-39 characters, letters/numbers/hyphens, cannot start or end with hyphen.' })
+        return
+      }
+      githubUsername = trimmed
+    }
+
     const handles: Record<string, string | null> = {}
     for (const [k, v] of Object.entries(raw)) handles[k] = typeof v === 'string' && v.trim() ? v.trim() : null
 
-    const existing = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+    const existing = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
     let cleanedStats: any[] | undefined
 
     if (existing) {
       const oldHandles: Record<string, string | null> = {
-        leetcode: existing.leetcodeHandle,
-        codeforces: existing.codeforcesHandle,
-        codechef: existing.codechefHandle,
-        hackerrank: existing.hackerrankHandle,
-        gfg: existing.gfgHandle,
+        leetcode: (existing as any).leetcodeHandle,
+        codeforces: (existing as any).codeforcesHandle,
+        codechef: (existing as any).codechefHandle,
+        hackerrank: (existing as any).hackerrankHandle,
+        gfg: (existing as any).gfgHandle,
       }
       const changed = Object.keys(handles).filter(
         (p) => (oldHandles[p] || null) !== handles[p] && !!oldHandles[p]
@@ -63,7 +149,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const profile = await prisma.codingProfile.upsert({
+    const profile = await (prisma as any).codingProfile.upsert({
       where: { userId: req.userId! },
       update: {
         leetcodeHandle: handles.leetcode,
@@ -71,6 +157,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
         codechefHandle: handles.codechef,
         hackerrankHandle: handles.hackerrank,
         gfgHandle: handles.gfg,
+        githubUsername,
         ...(cleanedStats !== undefined && { platformStats: JSON.stringify(cleanedStats) }),
       },
       create: {
@@ -80,6 +167,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
         codechefHandle: handles.codechef,
         hackerrankHandle: handles.hackerrank,
         gfgHandle: handles.gfg,
+        githubUsername,
       },
     })
     res.json(profile)
@@ -96,7 +184,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
 // user's socket room so other tabs/devices can react.
 router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const profile = await prisma.codingProfile.findUnique({ where: { userId: req.userId! } })
+    const profile = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
 
     if (req.query.auto === 'true') {
       if (profile?.lastSyncedAt && Date.now() - profile.lastSyncedAt.getTime() < 10 * 60 * 1000) {
@@ -109,11 +197,12 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
     // lastSyncedAt (syncEngine early-returns), leaving clients polling until timeout.
     // Answer immediately instead of starting a pointless job.
     const hasHandles = !!profile && !!(
-      profile.leetcodeHandle ||
-      profile.codeforcesHandle ||
-      profile.codechefHandle ||
-      profile.hackerrankHandle ||
-      profile.gfgHandle
+      (profile as any).leetcodeHandle ||
+      (profile as any).codeforcesHandle ||
+      (profile as any).codechefHandle ||
+      (profile as any).hackerrankHandle ||
+      (profile as any).gfgHandle ||
+      (profile as any).githubUsername
     )
     if (!hasHandles) {
       res.status(200).json({

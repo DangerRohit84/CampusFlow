@@ -7,13 +7,19 @@ services:
     runtime: node
     # --include=dev: NODE_ENV=production (below) makes npm skip devDependencies,
     # but the build needs tsc and the pinned prisma CLI from devDependencies.
-    buildCommand: npm install --include=dev && npx prisma generate --schema=packages/backend/prisma/schema.prisma && npm run build --workspace packages/backend
+    # Try to install texlive for true pdflatex (Overleaf-quality). If host disallows apt, fallback gracefully to pdfkit + latexonline.cc cloud compile.
+    buildCommand: (apt-get update -qq && apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-fonts-recommended lmodern > /dev/null 2>&1 && echo "texlive installed — local pdflatex enabled" || echo "texlive not installed — using latexonline.cc + pdfkit fallback") ; npm install --include=dev && npx prisma generate --schema=packages/backend/prisma/schema.prisma && npm run build -w packages/backend
     # Apply pending migrations before the new release goes live.
     preDeployCommand: npx prisma migrate deploy --schema=packages/backend/prisma/schema.prisma
     startCommand: node packages/backend/dist/index.js
     healthCheckPath: /api/health
     envVars:
+      # Neon pooled URL REQUIRED: host must contain `-pooler` + `?sslmode=require&pgbouncer=true&connection_limit=10&pool_timeout=15`
+      # Example: postgresql://user:pass@ep-xxx-pooler.c-5.us-east-2.aws.NEONHOST_REMOVED/neondb?sslmode=require&channel_binding=require&connect_timeout=15&pgbouncer=true&connection_limit=10&pool_timeout=15
       - key: DATABASE_URL
+        sync: false
+      # Neon direct URL (no -pooler, no pgbouncer) REQUIRED for `prisma migrate deploy` via datasource directUrl
+      - key: DIRECT_URL
         sync: false
       - key: JWT_SECRET
         generateValue: true

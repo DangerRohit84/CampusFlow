@@ -35,19 +35,19 @@ export default function SearchPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-3xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Search</h1>
-        <p className="text-surface-500 mt-1">Find schedules, assignments, notifications, and more</p>
+        <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Search</h1>
+        <p className="text-surface-500 dark:text-night-400 mt-1">Find schedules, assignments, notifications, and more</p>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <div className="relative">
-          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-surface-400" size={20} />
+          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" size={20} />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for anything... (e.g. 'Data Structures', 'ML project', 'exam')"
-            className="w-full pl-12 pr-4 py-4 bg-white border border-surface-200 rounded-2xl text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all text-lg shadow-soft"
+            className="w-full pl-12 pr-4 py-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-2xl text-surface-900 dark:text-night-50 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all text-lg shadow-soft"
             autoFocus
           />
           {loading && (
@@ -60,13 +60,13 @@ export default function SearchPage() {
 
       {searched && !loading && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-          <p className="text-sm text-surface-500">{results.length} result{results.length !== 1 ? 's' : ''} found</p>
+          <p className="text-sm text-surface-500 dark:text-night-400">{results.length} result{results.length !== 1 ? 's' : ''} found</p>
 
           {results.length === 0 ? (
             <Card className="text-center py-12">
-              <div className="w-16 h-16 bg-surface-100 rounded-2xl flex items-center justify-center mx-auto mb-4"><SearchIcon className="w-8 h-8 text-surface-400" /></div>
-              <p className="text-surface-500 font-medium">No results found</p>
-              <p className="text-sm text-surface-400 mt-1">Try different keywords</p>
+              <div className="w-16 h-16 bg-surface-100 dark:bg-night-700 rounded-2xl flex items-center justify-center mx-auto mb-4"><SearchIcon className="w-8 h-8 text-surface-400 dark:text-night-400" /></div>
+              <p className="text-surface-500 dark:text-night-400 font-medium">No results found</p>
+              <p className="text-sm text-surface-400 dark:text-night-400 mt-1">Try different keywords</p>
             </Card>
           ) : (
             <div className="space-y-3">
@@ -81,12 +81,12 @@ export default function SearchPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-surface-900 group-hover:text-primary-700 transition-colors truncate">{r.title}</h3>
+                            <h3 className="font-bold text-surface-900 dark:text-night-50 group-hover:text-primary-700 transition-colors truncate">{r.title}</h3>
                             <Badge variant={r.type === 'schedule' ? 'primary' : r.type === 'assignment' ? 'accent' : 'warning'}>{r.type}</Badge>
                           </div>
-                          <p className="text-sm text-surface-500 truncate">{r.subtitle}</p>
+                          <p className="text-sm text-surface-500 dark:text-night-400 truncate">{r.subtitle}</p>
                         </div>
-                        <ArrowRight size={16} className="text-surface-400 group-hover:text-primary-500 transition-colors shrink-0" />
+                        <ArrowRight size={16} className="text-surface-400 dark:text-night-400 group-hover:text-primary-500 transition-colors shrink-0" />
                       </div>
                     </Card>
                   </motion.div>
@@ -102,11 +102,11 @@ export default function SearchPage() {
           <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Sparkles className="w-10 h-10 text-primary-500" />
           </div>
-          <h3 className="text-lg font-bold text-surface-900 mb-2">AI-Powered Search</h3>
-          <p className="text-surface-500 max-w-md mx-auto">Search across your schedules, assignments, and notifications. Try searching for a course name, assignment topic, or any keyword.</p>
+          <h3 className="text-lg font-bold text-surface-900 dark:text-night-50 mb-2">AI-Powered Search</h3>
+          <p className="text-surface-500 dark:text-night-400 max-w-md mx-auto">Search across your schedules, assignments, and notifications. Try searching for a course name, assignment topic, or any keyword.</p>
           <div className="flex flex-wrap justify-center gap-2 mt-6">
             {['Data Structures', 'Machine Learning', 'exam', 'deadline'].map((s) => (
-              <button key={s} onClick={() => setQuery(s)} className="px-4 py-2 bg-surface-100 hover:bg-surface-200 rounded-xl text-sm font-medium text-surface-600 transition-colors">{s}</button>
+              <button key={s} onClick={() => setQuery(s)} className="px-4 py-2 bg-surface-100 dark:bg-night-700 hover:bg-surface-200 rounded-xl text-sm font-medium text-surface-600 dark:text-night-300 transition-colors">{s}</button>
             ))}
           </div>
         </motion.div>

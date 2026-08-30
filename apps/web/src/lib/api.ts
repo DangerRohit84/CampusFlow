@@ -70,7 +70,7 @@ export function onScheduleUpdate(callback: (schedule: any) => void) {
 export const authAPI = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }).then((r) => r.data),
-  register: (data: { email: string; name: string; password: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) =>
+  register: (data: { email: string; name: string; password: string; username?: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) =>
     api.post('/auth/register', data).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
 }
@@ -110,18 +110,19 @@ export const assignmentHubAPI = {
   getHub: (id: string) => api.get(`/assignments/hub/${id}`).then(r => r.data),
   create: (data: any) => {
     const hasFile = data instanceof FormData
-    return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then(r => r.data)
+    // Do NOT force Content-Type - let browser/axios set boundary. Override default application/json.
+    return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': undefined } as any } : {}).then(r => r.data)
   },
   update: (id: string, data: any) => {
     const hasFile = data instanceof FormData
-    return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then(r => r.data)
+    return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': undefined } as any } : {}).then(r => r.data)
   },
   delete: (id: string) => api.delete(`/assignments/hub/${id}`).then(r => r.data),
   submit: (hubId: string, payload: { content?: string; file?: File }) => {
     const fd = new FormData()
     if (payload.content) fd.append('content', payload.content)
     if (payload.file) fd.append('file', payload.file)
-    return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+    return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': undefined } as any }).then(r => r.data)
   },
   listSubmissions: (hubId: string, params?: { page?: number; limit?: number }) =>
     api.get(`/assignments/hub/${hubId}/submissions`, { params }).then(r => r.data),
@@ -193,7 +194,7 @@ export const timetableAPI = {
     const formData = new FormData()
     formData.append('timetable', file)
     if (provider) formData.append('provider', JSON.stringify(provider))
-    return api.post('/timetable/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+    return api.post('/timetable/upload', formData, { headers: { 'Content-Type': undefined } as any }).then((r) => r.data)
   },
   parseText: (text: string) => api.post('/timetable/parse-text', { text }).then((r) => r.data),
   save: (classes: any[], clearExisting?: boolean) => api.post('/timetable/save', { classes, clearExisting }).then((r) => r.data),
@@ -309,16 +310,18 @@ export const internshipAPI = {
   getCounts: () => api.get('/internships/staging/counts').then((r) => r.data),
 }
 
-// Coding Contests
+// Coding Contests — limit 100 prevents pagination hiding UPCOMING (e.g., tomorrow's LeetCode)
 export const codingContestAPI = {
-  getAll: (params?: { platform?: string; status?: string; startDate?: string; endDate?: string; page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
-    api.get('/contests', { params, signal: params?.signal }).then((r) => {
+  getAll: (params?: { platform?: string; status?: string; startDate?: string; endDate?: string; page?: number; limit?: number; search?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    return api.get('/contests', { params: { limit: 100, ...query }, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return b
       if (b?.data) return b.data
       return b
-    }),
-  getPaged: (page = 1, limit = 20, extra?: { platform?: string; status?: string; search?: string }, signal?: AbortSignal) =>
+    })
+  },
+  getPaged: (page = 1, limit = 50, extra?: { platform?: string; status?: string; search?: string }, signal?: AbortSignal) =>
     api.get('/contests', { params: { page, limit, ...extra }, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return { data: b, pagination: { page: 1, limit: b.length, total: b.length, pages: 1 } }
@@ -421,7 +424,7 @@ export const roomAPI = {
     if (payload.file) formData.append('file', payload.file)
     if (payload.replyToId) formData.append('replyToId', payload.replyToId)
     return api.post(`/rooms/${roomId}/messages`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined } as any,
     }).then((r) => r.data)
   },
   // scope=me hides the message for the current user only;
@@ -443,7 +446,7 @@ export const roomAPI = {
   // Resources
   uploadResource: (roomId: string, formData: FormData) =>
     api.post(`/rooms/${roomId}/resources`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined } as any,
     }).then((r) => r.data),
   getResources: (roomId: string) => api.get(`/rooms/${roomId}/resources`).then((r) => r.data),
   deleteResource: (roomId: string, resourceId: string) =>
@@ -531,8 +534,28 @@ export const userAPI = {
   updateProfile: (data: any) => api.put('/user/profile', data).then((r) => r.data),
   getGrades: () => api.get('/user/grades').then((r) => r.data),
   getGradeStats: () => api.get('/user/grades/stats').then((r) => r.data),
-
   getIntegrations: () => api.get('/user/integrations').then((r) => r.data),
+  // username
+  checkUsername: (username: string) => api.get(`/user/check-username/${encodeURIComponent(username)}`).then(r => r.data),
+  setUsername: (username: string) => api.put('/user/username', { username }).then(r => r.data),
+  suggestUsername: () => api.get('/user/suggest-username').then(r => r.data),
+}
+
+// Public profile u/:username
+export const publicProfileAPI = {
+  get: (username: string) => {
+    // try authenticated route first, fallback to public via axios without auth if needed
+    return api.get(`/u/${encodeURIComponent(username)}`).then(r => r.data).catch(async (e) => {
+      if (e.response?.status === 401) {
+        // try without auth header via plain axios
+        const res = await axios.get(`${API_URL}/u/${encodeURIComponent(username)}`)
+        return res.data
+      }
+      throw e
+    })
+  },
+  check: (username: string) => axios.get(`${API_URL}/u/check/${encodeURIComponent(username)}`).then(r => r.data),
+  suggest: (name: string, email: string) => axios.get(`${API_URL}/u/suggest/one`, { params: { name, email } }).then(r => r.data),
 }
 
 // Grades
@@ -580,10 +603,84 @@ export const codingProfileAPI = {
   getContestParticipants: (contestId: string) =>
     api.get(`/coding-profile/contest/${contestId}/participants`).then((r) => r.data),
   syncAll: () => api.post('/coding-profile/sync-all').then((r) => r.data),
+  getGithubCalendar: (opts?: { days?: number }) =>
+    api.get('/coding-profile/github-calendar', { params: opts }).then((r) => r.data) as Promise<{ date: string; count: number; level: number }[]>,
+  getGithubForUsername: (username: string, opts?: { days?: number }) =>
+    api.get(`/coding-profile/github/${encodeURIComponent(username)}`, { params: opts }).then((r) => r.data) as Promise<{ date: string; count: number; level: number }[]>,
 }
 
 // POST /coding-profile/sync returns 202 and runs server-side; poll until
 // lastSyncedAt advances past the baseline (or give up after maxTries).
+// Resume Studio — LaTeX vector + AI + Parse
+export const resumeAPI = {
+  // Returns { latex, filename, size } — Classic ATS Jake single-col
+  getLatex: (data: any) => api.post('/resume/latex', data).then((r) => r.data),
+
+  // Download .tex via backend (fallback handled caller-side)
+  downloadTex: async (data: any, filename?: string) => {
+    const res = await api.post('/resume/latex?format=tex', data, { responseType: 'blob' })
+    const blob = new Blob([res.data], { type: 'application/x-tex;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = (res.headers as any)['content-disposition'] || ''
+    const m = cd.match(/filename="([^"]+)"/)
+    a.download = filename || (m ? m[1] : `${(data.personalInfo?.fullName || 'Resume').replace(/\s+/g, '_')}_Resume.tex`)
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+    return true
+  },
+
+  // Vector selectable PDF via backend (pdfkit + pdflatex fallback). If backend unavailable, caller falls back to client jsPDF
+  downloadVectorPdf: async (data: any, filename?: string) => {
+    const res = await api.post('/resume/latex?format=pdf', data, { responseType: 'blob' })
+    // If backend returned JSON error as blob, try parse
+    const ct = (res.headers as any)['content-type'] || ''
+    if (ct.includes('application/json')) {
+      const text = await (res.data as Blob).text()
+      const j = JSON.parse(text)
+      throw new Error(j.error || 'PDF failed')
+    }
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = (res.headers as any)['content-disposition'] || ''
+    const m = cd.match(/filename="([^"]+)"/)
+    a.download = filename || (m ? m[1] : `${(data.personalInfo?.fullName || 'Resume').replace(/\s+/g, '_')}_Resume_Vector.pdf`)
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+    return true
+  },
+
+  // Probe health
+  health: () => api.get('/resume/latex/health').then((r) => r.data),
+
+  // AI upgrade — mode: summary|bullets|skills|full|tailor|upgrade
+  aiUpgrade: (payload: { data: any; mode?: string; jobDescription?: string; prompt?: string; targetId?: string }) =>
+    api.post('/resume/ai-upgrade', payload).then((r) => r.data),
+  aiEnhance: (payload: { data: any; mode?: string; jobDescription?: string; prompt?: string; targetId?: string }) =>
+    api.post('/resume/ai-upgrade', payload).then((r) => r.data),
+  atsScore: (payload: { data: any; jobDescription?: string }) =>
+    api.post('/resume/ats-score', payload).then((r) => r.data),
+
+  // Parse uploaded resume — PDF/DOCX/TXT → ResumeData (uses backend + heuristic + optional Groq)
+  parseResume: async (file: File) => {
+    const fd = new FormData()
+    fd.append('resume', file)
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined } as any })
+    return res.data as { data: any; rawText: string; heuristic: boolean; usedAI: boolean }
+  },
+  parseText: (rawText: string) =>
+    api.post('/resume/parse-text', { rawText }).then((r) => r.data),
+  parseUpload: async (file: File) => {
+    const fd = new FormData()
+    fd.append('resume', file)
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined } as any })
+    return res.data
+  },
+}
+
 export function waitForCodingSync(
   baseline: number,
   opts?: { intervalMs?: number; maxTries?: number }

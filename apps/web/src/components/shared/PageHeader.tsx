@@ -13,8 +13,8 @@ export default function PageHeader({ title, subtitle, action, icon }: PageHeader
         <div className="flex items-center gap-3">
           {icon && <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center shrink-0">{icon}</div>}
           <div>
-            <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">{title}</h1>
-            {subtitle && <p className="text-xs text-surface-500 mt-1">{subtitle}</p>}
+            <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">{title}</h1>
+            {subtitle && <p className="text-xs text-surface-500 dark:text-night-400 mt-1">{subtitle}</p>}
           </div>
         </div>
         {action && <div className="flex items-center gap-2">{action}</div>}

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Search, FileText } from 'lucide-react'
+import { Plus, Search, FileText, Loader2 } from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { assignmentHubAPI } from '../lib/api'
+import { queryClient } from '../lib/queryClient'
 import { useAuthStore } from '../store/authStore'
 import { useDebounce } from '../hooks/useDebounce'
 import CreateAssignmentModal from '../components/assignments/CreateAssignmentModal'
@@ -30,6 +31,7 @@ export default function AssignmentHubPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [detail, setDetail] = useState<any>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [submissions, setSubmissions] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
   const [grading, setGrading] = useState<any>(null)
@@ -42,47 +44,86 @@ export default function AssignmentHubPage() {
     setLoading(true)
     try {
       const res = await assignmentHubAPI.getHubs({ page, limit: 20, search: debouncedSearch||undefined, scope: filterScope!=='ALL'?filterScope:undefined, submissionMode: filterMode!=='ALL'?filterMode:undefined, signal: controller.signal } as any)
+      if (controller.signal.aborted) return
       setHubs(res.data); setPagination(res.pagination)
-    } catch(e: any){ if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') return; console.error(e)} finally{ setLoading(false)}
+    } catch(e: any){ if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED' || controller.signal.aborted) return; console.error(e)} finally{ if (abortRef.current === controller) setLoading(false)}
   }
+
+  // Guard filtered empty with loading — prevents initial flash of "No assignments match your filters" before fetch completes
+  const filteredAssignments = hubs
   useEffect(()=>{ load(); return () => abortRef.current?.abort() }, [page, filterScope, filterMode, debouncedSearch])
   useEffect(()=>{ setPage(1) }, [debouncedSearch, filterScope, filterMode])
 
   const openDetail = async (hub:any)=> {
-    const full = await assignmentHubAPI.getHub(hub.id)
-    setDetail(full)
-    if(isTeacher) {
-      const [subs, st] = await Promise.all([assignmentHubAPI.listSubmissions(hub.id), assignmentHubAPI.stats(hub.id).catch(()=> null)])
-      setSubmissions(subs.data||subs); setStats(st)
-    }
+    setDetailLoading(true)
+    setDetail(hub) // optimistically show title while fetching
+    try {
+      const full = await assignmentHubAPI.getHub(hub.id)
+      setDetail(full)
+      if(isTeacher) {
+        const [subs, st] = await Promise.all([assignmentHubAPI.listSubmissions(hub.id), assignmentHubAPI.stats(hub.id).catch(()=> null)])
+        setSubmissions(subs.data||subs); setStats(st)
+      } else {
+        setSubmissions([]); setStats(null)
+      }
+    } catch(e){ console.error(e); toast.error('Failed to load assignment') } finally{ setDetailLoading(false) }
   }
 
-  const handleDelete = async (hub:any)=> { if(!confirm('Delete assignment?')) return; await assignmentHubAPI.delete(hub.id); toast.success('Deleted'); load() }
+  // called after student submit success — auto-close popup and refresh list
+  const handleSubmitted = async () => {
+    toast.success('Submitted successfully')
+    // close detail modal/panel immediately on success
+    setDetail(null)
+    setSubmissions([])
+    setStats(null)
+    // invalidate queries and reload list so updated submission counts/status appear
+    queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
+    queryClient.invalidateQueries({ queryKey: ['hubs'] })
+    window.dispatchEvent(new Event('assignment:mutated'))
+    await load()
+  }
+
+  const handleSaved = async () => {
+    queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
+    queryClient.invalidateQueries({ queryKey: ['hubs'] })
+    window.dispatchEvent(new Event('assignment:mutated'))
+    await load()
+  }
+
+  const handleDelete = async (hub:any)=> { if(!confirm('Delete assignment?')) return; await assignmentHubAPI.delete(hub.id); toast.success('Deleted'); queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] }); window.dispatchEvent(new Event('assignment:mutated')); load() }
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
-      <div className="flex justify-between items-end"><div><h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-[#F4F7F8]">Assignments</h1><p className="text-surface-500 dark:text-[#A6B3BE] mt-1">{isTeacher?'Manage and grade assignments':'Track and submit your assignments'}</p></div>{isTeacher && <Button size="sm" onClick={()=>{setEditing(null); setModalOpen(true)}}><Plus size={16}/> New Assignment</Button>}</div>
+      <div className="flex justify-between items-end"><div><h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Assignments</h1><p className="text-surface-500 dark:text-[#A6B3BE] mt-1">{isTeacher?'Manage and grade assignments':'Track and submit your assignments'}</p></div>{isTeacher && <Button size="sm" onClick={()=>{setEditing(null); setModalOpen(true)}}><Plus size={16}/> New Assignment</Button>}</div>
 
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." className="pl-9" onKeyDown={e=> e.key==='Enter' && load()} /></div>
+        <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." className="pl-9" onKeyDown={e=> e.key==='Enter' && load()} /></div>
         <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
         <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
       </div>
 
       <div className="space-y-3">
-        {loading ? <div className="text-center py-12 text-surface-400">Loading...</div> : hubs.length===0 ? <EmptyState icon={FileText} title="No assignments" description="No assignments match your filters" /> : hubs.map(h=> (
+        {loading ? (
+          <div className="flex items-center justify-center min-h-[45vh]">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+          </div>
+        ) : filteredAssignments.length===0 ? <EmptyState icon={FileText} title="No assignments" description="No assignments match your filters" /> : filteredAssignments.map(h=> (
           <AssignmentHubCard key={h.id} hub={h} onClick={()=> openDetail(h)} onEdit={isTeacher? (hub:any)=>{setEditing(hub); setModalOpen(true)}:undefined} onDelete={isTeacher? handleDelete:undefined} />
         ))}
       </div>
 
       <Pagination page={pagination.page} totalPages={pagination.pages} onChange={setPage} />
 
-      <CreateAssignmentModal open={modalOpen} hub={editing} onClose={()=> setModalOpen(false)} onSaved={load} />
+      <CreateAssignmentModal open={modalOpen} hub={editing} onClose={()=> setModalOpen(false)} onSaved={handleSaved} />
 
-      <Modal open={!!detail} onClose={()=> setDetail(null)} title={detail?.title||'Assignment'} size="lg">
-        {detail && (
+      <Modal open={!!detail} onClose={()=> { setDetail(null); setDetailLoading(false) }} title={detail?.title||'Assignment'} size="lg">
+        {detailLoading ? (
+          <div className="flex items-center justify-center min-h-[40vh]">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+          </div>
+        ) : detail ? (
           <div className="space-y-6">
-            <div><p className="text-sm text-surface-500">{detail.courseId}</p><p className="text-sm mt-2 whitespace-pre-wrap">{detail.description}</p><p className="text-xs text-surface-400 mt-2">Due {new Date(detail.dueDate).toLocaleString()} • {detail.submissionMode} • {detail.scope}{detail.department?.name?` • ${detail.department.name}`:''}{detail.room?.name?` • ${detail.room.name}`:''}</p></div>
+            <div><p className="text-sm text-surface-500 dark:text-night-400">{detail.courseId}</p><p className="text-sm mt-2 whitespace-pre-wrap">{detail.description}</p><p className="text-xs text-surface-400 mt-2">Due {new Date(detail.dueDate).toLocaleString()} • {detail.submissionMode} • {detail.scope}{detail.department?.name?` • ${detail.department.name}`:''}{detail.room?.name?` • ${detail.room.name}`:''}</p></div>
             {isTeacher ? (
               <>
                 <StatsPanel stats={stats} hub={detail} isTeacher={isTeacher} />
@@ -90,21 +131,21 @@ export default function AssignmentHubPage() {
                   <h4 className="font-semibold">Submissions ({submissions.length})</h4>
                   {submissions.map(s=> (
                     <div key={s.id} className="flex items-center justify-between p-3 border rounded-xl dark:border-[#202C35]">
-                      <div><div className="font-medium text-sm">{s.student?.name} <span className="text-surface-500">{s.student?.studentId}</span></div><div className="text-xs text-surface-500">{s.status} • {new Date(s.submittedAt).toLocaleString()}</div></div>
+                      <div><div className="font-medium text-sm">{s.student?.name} <span className="text-surface-500 dark:text-night-400">{s.student?.studentId}</span></div><div className="text-xs text-surface-500 dark:text-night-400">{s.status} • {new Date(s.submittedAt).toLocaleString()}</div></div>
                       <Button size="sm" onClick={()=> setGrading(s)}>Grade</Button>
                     </div>
                   ))}
-                  {submissions.length===0 && <div className="text-sm text-surface-400">No submissions yet</div>}
+                  {submissions.length===0 && <div className="text-sm text-surface-400 dark:text-night-400">No submissions yet</div>}
                 </div>
               </>
             ) : (
-              <SubmissionPanel hub={detail} submission={detail.mySubmission} onSubmitted={()=> openDetail(detail)} />
+              <SubmissionPanel hub={detail} submission={detail.mySubmission} onSubmitted={handleSubmitted} onClose={()=> setDetail(null)} />
             )}
           </div>
-        )}
+        ) : null}
       </Modal>
 
-      {grading && <GradeModal submission={grading} hub={detail} open={!!grading} onClose={()=> setGrading(null)} onGraded={()=> { openDetail(detail); assignmentHubAPI.listSubmissions(detail.id).then(r=> setSubmissions(r.data||r)) }} />}
+      {grading && <GradeModal submission={grading} hub={detail} open={!!grading} onClose={()=> setGrading(null)} onGraded={()=> { openDetail(detail); assignmentHubAPI.listSubmissions(detail.id).then(r=> setSubmissions(r.data||r)); queryClient.invalidateQueries({ queryKey:['assignmentHubs']}) }} />}
     </motion.div>
   )
 }

@@ -28,7 +28,10 @@ async function fetchLeetCode(): Promise<NormalizedContest[]> {
     const contests: NormalizedContest[] = [];
     const allContests = data?.data?.allContests || [];
 
-    for (const c of allContests.slice(0, 20)) {
+    // Do NOT slice(0,20) — LeetCode returns past+future interleaved; slicing can hide tomorrow's contest
+    // Iterate all and keep every contest with a valid startTime; fetchAndStoreContests will upsert/status them
+    for (const c of allContests) {
+      if (!c.title || !c.startTime) continue
       contests.push({
         title: c.title,
         platform: 'LEETCODE',
@@ -85,7 +88,8 @@ async function fetchCodeforces(): Promise<NormalizedContest[]> {
     if (data.status !== 'OK') throw new Error('Codeforces API returned error');
 
     const contests: NormalizedContest[] = [];
-    for (const c of data.result.slice(0, 20)) {
+    // Keep up to 30 to avoid hiding an UPCOMING contest that is beyond the first 20 (rare) but still bounded
+    for (const c of data.result.slice(0, 30)) {
       if (c.phase === 'BEFORE' || c.phase === 'CODING' || c.phase === 'FINISHED') {
         contests.push({
           title: c.name,
@@ -198,8 +202,11 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
           }
         }
       } else {
-        // Determine initial status
-        const initialStatus = new Date(contest.startTime) > new Date() ? 'UPCOMING' : 'ENDED';
+        // Determine initial status — include ONGOING window so tomorrow's UPCOMING never stored as ENDED
+        const start = new Date(contest.startTime)
+        const end = new Date(start.getTime() + (contest.duration || 180) * 60000)
+        const now = new Date()
+        const initialStatus = start > now ? 'UPCOMING' : end > now ? 'ONGOING' : 'ENDED'
 
         await prisma.codingContest.create({
           data: {

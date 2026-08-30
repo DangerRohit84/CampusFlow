@@ -111,29 +111,29 @@ export default function AddTeacherPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-surface-900">Add Teachers</h1>
-          <p className="text-surface-500 text-sm mt-1">Add teachers to your college</p>
+          <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">Add Teachers</h1>
+          <p className="text-surface-500 dark:text-night-400 text-sm mt-1">Add teachers to your college</p>
         </div>
       </div>
 
       {/* College Name */}
-      <div className="bg-white rounded-2xl border border-surface-100 p-5">
-        <label className="block text-sm font-medium text-surface-700 mb-1">College</label>
+      <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+        <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">College</label>
         <input type="text" value={user?.college?.name || ''} disabled
-          className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm bg-surface-50 text-surface-500" />
+          className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 text-surface-500 dark:text-night-400" />
       </div>
 
       {/* Default Password */}
-      <div className="bg-white rounded-2xl border border-surface-100 p-5">
-        <label className="block text-sm font-medium text-surface-700 mb-1">Default Password</label>
+      <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
+        <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Default Password</label>
         <input type="password" value={defaultPassword} onChange={(e) => setDefaultPassword(e.target.value)}
-          className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+          className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
           placeholder="Password for all teachers" />
-        <p className="text-xs text-surface-400 mt-1">This password will be used for all teachers added</p>
+        <p className="text-xs text-surface-400 dark:text-night-400 mt-1">This password will be used for all teachers added</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-surface-100 pb-2">
+      <div className="flex gap-2 border-b border-surface-100 dark:border-night-600 pb-2">
         <button onClick={() => setActiveTab('form')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
             activeTab === 'form' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
@@ -150,30 +150,30 @@ export default function AddTeacherPage() {
 
       {/* Manual Form */}
       {activeTab === 'form' && (
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
+        <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-surface-700 mb-1">Emp Number *</label>
+              <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Emp Number *</label>
               <input type="text" value={teacher.empNumber} onChange={(e) => setTeacher({ ...teacher, empNumber: e.target.value })}
-                className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="e.g., EMP001" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-surface-700 mb-1">Name *</label>
+              <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Name *</label>
               <input type="text" value={teacher.name} onChange={(e) => setTeacher({ ...teacher, name: e.target.value })}
-                className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="Full name" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-surface-700 mb-1">Email *</label>
+              <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Email *</label>
               <input type="email" value={teacher.email} onChange={(e) => setTeacher({ ...teacher, email: e.target.value })}
-                className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="email@college.edu" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-surface-700 mb-1">Department *</label>
+              <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Department *</label>
               <select value={teacher.departmentId} onChange={(e) => setTeacher({ ...teacher, departmentId: e.target.value })}
-                className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400">
+                className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400">
                 <option value="">Select department</option>
                 {departments.map(d => (
                   <option key={d.id} value={d.id}>{d.name}</option>
@@ -191,12 +191,12 @@ export default function AddTeacherPage() {
 
       {/* CSV Upload */}
       {activeTab === 'csv' && (
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
+        <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-surface-900">Upload CSV File</h3>
-                <p className="text-xs text-surface-500 mt-1">CSV columns: Name, Email, Emp Number, Department (department name must match exactly)</p>
+                <h3 className="font-medium text-surface-900 dark:text-night-50">Upload CSV File</h3>
+                <p className="text-xs text-surface-500 dark:text-night-400 mt-1">CSV columns: Name, Email, Emp Number, Department (department name must match exactly)</p>
               </div>
               <button onClick={downloadTemplate}
                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-lg">
@@ -204,13 +204,13 @@ export default function AddTeacherPage() {
               </button>
             </div>
 
-            <div className="border-2 border-dashed border-surface-200 rounded-xl p-8 text-center hover:border-primary-300 transition-colors">
+            <div className="border-2 border-dashed border-surface-200 dark:border-night-600 rounded-xl p-8 text-center hover:border-primary-300 transition-colors">
               <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
                 onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
-              <FileText size={32} className="mx-auto text-surface-400 mb-3" />
+              <FileText size={32} className="mx-auto text-surface-400 dark:text-night-400 mb-3" />
               {csvFile ? (
                 <div>
-                  <p className="text-sm font-medium text-surface-900">{csvFile.name}</p>
+                  <p className="text-sm font-medium text-surface-900 dark:text-night-50">{csvFile.name}</p>
                   <button onClick={() => setCsvFile(null)} className="text-xs text-danger-500 mt-1 flex items-center gap-1 mx-auto">
                     <X size={12} /> Remove
                   </button>
@@ -233,10 +233,10 @@ export default function AddTeacherPage() {
             <AnimatePresence>
               {csvResults && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  className="p-4 bg-surface-50 rounded-xl">
+                  className="p-4 bg-surface-50 dark:bg-night-800 rounded-xl">
                   <div className="flex items-center gap-3 mb-2">
                     <CheckCircle size={16} className="text-primary-500" />
-                    <span className="text-sm font-medium text-surface-900">
+                    <span className="text-sm font-medium text-surface-900 dark:text-night-50">
                       {csvResults.success} added, {csvResults.failed} failed
                     </span>
                   </div>

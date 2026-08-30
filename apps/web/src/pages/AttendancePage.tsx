@@ -165,8 +165,8 @@ export default function AttendancePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+      <div className="flex items-center justify-center min-h-[45vh]">
+        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
       </div>
     )
   }
@@ -177,7 +177,7 @@ export default function AttendancePage() {
       <div className="sticky top-0 z-10 bg-white dark:bg-night-950/80 backdrop-blur-md border-b border-surface-200 dark:border-night-600 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Attendance</h1>
+            <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Attendance</h1>
             <p className="text-surface-500 dark:text-night-200 mt-1">Track your class attendance</p>
           </div>
           <div className="flex items-center gap-2">
@@ -215,7 +215,7 @@ export default function AttendancePage() {
             <span className="text-sm text-surface-500 dark:text-night-200">%</span>
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-[#1A242E] transition-colors ml-2"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-[#1A242E] transition-colors ml-2"
             >
               <Upload size={14} /> Upload
             </button>
@@ -323,7 +323,7 @@ export default function AttendancePage() {
                         />
                         <button
                           onClick={() => deleteSubject(subject.id)}
-                          className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F87171]/10 transition-colors shrink-0"
+                          className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F87171]/10 transition-colors shrink-0"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -436,7 +436,7 @@ export default function AttendancePage() {
                 <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Upload Attendance Image</h2>
                 <button
                   onClick={() => { setShowUpload(false); setUploadImage(null); setParsedResults([]) }}
-                  className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100 dark:hover:bg-night-600"
+                  className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-600"
                 >
                   <X size={18} />
                 </button>
@@ -447,7 +447,7 @@ export default function AttendancePage() {
                   onClick={() => fileRef.current?.click()}
                   className="border-2 border-dashed border-surface-200 dark:border-night-600 rounded-xl p-8 text-center cursor-pointer hover:border-primary-400 transition-colors"
                 >
-                  <Upload className="w-8 h-8 text-surface-400 mx-auto mb-2" />
+                  <Upload className="w-8 h-8 text-surface-400 dark:text-night-400 mx-auto mb-2" />
                   <p className="text-sm font-medium text-surface-600 dark:text-night-200">Click to choose image</p>
                   <p className="text-xs text-surface-400 dark:text-night-200 mt-1">PNG, JPG, JPEG</p>
                 </div>

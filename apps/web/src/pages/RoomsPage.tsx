@@ -230,7 +230,7 @@ export default function RoomsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[45vh]">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     )
@@ -247,13 +247,13 @@ export default function RoomsPage() {
               <DoorOpen size={18} className="text-brass-400" />
             </div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none flex items-center gap-2">
+              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none flex items-center gap-2">
                 Hallway — Rooms
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-widest uppercase bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-1">
                   <span className="live-dot live-dot--on" /> Live
                 </span>
               </h1>
-              <p className="text-xs text-surface-500">Lockers, clubs, and study halls. Brass dot = live.</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Lockers, clubs, and study halls. Brass dot = live.</p>
             </div>
           </div>
           <button
@@ -309,31 +309,31 @@ export default function RoomsPage() {
                     <div className="w-11 h-11 rounded-xl bg-surface-900 flex items-center justify-center">
                       <TypeIcon size={18} className="text-brass-400" />
                     </div>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase border rounded-full px-2.5 py-1 bg-surface-50 text-surface-600 border-surface-200">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase border rounded-full px-2.5 py-1 bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600">
                       <span className={clsx('live-dot', isLive && 'live-dot--on')} /> {config.label}
                     </span>
                   </div>
-                  <h3 className="mt-3 font-display font-bold text-surface-900 text-lg line-clamp-1">{room.name}</h3>
-                  {room.description && <p className="text-sm text-surface-500 line-clamp-2 mt-1">{room.description}</p>}
-                  <div className="mt-3 flex items-center gap-2 text-sm text-surface-500">
-                    <Users size={14} className="text-surface-400" />
+                  <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 text-lg line-clamp-1">{room.name}</h3>
+                  {room.description && <p className="text-sm text-surface-500 dark:text-night-400 line-clamp-2 mt-1">{room.description}</p>}
+                  <div className="mt-3 flex items-center gap-2 text-sm text-surface-500 dark:text-night-400">
+                    <Users size={14} className="text-surface-400 dark:text-night-400" />
                     <span>{room._count?.members ?? room.members?.length ?? 0} members</span>
                     {room.unreadCount > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-danger-500 text-white rounded-full text-[11px] font-bold">{room.unreadCount>99?'99+':room.unreadCount}</span>}
                   </div>
-                  <div className="mt-3 p-2.5 bg-surface-50 border border-surface-200 rounded-xl flex items-center gap-2">
+                  <div className="mt-3 p-2.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl flex items-center gap-2">
                     <KeyRound size={13} className="text-primary-600 shrink-0" />
                     <span className="font-mono font-bold text-surface-800 text-xs tracking-wider">{room.joinCode}</span>
                     <div className="flex gap-1 ml-auto">
-                      <button onClick={(e) => copyJoinCode(room.joinCode, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-primary-600 hover:bg-white border border-transparent hover:border-surface-200" title="Copy code"><Copy size={12} /></button>
-                      <button onClick={(e) => shareJoinCode(room, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-primary-600 hover:bg-white border border-transparent hover:border-surface-200" title="Copy join link"><Share2 size={12} /></button>
+                      <button onClick={(e) => copyJoinCode(room.joinCode, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-white dark:hover:bg-night-700 dark:bg-night-800 border border-transparent hover:border-surface-200 dark:border-night-600" title="Copy code"><Copy size={12} /></button>
+                      <button onClick={(e) => shareJoinCode(room, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-white dark:hover:bg-night-700 dark:bg-night-800 border border-transparent hover:border-surface-200 dark:border-night-600" title="Copy join link"><Share2 size={12} /></button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-surface-100">
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-surface-100 dark:border-night-600">
                     <button onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${room.id}`) }} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">
                       Open <ChevronRight size={14} />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); openEditModal(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-primary-600 hover:bg-surface-50 border border-surface-200" title="Edit"><Pencil size={14} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); openDeleteConfirm(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-danger-600 hover:bg-danger-50 border border-surface-200" title="Delete"><Trash2 size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); openEditModal(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 border border-surface-200 dark:border-night-600" title="Edit"><Pencil size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); openDeleteConfirm(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 dark:text-night-400 hover:text-danger-600 hover:bg-danger-50 border border-surface-200 dark:border-night-600" title="Delete"><Trash2 size={14} /></button>
                   </div>
               </div>
             )
@@ -345,28 +345,28 @@ export default function RoomsPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create Room" size="md">
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Name *</label>
+            <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Name *</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+              className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="e.g., Data Structures"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+            <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+              className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="Optional description"
             />
           </div>
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => setShowCreate(false)}
-              className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 transition-colors"
+              className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 transition-colors"
             >
               Cancel
             </button>
@@ -386,28 +386,28 @@ export default function RoomsPage() {
       <Modal open={showEdit} onClose={() => { setShowEdit(false); setEditRoom(null); resetForm() }} title="Edit Room" size="md">
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Name *</label>
+            <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Name *</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+              className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="e.g., Data Structures"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Description</label>
+            <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+              className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="Optional description"
             />
           </div>
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => { setShowEdit(false); setEditRoom(null); resetForm() }}
-              className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 transition-colors"
+              className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 transition-colors"
             >
               Cancel
             </button>
@@ -426,14 +426,14 @@ export default function RoomsPage() {
       {/* Delete Confirmation Modal */}
       <Modal open={showDelete} onClose={() => { setShowDelete(false); setDeleteTarget(null) }} title="Delete Room" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-surface-600">
-            Are you sure you want to delete <span className="font-bold text-surface-900">{deleteTarget?.name}</span>?
+          <p className="text-sm text-surface-600 dark:text-night-300">
+            Are you sure you want to delete <span className="font-bold text-surface-900 dark:text-night-50">{deleteTarget?.name}</span>?
             This action cannot be undone.
           </p>
           <div className="flex gap-3">
             <button
               onClick={() => { setShowDelete(false); setDeleteTarget(null) }}
-              className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200 transition-colors"
+              className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 transition-colors"
             >
               Cancel
             </button>

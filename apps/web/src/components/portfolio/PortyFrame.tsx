@@ -41,7 +41,7 @@ export default function PortyFrame({ importUrl, onPublished }: Props) {
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 dark:bg-night-900/80 backdrop-blur-sm gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
             <p className="text-sm font-medium text-surface-600 dark:text-night-200">Loading Porty…</p>
-            <p className="text-xs text-surface-400">If it stays blank, check your connection or open in new tab.</p>
+            <p className="text-xs text-surface-400 dark:text-night-400">If it stays blank, check your connection or open in new tab.</p>
           </div>
         )}
         {error && (
@@ -64,7 +64,7 @@ export default function PortyFrame({ importUrl, onPublished }: Props) {
           }}
         />
       </div>
-      <p className="text-xs text-surface-400 text-center">
+      <p className="text-xs text-surface-400 dark:text-night-400 text-center">
         Publish inside the preview above. When Porty says “Published”, we’ll capture your link automatically. If not, paste your URL below.
       </p>
     </div>

@@ -10,6 +10,19 @@ const prisma = new PrismaClient()
 const shouldSeedDemo =
   process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_USERS === 'true'
 
+function sanitizeUsername(raw: string): string {
+  return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
+}
+function demoUsername(name: string, email: string, fallback: string): string {
+  const base = sanitizeUsername(name.replace(/\s+/g, '_')) || sanitizeUsername(email.split('@')[0]) || fallback
+  let s = base
+  if (s.length < 3) s = (s + 'user').slice(0, 20)
+  // ensure starts/ends alphanumeric
+  s = s.replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]+$/, '')
+  if (s.length < 3) s = fallback
+  return s.slice(0, 20)
+}
+
 // Seeds all demo data. Returns the demo college id so the AI provider built-ins
 // can be attached to it (in production they are seeded globally instead).
 async function seedDemoData(): Promise<string> {
@@ -53,10 +66,11 @@ async function seedDemoData(): Promise<string> {
   const passwordHash = await bcrypt.hash('password123', 10)
   const user = await prisma.user.upsert({
     where: { email: 'alex@university.edu' },
-    update: {},
+    update: { username: demoUsername('Alex Johnson', 'alex@university.edu', 'alex_johnson') },
     create: {
       email: 'alex@university.edu',
       name: 'Alex Johnson',
+      username: demoUsername('Alex Johnson', 'alex@university.edu', 'alex_johnson'),
       passwordHash,
       role: 'STUDENT',
       departmentId: csDept.id,
@@ -71,10 +85,11 @@ async function seedDemoData(): Promise<string> {
   // Create demo teacher
   const teacher = await prisma.user.upsert({
     where: { email: 'prof.sharma@university.edu' },
-    update: {},
+    update: { username: demoUsername('Prof Sharma', 'prof.sharma@university.edu', 'prof_sharma') },
     create: {
       email: 'prof.sharma@university.edu',
       name: 'Prof. Sharma',
+      username: demoUsername('Prof Sharma', 'prof.sharma@university.edu', 'prof_sharma'),
       passwordHash,
       role: 'TEACHER',
       departmentId: csDept.id,
@@ -87,10 +102,11 @@ async function seedDemoData(): Promise<string> {
   // Create college admin
   const collegeAdmin = await prisma.user.upsert({
     where: { email: 'admin@university.edu' },
-    update: {},
+    update: { username: demoUsername('College Admin', 'admin@university.edu', 'college_admin') },
     create: {
       email: 'admin@university.edu',
       name: 'College Admin',
+      username: demoUsername('College Admin', 'admin@university.edu', 'college_admin'),
       passwordHash,
       role: 'COLLEGE_ADMIN',
       empNumber: 'EMP002',
@@ -102,10 +118,11 @@ async function seedDemoData(): Promise<string> {
   // Create super admin
   const superAdmin = await prisma.user.upsert({
     where: { email: 'superadmin@university.edu' },
-    update: {},
+    update: { username: demoUsername('Super Admin', 'superadmin@university.edu', 'super_admin') },
     create: {
       email: 'superadmin@university.edu',
       name: 'Super Admin',
+      username: demoUsername('Super Admin', 'superadmin@university.edu', 'super_admin'),
       passwordHash,
       role: 'SUPER_ADMIN',
       empNumber: 'EMP003',
@@ -115,17 +132,17 @@ async function seedDemoData(): Promise<string> {
 
   // Create more students for hackathon registrations
   const moreStudents = [
-    { email: 'priya@university.edu', name: 'Priya Singh', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id },
-    { email: 'rahul@university.edu', name: 'Rahul Verma', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id },
-    { email: 'anjali@university.edu', name: 'Anjali Patel', departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id },
-    { email: 'vikram@university.edu', name: 'Vikram Kumar', departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id },
+    { email: 'priya@university.edu', name: 'Priya Singh', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id, username: demoUsername('Priya Singh', 'priya@university.edu', 'priya_singh') },
+    { email: 'rahul@university.edu', name: 'Rahul Verma', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id, username: demoUsername('Rahul Verma', 'rahul@university.edu', 'rahul_verma') },
+    { email: 'anjali@university.edu', name: 'Anjali Patel', departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id, username: demoUsername('Anjali Patel', 'anjali@university.edu', 'anjali_patel') },
+    { email: 'vikram@university.edu', name: 'Vikram Kumar', departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id, username: demoUsername('Vikram Kumar', 'vikram@university.edu', 'vikram_kumar') },
   ]
 
   const createdStudents = [user]
   for (const s of moreStudents) {
     const student = await prisma.user.upsert({
       where: { email: s.email },
-      update: {},
+      update: { username: (s as any).username },
       create: {
         ...s,
         passwordHash,

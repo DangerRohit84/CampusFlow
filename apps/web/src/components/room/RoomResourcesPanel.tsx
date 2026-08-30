@@ -120,7 +120,7 @@ export default function RoomResourcesPanel({
               <div key={key} className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 overflow-hidden">
                 <button
                   onClick={() => toggleCategory(key)}
-                  className="w-full flex items-center justify-between px-5 py-3 hover:bg-surface-50 dark:hover:bg-night-700 transition-colors"
+                  className="w-full flex items-center justify-between px-5 py-3 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <Icon size={16} className="text-surface-500 dark:text-night-200" />
@@ -144,7 +144,7 @@ export default function RoomResourcesPanel({
                       return (
                         <div
                           key={resource.id}
-                          className="flex items-center gap-3 px-5 py-3 border-b border-surface-50 dark:border-night-700 last:border-b-0 hover:bg-surface-50 dark:hover:bg-night-700 transition-colors group"
+                          className="flex items-center gap-3 px-5 py-3 border-b border-surface-50 dark:border-night-700 last:border-b-0 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors group"
                         >
                           <ResourceFileIcon filename={resource.filename || resource.title} />
                           <div className="flex-1 min-w-0">

@@ -171,7 +171,7 @@ export default function CreateAnnouncementModal({ open, onClose, onCreated, anno
             placeholder="Announcement title"
             className="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-900 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
-          <p className="text-xs text-surface-400 mt-1">{title.length}/200</p>
+          <p className="text-xs text-surface-400 dark:text-night-400 mt-1">{title.length}/200</p>
         </div>
 
         {/* Content */}
@@ -223,7 +223,7 @@ export default function CreateAnnouncementModal({ open, onClose, onCreated, anno
             ) : (
               <div className="space-y-1.5">
                 {departments.map((dept) => (
-                  <label key={dept.id} className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-md hover:bg-surface-50 dark:hover:bg-night-700 transition-colors">
+                  <label key={dept.id} className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-md hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors">
                     <input
                       type="checkbox"
                       checked={selectedDeptIds.includes(dept.id)}
@@ -283,12 +283,12 @@ export default function CreateAnnouncementModal({ open, onClose, onCreated, anno
                     Select All
                   </button>
                   {selectedCollegeIds.length > 0 && (
-                    <span className="text-xs text-surface-400">{selectedCollegeIds.length} selected</span>
+                    <span className="text-xs text-surface-400 dark:text-night-400">{selectedCollegeIds.length} selected</span>
                   )}
                 </div>
                 <div className="space-y-1.5">
                   {colleges.map((college) => (
-                    <label key={college.id} className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-md hover:bg-surface-50 dark:hover:bg-night-700 transition-colors">
+                    <label key={college.id} className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-md hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors">
                       <input
                         type="checkbox"
                         checked={selectedCollegeIds.includes(college.id)}

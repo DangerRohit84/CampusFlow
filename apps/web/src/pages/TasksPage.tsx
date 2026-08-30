@@ -259,7 +259,7 @@ export default function TasksPage() {
                   <Sparkles size={16} className="text-primary-600 dark:text-[#90B9A4]" />
                   <span className="font-semibold text-surface-900 dark:text-night-50">AI Day Summary</span>
                 </div>
-                <button onClick={() => setShowSummary(false)} className="text-surface-400 hover:text-surface-600 dark:hover:text-night-200 text-sm">✕S"</button>
+                <button onClick={() => setShowSummary(false)} className="text-surface-400 hover:text-surface-600 dark:text-night-300 dark:hover:text-night-200 text-sm">✕S"</button>
               </div>
               {summaryLoading ? (
                 <div className="flex items-center gap-2 text-surface-500 dark:text-night-300">
@@ -434,8 +434,7 @@ export default function TasksPage() {
       {/* Task List */}
       <div className="space-y-3">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={24} className="animate-spin text-primary-600 dark:text-[#90B9A4]" />
+          <div className="flex items-center justify-center min-h-[45vh]"><Loader2 className="w-8 h-8 animate-spin text-primary-500" />
           </div>
         ) : filteredTasks.length === 0 ? (
           <motion.div
@@ -509,7 +508,7 @@ export default function TasksPage() {
                 {/* Delete */}
                 <button
                   onClick={() => handleDelete(task.id)}
-                  className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                  className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
                   onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
                   onMouseLeave={e => (e.currentTarget.style.opacity = '')}
                   style={{ opacity: undefined }}
@@ -526,7 +525,7 @@ export default function TasksPage() {
       <div className="bg-surface-50 border border-surface-200 rounded-2xl dark:bg-night-800 dark:border-night-600 p-5">
         <button
           onClick={() => setShowSchedule(!showSchedule)}
-          className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-night-200 hover:text-surface-900 dark:hover:text-night-50 transition-colors w-full"
+          className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-night-200 hover:text-surface-900 dark:text-night-50 dark:hover:text-night-50 transition-colors w-full"
         >
           <Sparkles size={16} className="text-primary-600 dark:text-[#90B9A4]" />
           <span>AI Auto-Schedule</span>

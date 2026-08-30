@@ -106,15 +106,15 @@ export default function FetchPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><Download size={18} className="text-brass-400" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 leading-none">Fetch — External Platforms</h1>
-              <p className="text-xs text-surface-500">Pull hackathons & internships from Devfolio, Internshala, etc.</p>
+              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Fetch — External Platforms</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Pull hackathons & internships from Devfolio, Internshala, etc.</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => fetchStats()}
               disabled={loading}
-              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold disabled:opacity-50"
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 text-sm font-semibold disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               Refresh
@@ -122,7 +122,7 @@ export default function FetchPage() {
             <button
               onClick={handleEnrichAll}
               disabled={enrichingAll}
-              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 text-sm font-semibold disabled:opacity-50"
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 text-sm font-semibold disabled:opacity-50"
             >
               {enrichingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               Enrich All
@@ -165,7 +165,7 @@ export default function FetchPage() {
 
       {/* Hackathon Platforms */}
       <div>
-        <h2 className="text-lg font-semibold text-surface-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-surface-900 dark:text-night-50 mb-4 flex items-center gap-2">
           <Layers className="w-5 h-5 text-primary-500" />
           Hackathon Platforms
         </h2>
@@ -189,7 +189,7 @@ export default function FetchPage() {
 
       {/* Internship Platforms */}
       <div>
-        <h2 className="text-lg font-semibold text-surface-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-surface-900 dark:text-night-50 mb-4 flex items-center gap-2">
           <Layers className="w-5 h-5 text-primary-500" />
           Internship Platforms
         </h2>

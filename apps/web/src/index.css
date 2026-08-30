@@ -46,6 +46,77 @@
 .dark input:not([type="hidden"]), .dark textarea, .dark select { background-color:#131D28 !important; color:#F1F5F9 !important; border-color:#273642 !important; }
 .dark ::placeholder { color:#90A1AD !important; }
 
+/* ── Resume Live Preview — isolate from dark mode (PDF fidelity: keep paper white/ink black) ── */
+.dark #resume-print-area,
+.dark .resume-print-root {
+  background-color: #ffffff !important;
+  color: #0C1218 !important;
+  color-scheme: light !important;
+}
+.dark #resume-print-area .bg-white,
+.dark #resume-print-area [class*="bg-white"],
+.dark .resume-print-root .bg-white,
+.dark .resume-print-root [class*="bg-white"] {
+  background-color: #ffffff !important;
+}
+.dark #resume-print-area .bg-black,
+.dark .resume-print-root .bg-black {
+  background-color: #000000 !important;
+}
+/* Restore pastel card tints that should stay light on white paper */
+.dark #resume-print-area .bg-\[\#EEF1FF\],
+.dark .resume-print-root .bg-\[\#EEF1FF\] {
+  background-color: #EEF1FF !important;
+}
+.dark #resume-print-area .bg-\[\#EEF1FF\]\/60,
+.dark .resume-print-root .bg-\[\#EEF1FF\]\/60 {
+  background-color: rgba(238, 241, 255, 0.6) !important;
+}
+.dark #resume-print-area .bg-\[\#F8F9FF\],
+.dark .resume-print-root .bg-\[\#F8F9FF\] {
+  background-color: #F8F9FF !important;
+}
+/* Restore hairlines & borders bleached by global .dark * */
+.dark #resume-print-area .border-\[\#111827\],
+.dark .resume-print-root .border-\[\#111827\] {
+  border-color: #111827 !important;
+}
+.dark #resume-print-area .border-\[\#D1D5DB\],
+.dark .resume-print-root .border-\[\#D1D5DB\] {
+  border-color: #D1D5DB !important;
+}
+.dark #resume-print-area .border-\[\#E0E7FF\],
+.dark .resume-print-root .border-\[\#E0E7FF\] {
+  border-color: #E0E7FF !important;
+}
+.dark #resume-print-area .border-\[\#C7D2FE\],
+.dark .resume-print-root .border-\[\#C7D2FE\] {
+  border-color: #C7D2FE !important;
+}
+.dark #resume-print-area .border-surface-200,
+.dark .resume-print-root .border-surface-200 {
+  border-color: #EAE2CF !important;
+}
+.dark #resume-print-area .border-black,
+.dark .resume-print-root .border-black {
+  border-color: #000000 !important;
+}
+.dark #resume-print-area .border-\[\#2D4A9A\]\/20,
+.dark .resume-print-root .border-\[\#2D4A9A\]\/20 {
+  border-color: rgba(45, 74, 154, 0.2) !important;
+}
+.dark #resume-print-area .border-\[\#2D4A9A\]\/30,
+.dark .resume-print-root .border-\[\#2D4A9A\]\/30 {
+  border-color: rgba(45, 74, 154, 0.3) !important;
+}
+/* Keep ink colors – prevent global dark text lightening inside paper */
+.dark #resume-print-area .text-\[\#111827\],
+.dark .resume-print-root .text-\[\#111827\],
+.dark #resume-print-area .text-black,
+.dark .resume-print-root .text-black {
+  color: #111827 !important;
+}
+
 @layer components {
   /* Page container — 12 columns, max 1280px, centered */
   .campus-shell { @apply max-w-[1280px] mx-auto px-4 lg:px-6; }
@@ -131,8 +202,15 @@
   .locker-rail {
     background: linear-gradient(180deg, #F6F1E5 0%, #EDE6D6 100%);
     border-right: 1px solid #EAE2CF;
+    /* Critical: must NOT create stacking context that traps portaled modals/dropdowns */
+    transform: none;
+    filter: none;
+    perspective: none;
+    contain: none;
+    will-change: auto;
+    isolation: auto;
   }
-  .dark .locker-rail { background: #131D28; border-color:#273642; }
+  .dark .locker-rail { background: #131D28; border-color:#273642; transform: none; filter: none; contain: none; }
   .locker-stripe {
     @apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-primary-600 rounded-r-full;
   }
@@ -201,8 +279,66 @@
 }
 
 @media print {
+  /* Reset page for clean paper */
+  html, body {
+    background: white !important;
+    color: #0C1218 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   .h-screen,.flex-1{height:auto !important}
   .overflow-hidden,.overflow-y-auto{overflow:visible !important}
-  aside,header,nav,.print\:hidden,.fixed{display:none !important}
-  .rounded-2xl{border-radius:4px !important}
+  /* Hide chrome: sidebar, header, nav, modals, toasts, fixed overlays */
+  aside, header, nav, .fixed, #root > .fixed, [role="dialog"] { display: none !important; }
+  /* Utility hide — any element marked no-print is omitted from paper */
+  .no-print { display: none !important; }
+  .print\:hidden { display: none !important; }
+
+  /* Remove app chrome spacing */
+  main, .campus-shell { padding: 0 !important; margin: 0 !important; max-width: none !important; }
+
+  /* Isolate resume: hide everything, then reveal only the print area */
+  body * { visibility: hidden; }
+  #resume-print-area, #resume-print-area * { visibility: visible; }
+  #resume-print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Resume paper — A4 white, no shadow/border/radius, light mode only */
+  .resume-print-root,
+  #resume-print-area .resume-print-root {
+    background: white !important;
+    color: #0C1218 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-width: 210mm !important;
+    width: 210mm !important;
+    margin: 0 auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .resume-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Remove wrapper chrome around preview */
+  .resume-print-area {
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .rounded-2xl, .rounded-xl { border-radius: 0 !important; }
+
+  @page { size: A4; margin: 10mm; }
 }
