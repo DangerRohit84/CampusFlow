@@ -6,14 +6,14 @@ import {
   Sparkles, Search, Award, Target, Clock, Trophy,
   ClipboardList, Shield, DoorOpen, Briefcase, CheckSquare,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
-  Medal, UserCheck, Code2
+  Medal, UserCheck, Code2, FileText, Globe
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import CommandPalette from '../CommandPalette'
 import ThemeToggle from '../ThemeToggle'
 import toast from 'react-hot-toast'
-import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI } from '../../lib/api'
+import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI } from '../../lib/api'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
 
 type NavItem = { path: string; label: string; icon: any }
@@ -26,6 +26,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/schedule', label: 'Timetable', icon: Clock },
       { path: '/attendance', label: 'Attendance', icon: UserCheck },
       { path: '/grades', label: 'Grades', icon: Award },
+      { path: '/assignments', label: 'Assignments', icon: FileText },
       { path: '/tasks', label: 'Planner', icon: ListTodo },
     ]},
     { label: 'OPPORTUNITIES', items: [
@@ -39,24 +40,42 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     ]},
+    { label: 'CAREER', items: [
+      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
+      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
+    ]},
   ],
   TEACHER: [
     { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'ACADEMICS', items: [
+      { path: '/assignments', label: 'Assignments', icon: FileText },
+      { path: '/tasks', label: 'Planner', icon: ListTodo },
+      { path: '/schedule', label: 'Timetable', icon: Clock },
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+    ]},
     { label: 'CAMPUS', items: [
       { path: '/hackathons', label: 'Hackathons', icon: Trophy },
       { path: '/internships', label: 'Internships', icon: Briefcase },
       { path: '/teacher/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests', label: 'Contests', icon: Medal },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
-      { path: '/schedule', label: 'Timetable', icon: Clock },
-      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
+    { label: 'CAREER', items: [
+      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
+      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
     { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   COLLEGE_ADMIN: [
     { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'ACADEMICS', items: [
+      { path: '/assignments', label: 'Assignments', icon: FileText },
+      { path: '/tasks', label: 'Planner', icon: ListTodo },
+      { path: '/schedule', label: 'Timetable', icon: Clock },
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+    ]},
     { label: 'CAMPUS', items: [
       { path: '/hackathons', label: 'Hackathons', icon: Trophy },
       { path: '/internships', label: 'Internships', icon: Briefcase },
@@ -66,10 +85,20 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
     ]},
+    { label: 'CAREER', items: [
+      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
+      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
+    ]},
     { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   SUPER_ADMIN: [
     { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
+    { label: 'ACADEMICS', items: [
+      { path: '/assignments', label: 'Assignments', icon: FileText },
+      { path: '/tasks', label: 'Planner', icon: ListTodo },
+      { path: '/schedule', label: 'Timetable', icon: Clock },
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+    ]},
     { label: 'CAMPUS', items: [
       { path: '/hackathons', label: 'Hackathons', icon: Trophy },
       { path: '/internships', label: 'Internships', icon: Briefcase },
@@ -78,6 +107,10 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+    ]},
+    { label: 'CAREER', items: [
+      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
+      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
     { label: 'Management', items: [
       { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
@@ -94,6 +127,8 @@ export default function Layout() {
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpenLocal] = useState(false)
   const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
+  // Assignments urgent badge: overdue + due within 3 days (for students: only if not yet submitted)
+  const [assignmentUrgent, setAssignmentUrgent] = useState({ count: 0, hasOverdue: false })
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [roomUnreadCount, setRoomUnreadCount] = useState(0)
@@ -188,6 +223,51 @@ export default function Layout() {
     }).catch(()=>{})
   }, [])
 
+  // Assignments: due soon (≤3 days) + overdue — for STUDENT hide already-submitted
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    const threeDays = 3 * 24 * 60 * 60 * 1000
+    const fetchUrgency = async () => {
+      try {
+        const res: any = await assignmentHubAPI.getHubs({ page: 1, limit: 50 })
+        if (cancelled) return
+        const hubs: any[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
+        const now = Date.now()
+        const isStudent = user?.role === 'STUDENT'
+        let overdue = 0
+        let dueSoon = 0
+        for (const h of hubs) {
+          if (!h?.dueDate) continue
+          const due = new Date(h.dueDate).getTime()
+          if (Number.isNaN(due)) continue
+          const diff = due - now
+          const isOverdue = diff < 0
+          const isDueSoon = diff >= 0 && diff < threeDays
+          if (!isOverdue && !isDueSoon) continue
+          // Students: don't badge assignments already submitted (mySubmission present)
+          if (isStudent && h.mySubmission) continue
+          if (isOverdue) overdue++
+          else dueSoon++
+        }
+        if (!cancelled) setAssignmentUrgent({ count: overdue + dueSoon, hasOverdue: overdue > 0 })
+      } catch {
+        // keep previous value on failure
+      }
+    }
+    fetchUrgency()
+    const onMutated = () => fetchUrgency()
+    window.addEventListener('assignment:mutated', onMutated)
+    window.addEventListener('focus', onMutated)
+    const interval = window.setInterval(fetchUrgency, 60_000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('assignment:mutated', onMutated)
+      window.removeEventListener('focus', onMutated)
+      window.clearInterval(interval)
+    }
+  }, [token, user?.role, user?.id, location.pathname])
+
   const getNearCount = (path:string) => {
     if(path==='/hackathons') return nearDeadlineCount.hackathons
     if(path==='/forms') return nearDeadlineCount.forms
@@ -228,11 +308,19 @@ export default function Layout() {
                 const nearCount=getNearCount(item.path)
                 const isRooms=item.path==='/rooms'
                 const showRoomsBadge=isRooms && roomUnreadCount>0
+                const isAssignments=item.path==='/assignments'
+                const assignmentCount=assignmentUrgent.count
+                const showAssignmentBadge=isAssignments && assignmentCount>0
+                const assignmentTone=assignmentUrgent.hasOverdue ? 'bg-danger-500' : 'bg-amber-500'
+                const assignmentTitle = isAssignments && showAssignmentBadge
+                  ? `Assignments — ${assignmentCount} ${assignmentUrgent.hasOverdue ? 'overdue' : 'due soon'}`
+                  : item.label
+                const title = isRooms && roomUnreadCount>0 ? `Rooms (${roomUnreadCount>99?'99+':roomUnreadCount} unread)` : assignmentTitle
                 return (
                   <button
                     key={item.path}
                     onClick={()=>navigate(item.path)}
-                    title={isRooms && roomUnreadCount>0 ? `Rooms (${roomUnreadCount>99?'99+':roomUnreadCount} unread)`: item.label}
+                    title={title}
                     className={clsx(
                       'w-full flex items-center gap-3 rounded-xl font-medium transition-colors duration-150 relative text-left',
                       sidebarOpen ? 'px-3 min-h-[44px]' : 'justify-center px-0 min-h-[44px]',
@@ -245,12 +333,16 @@ export default function Layout() {
                       {!sidebarOpen && showRoomsBadge && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{roomUnreadCount>99?'99+':roomUnreadCount}</span>
                       )}
-                      {!sidebarOpen && nearCount>0 && !showRoomsBadge && (
+                      {!sidebarOpen && showAssignmentBadge && (
+                        <span className={clsx('absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>
+                      )}
+                      {!sidebarOpen && !showRoomsBadge && !showAssignmentBadge && nearCount>0 && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{nearCount>99?'99+':nearCount}</span>
                       )}
                     </span>
                     {sidebarOpen && <span className="flex-1 text-left">{item.label}</span>}
-                    {sidebarOpen && nearCount>0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>}
+                    {sidebarOpen && showAssignmentBadge && <span className={clsx('inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-white rounded-full text-[10px] font-bold', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>}
+                    {sidebarOpen && !showAssignmentBadge && nearCount>0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>}
                     {sidebarOpen && showRoomsBadge && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{roomUnreadCount>99?'99+':roomUnreadCount}</span>}
                   </button>
                 )

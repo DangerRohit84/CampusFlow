@@ -39,6 +39,8 @@ import RoomsPage from './pages/RoomsPage'
 import RoomDetailPage from './pages/RoomDetailPage'
 import StudentRoomsPage from './pages/StudentRoomsPage'
 import StudentRoomDetailPage from './pages/StudentRoomDetailPage'
+import ResumeStudioPage from './pages/ResumeStudioPage'
+import PortfolioStudioPage from './pages/PortfolioStudioPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -102,6 +104,8 @@ export default function App() {
             <Route path="contests" element={<CodingContestsPage />} />
             <Route path="contests/leaderboard" element={<ContestLeaderboardPage />} />
             <Route path="coding-profile" element={<CodingProfilePage />} />
+            <Route path="resume-studio" element={<ResumeStudioPage />} />
+            <Route path="portfolio-studio" element={<PortfolioStudioPage />} />
 
             <Route path="forms" element={<FormsPage />} />
             <Route path="forms/:id" element={<FormDetailPage />} />

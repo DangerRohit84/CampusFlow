@@ -14,6 +14,8 @@ const pages = [
   { path: '/notifications', label: 'Notifications', icon: '🔔' },
   { path: '/search', label: 'Search', icon: '🔍' },
   { path: '/insights', label: 'AI Insights', icon: '💡' },
+  { path: '/resume-studio', label: 'Resume Studio', icon: '📄' },
+  { path: '/portfolio-studio', label: 'Portfolio Studio', icon: '🌐' },
   { path: '/settings', label: 'Settings', icon: '⚙️' },
 ]
 
