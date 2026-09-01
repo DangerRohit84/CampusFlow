@@ -299,16 +299,16 @@ export default function HackathonsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Notice Board Head — registrar style */}
-      <div className="paper overflow-hidden">
-        <div className="h-[3px] bg-brass-400" />
+    <div className="space-y-6 section--hackathons">
+      {/* Notice Board Head — brass #B5A268 5% wash + 1px #B5A268/15% — one wash per section */}
+      <div className="paper overflow-hidden !border-brass-500/15 dark:!border-brass-500/20">
+        <div className="h-[3px] bg-brass-500" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Trophy size={18} className="text-surface-900 dark:text-night-50" /></div>
+            <div className="w-10 h-10 rounded-xl bg-brass-500 flex items-center justify-center border border-brass-500/20"><Trophy size={18} className="text-slate-900" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Notice Board — Hackathons</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Pinned by the registrar · Due slips below</p>
+              <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Notice Board — Hackathons</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Brass wash 5% · #B5A268 + 1px border 15% · slate #1E293B text</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -355,8 +355,9 @@ export default function HackathonsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs — brass for hackathons */}
       <FilterTabs
+        accent="brass"
         tabs={[
           { key: 'all', label: 'All', icon: Filter, count: tabCounts.all },
           { key: 'upcoming', label: 'Upcoming', icon: Clock, count: tabCounts.upcoming },
@@ -381,7 +382,7 @@ export default function HackathonsPage() {
             isTeacher ? (
               <button
                 onClick={createModal.open}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium"
+                className="btn-primary"
               >
                 <Plus size={16} /> Create Hackathon
               </button>
@@ -397,22 +398,22 @@ export default function HackathonsPage() {
             return (
               <div
                 key={h.id}
-                className={clsx('due-slip p-5 flex flex-col group cursor-pointer hover:shadow-e2 transition-shadow', isUrgent && 'due-slip--urgent')}
+                className={clsx('due-slip p-5 flex flex-col group cursor-pointer hover:shadow-md transition-all', isUrgent ? 'due-slip--urgent' : 'due-slip--brass')}
                 onClick={() => navigate(`/hackathons/${h.id}`)}
               >
                   <div className="flex items-center justify-between">
-                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='ongoing'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
-                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='ongoing'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border', status==='upcoming'?'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/40': status==='ongoing'?'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40':'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700')}>
+                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-amber-500': status==='ongoing'?'bg-emerald-500':'bg-zinc-400')} /> {getStatusLabel(status)}
                     </span>
                     {h.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 dark:text-night-400 border border-surface-200 dark:border-night-600 rounded-full px-2 py-1">{getModeLabel(h.mode)}</span>}
                   </div>
-                  <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 line-clamp-2 leading-tight group-hover:text-primary-700">
+                  <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 line-clamp-2 leading-tight group-hover:text-zinc-700 dark:group-hover:text-zinc-200">
                     {h.title}
                   </h3>
                   {h.description && <p className="text-sm text-surface-500 dark:text-night-400 line-clamp-2 mt-1.5 flex-1">{h.description}</p>}
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     {(h.startDate || h.deadline) && (
-                      <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
+                      <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 dark:bg-danger-950/30 text-danger-700 dark:text-danger-300 border-danger-100 dark:border-danger-900/40' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
                         <Calendar size={12} /> {h.startDate ? new Date(h.startDate).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : new Date(h.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short' })} {isUrgent && '· Due soon'}
                       </span>
                     )}
@@ -420,7 +421,7 @@ export default function HackathonsPage() {
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
                     <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
-                    <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14} /></span>
+                    <span className="w-8 h-8 rounded-full bg-amber-500 text-zinc-900 inline-flex items-center justify-center"><ChevronRight size={14} /></span>
                   </div>
               </div>
             )
@@ -450,7 +451,7 @@ export default function HackathonsPage() {
               <h2 className="text-xl font-bold text-surface-900 dark:text-night-50 mb-4">Create Hackathon</h2>
 
               {/* URL Fetch */}
-              <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-100">
+              <div className="mb-4 p-3 bg-primary-50 dark:bg-sky-950/30 rounded-xl border border-primary-100 dark:border-sky-800/40">
                 <label className="text-sm font-medium text-surface-700 dark:text-night-200 mb-1 block">Quick Fill from URL</label>
                 <div className="flex gap-2">
                   <input
@@ -478,7 +479,7 @@ export default function HackathonsPage() {
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     placeholder="Hackathon name"
                   />
                 </div>
@@ -487,7 +488,7 @@ export default function HackathonsPage() {
                   <textarea
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-20"
                     placeholder="About the hackathon"
                   />
                 </div>
@@ -498,7 +499,7 @@ export default function HackathonsPage() {
                       type="text"
                       value={form.organizer}
                       onChange={(e) => setForm({ ...form, organizer: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="Who organizes"
                     />
                   </div>
@@ -508,7 +509,7 @@ export default function HackathonsPage() {
                       type="number"
                       value={form.teamSize}
                       onChange={(e) => setForm({ ...form, teamSize: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="Max team size"
                     />
                   </div>
@@ -519,7 +520,7 @@ export default function HackathonsPage() {
                     type="url"
                     value={form.registrationUrl}
                     onChange={(e) => setForm({ ...form, registrationUrl: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     placeholder="Registration link"
                   />
                 </div>
@@ -530,7 +531,7 @@ export default function HackathonsPage() {
                       type="date"
                       value={form.startDate}
                       onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     />
                   </div>
                   <div>
@@ -539,7 +540,7 @@ export default function HackathonsPage() {
                       type="date"
                       value={form.endDate}
                       onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     />
                   </div>
                   <div>
@@ -548,7 +549,7 @@ export default function HackathonsPage() {
                       type="date"
                       value={form.deadline}
                       onChange={(e) => setForm({ ...form, deadline: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     />
                   </div>
                 </div>
@@ -558,7 +559,7 @@ export default function HackathonsPage() {
                     type="text"
                     value={form.themes}
                     onChange={(e) => setForm({ ...form, themes: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     placeholder="AI, HealthTech, FinTech"
                   />
                 </div>
@@ -569,7 +570,7 @@ export default function HackathonsPage() {
                       type="text"
                       value={form.location}
                       onChange={(e) => setForm({ ...form, location: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="Venue or city"
                     />
                   </div>
@@ -578,7 +579,7 @@ export default function HackathonsPage() {
                     <select
                       value={form.mode}
                       onChange={(e) => setForm({ ...form, mode: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     >
                       <option value="OFFLINE">Offline</option>
                       <option value="ONLINE">Online</option>
@@ -593,7 +594,7 @@ export default function HackathonsPage() {
                       type="text"
                       value={form.prizePool}
                       onChange={(e) => setForm({ ...form, prizePool: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="e.g., ₹2,50,000"
                     />
                   </div>
@@ -603,7 +604,7 @@ export default function HackathonsPage() {
                       type="text"
                       value={form.duration}
                       onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="e.g., 30 hours"
                     />
                   </div>
@@ -613,7 +614,7 @@ export default function HackathonsPage() {
                   <textarea
                     value={form.eligibility}
                     onChange={(e) => setForm({ ...form, eligibility: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-16"
                     placeholder="Departments, years, etc."
                   />
                 </div>
@@ -622,7 +623,7 @@ export default function HackathonsPage() {
                   <textarea
                     value={form.schedule}
                     onChange={(e) => setForm({ ...form, schedule: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-16"
                     placeholder="Day 1: ... Day 2: ..."
                   />
                 </div>
@@ -631,7 +632,7 @@ export default function HackathonsPage() {
                   <textarea
                     value={form.bootcamps}
                     onChange={(e) => setForm({ ...form, bootcamps: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-16"
                     placeholder="DSA Bootcamp, Agentic AI Bootcamp, etc."
                   />
                 </div>
@@ -640,7 +641,7 @@ export default function HackathonsPage() {
                   <textarea
                     value={form.highlights}
                     onChange={(e) => setForm({ ...form, highlights: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-16"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-16"
                     placeholder="Key gains, placement info, etc."
                   />
                 </div>
@@ -654,7 +655,7 @@ export default function HackathonsPage() {
                       {aiRounds.map((r, i) => (
                         <div key={i} className="p-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm">
                           <div className="flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold shrink-0">
+                            <span className="w-6 h-6 rounded-full bg-primary-100 dark:bg-sky-950/40 text-primary-700 dark:text-sky-300 flex items-center justify-center text-xs font-bold shrink-0 border border-primary-200 dark:border-sky-800/40">
                               {r.roundNumber}
                             </span>
                             <span className="font-medium text-surface-900 dark:text-night-50">{r.title}</span>

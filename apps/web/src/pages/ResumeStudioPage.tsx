@@ -726,8 +726,7 @@ export default function ResumeStudioPage() {
             </div>
             <div className="p-5 space-y-4 overflow-auto">
               <div className="flex items-center gap-4">
-                <div className="w-24 h-24 rounded-full border-4 flex flex-col items-center justify-center shrink-0"
-                  style={{ borderColor: (atsResult.score ?? atsResult.blendedScore ?? 0) >= 85 ? '#10b981' : (atsResult.score ?? 0) >= 70 ? '#f59e0b' : '#ef4444' }}>
+                <div className={`w-24 h-24 rounded-full border-4 flex flex-col items-center justify-center shrink-0 ${(atsResult.score ?? atsResult.blendedScore ?? 0) >= 85 ? 'border-emerald-500 dark:border-emerald-400' : (atsResult.score ?? 0) >= 70 ? 'border-amber-500 dark:border-amber-400' : 'border-red-500 dark:border-red-400'}`}>
                   <span className="text-2xl font-extrabold text-surface-900 dark:text-night-50">{atsResult.blendedScore ?? atsResult.score ?? 0}</span>
                   <span className="text-[11px] font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">/ 100</span>
                 </div>

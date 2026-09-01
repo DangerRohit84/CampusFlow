@@ -393,7 +393,7 @@ export default function Layout() {
                   >
                     {isActive && <span className="locker-stripe" />}
                     <span className="relative inline-flex">
-                      <Icon size={18} className={clsx(isActive && 'text-primary-600')} />
+                      <Icon size={18} className={clsx(isActive ? 'text-primary-700 dark:text-primary-300' : 'text-surface-500')} />
                       {!sidebarOpen && showRoomsBadge && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{roomUnreadCount>99?'99+':roomUnreadCount}</span>
                       )}
@@ -416,16 +416,16 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Locker bottom — registrar card — dark:bg-night-800 keeps contrast (light text on dark) */}
+      {/* Locker bottom — assistant card */}
       {sidebarOpen && (
         <div className="px-3 pb-3">
-          <div className="rounded-xl border border-brass-400/30 dark:border-night-650 bg-brass-50 dark:bg-night-800 p-3">
+          <div className="rounded-xl border border-surface-200 dark:border-night-650 bg-surface-100/70 dark:bg-night-800/80 p-3.5 shadow-sm">
             <div className="flex items-center gap-2 mb-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-brass-400" />
-              <span className="text-xs font-bold tracking-wide uppercase text-surface-700 dark:text-night-200">Registrar Desk</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold tracking-wide uppercase text-surface-800 dark:text-night-200">Campus Assistant</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-surface-500 dark:text-night-400">Questions? Visit the desk or ask the assistant.</p>
-            <button onClick={()=>navigate('/chat')} className="mt-3 w-full min-h-[36px] px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5">
+            <p className="text-[11px] leading-relaxed text-surface-500 dark:text-night-400">Instant answers for courses, exams, schedules, and campus life.</p>
+            <button onClick={()=>navigate('/chat')} className="mt-3 w-full min-h-[36px] px-3 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors shadow-sm">
               <Sparkles size={14} /> Ask Assistant
             </button>
           </div>
@@ -469,8 +469,8 @@ export default function Layout() {
 
       {/* Main — isolate so animate-slideUp transform doesn't become containing block for portaled fixed */}
       <div className="flex-1 flex flex-col overflow-hidden bg-surface-50 dark:bg-night-800 relative z-0 isolate">
-        {/* Header — paper bar, flat, 44px controls */}
-        <header className="h-16 border-b border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 flex items-center justify-between px-4 lg:px-6 shrink-0">
+        {/* Header — paper bar, flat, 44px controls — hanging bulb attached to nav bar right side */}
+        <header className="h-16 border-b border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 flex items-center justify-between px-4 lg:px-6 shrink-0 relative overflow-visible">
           <div className="flex items-center gap-3">
             <button
               onClick={()=> window.innerWidth>=1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpenLocal(true)}
@@ -501,14 +501,12 @@ export default function Layout() {
             {/* avatar only — circular (spec) */}
             <AvatarDropdown />
           </div>
-        </header>
 
-        {/* hanging lamp — moved left to avoid covering announcement count badge (right side) — z-50 above page sticky bars */}
-        <div className="relative h-0 pointer-events-none z-50">
-          <div className="absolute right-16 lg:right-24 top-0 z-50 pointer-events-auto">
+          {/* hanging bulb — hanging from bottom edge of nav (top-full), free unlimited drag */}
+          <div className="absolute right-16 lg:right-24 top-full z-50 pointer-events-auto">
             <ThemeToggle />
           </div>
-        </div>
+        </header>
 
         {/* Page content — 12-col 1280 container */}
         <main className="flex-1 overflow-y-auto">
@@ -524,7 +522,7 @@ export default function Layout() {
       {mobileOpen && (
         <>
           <div className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm" onClick={()=>setMobileOpenLocal(false)} />
-          <aside className="fixed inset-y-0 left-0 w-[280px] bg-[#F5F1E8] z-50 lg:hidden shadow-e3 animate-slideUp locker-rail overflow-hidden flex flex-col">
+          <aside className="fixed inset-y-0 left-0 w-[280px] bg-surface-50 dark:bg-night-850 z-50 lg:hidden shadow-e3 animate-slideUp locker-rail overflow-hidden flex flex-col">
             <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700"><X size={20} /></button>
             <SidebarContent />
           </aside>

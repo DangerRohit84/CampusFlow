@@ -54,7 +54,7 @@ export default function Pagination({ page, totalPages, onChange, scroll = true, 
             onFocus={() => onPrefetch?.(p as number)}
             className={`w-9 h-9 rounded-lg text-sm font-medium transition-all border ${
               page === p
-                ? 'bg-primary-500 dark:bg-[#90B9A4] text-white dark:text-night-950 border-primary-500 dark:border-[#90B9A4] shadow-sm'
+                ? 'bg-primary-500 dark:bg-success-300 text-white dark:text-night-950 border-primary-500 dark:border-success-300 shadow-sm'
                 : 'text-surface-600 dark:text-night-200 bg-surface-100 dark:bg-night-700 border-surface-200 dark:border-night-600 hover:bg-surface-200 dark:hover:bg-night-600'
             }`}
           >

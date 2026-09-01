@@ -68,6 +68,19 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(toISODate(today.getFullYear(), today.getMonth(), today.getDate()))
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [isDark, setIsDark] = useState(false)
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains('dark'))
+    check()
+    const obs = new MutationObserver(check)
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+  const eventColor = (type: string) => {
+    const c = EVENT_COLORS[type]
+    if (!c) return isDark ? '#A1A1AA' : '#71717A'
+    return isDark ? c.dark : c.light
+  }
 
   // Fetch all data sources
   useEffect(() => {
@@ -255,7 +268,7 @@ export default function CalendarPage() {
         </div>
         <button
           onClick={goToToday}
-          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white transition-colors"
+          className="px-4 py-2 text-sm font-medium rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-primary-600 dark:hover:bg-primary-500 text-white dark:text-white transition-colors"
         >
           Today
         </button>
@@ -284,7 +297,7 @@ export default function CalendarPage() {
       <div className="flex flex-wrap gap-3 text-xs">
         {Object.entries(EVENT_COLORS).map(([type, colors]) => (
           <div key={type} className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors.light }} />
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: isDark ? colors.dark : colors.light }} />
             <span className="text-surface-600 dark:text-night-200 capitalize">{type}</span>
           </div>
         ))}
@@ -323,17 +336,17 @@ export default function CalendarPage() {
                 key={dateStr}
                 onClick={() => setSelectedDate(dateStr)}
                 className={`h-24 border-b border-r border-surface-100 dark:border-night-650 p-1.5 cursor-pointer transition-colors hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-850 ${
-                  isSelected ? 'bg-primary-50 dark:bg-[rgba(45,106,79,0.12)]' : ''
+                  isSelected ? 'bg-primary-50 dark:bg-primary-500/10' : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <span
                     className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
                       isToday
-                        ? 'bg-primary-600 dark:bg-[#90B9A4] text-white ring-2 ring-primary-400 dark:ring-[#A8C2B3]'
+                        ? 'bg-primary-600 dark:bg-primary-600 text-white dark:text-white ring-2 ring-primary-400 dark:ring-primary-400'
                         : isSelected
-                        ? 'bg-primary-100 dark:bg-[rgba(45,106,79,0.18)] text-primary-700 dark:text-[#90B9A4]'
-                        : 'text-surface-700 dark:text-[#CBD5E1]'
+                        ? 'bg-primary-100 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300'
+                        : 'text-surface-700 dark:text-slate-300'
                     }`}
                   >
                     {day}
@@ -345,8 +358,8 @@ export default function CalendarPage() {
                       key={evt.id}
                       className="truncate text-[10px] font-medium px-1 py-0.5 rounded"
                       style={{
-                        backgroundColor: `${EVENT_COLORS[evt.type].light}20`,
-                        color: EVENT_COLORS[evt.type].light,
+                        backgroundColor: `${eventColor(evt.type)}20`,
+                        color: eventColor(evt.type),
                       }}
                     >
                       {evt.title}
@@ -390,7 +403,7 @@ export default function CalendarPage() {
               </div>
             ) : selectedEvents.length === 0 ? (
               <div className="text-center py-8">
-                <CalendarDays className="w-12 h-12 text-surface-300 dark:text-[#232F3B] mx-auto mb-3" />
+                <CalendarDays className="w-12 h-12 text-surface-300 dark:text-night-700 mx-auto mb-3" />
                 <p className="text-surface-500 dark:text-night-300">No events on this day</p>
               </div>
             ) : (
@@ -404,6 +417,7 @@ export default function CalendarPage() {
                     : evt.type === 'hackathon' ? Target
                     : FileText
 
+                  const evtColor = eventColor(evt.type)
                   return (
                     <div
                       key={evt.id}
@@ -411,17 +425,17 @@ export default function CalendarPage() {
                     >
                       <div
                         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${colors.light}20` }}
+                        style={{ backgroundColor: `${evtColor}20` }}
                       >
-                        <Icon size={16} style={{ color: colors.light }} />
+                        <Icon size={16} style={{ color: evtColor }} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span
                             className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
                             style={{
-                              backgroundColor: `${colors.light}20`,
-                              color: colors.light,
+                              backgroundColor: `${evtColor}20`,
+                              color: evtColor,
                             }}
                           >
                             {evt.type}
@@ -455,7 +469,7 @@ export default function CalendarPage() {
                             </span>
                           )}
                           {evt.type === 'class' && evt.dayOfWeek && (
-                            <span className="text-surface-400 dark:text-[#8A9BA8] italic">
+                            <span className="text-surface-400 dark:text-night-400 italic">
                               Recurring every {evt.dayOfWeek.charAt(0) + evt.dayOfWeek.slice(1).toLowerCase()}
                             </span>
                           )}

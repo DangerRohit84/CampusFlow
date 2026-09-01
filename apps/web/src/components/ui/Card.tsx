@@ -6,9 +6,16 @@ interface CardProps {
   hover?: boolean
   padding?: 'none' | 'sm' | 'md' | 'lg'
   onClick?: () => void
+  accent?: 'brass' | 'blue' | 'emerald' | 'rose' | 'neutral' | 'default'
 }
 
-export default function Card({ children, className, hover = false, padding = 'md', onClick }: CardProps) {
+export default function Card({ children, className, hover = false, padding = 'md', onClick, accent = 'default' }: CardProps) {
+  const accentHover =
+    accent === 'brass' ? 'card-accent--brass' :
+    accent === 'blue' ? 'card-accent--blue' :
+    accent === 'emerald' ? 'card-accent--emerald' :
+    accent === 'rose' ? 'card-accent--rose' :
+    accent === 'neutral' ? 'card-accent--neutral' : ''
   return (
     <div
       onClick={onClick}
@@ -20,8 +27,10 @@ export default function Card({ children, className, hover = false, padding = 'md
           'p-4': padding === 'sm',
           'p-5': padding === 'md',
           'p-6': padding === 'lg',
-          'cursor-pointer hover:border-primary-200': hover && onClick,
+          'cursor-pointer hover:border-primary-200': hover && onClick && accent==='default',
+          'cursor-pointer': hover && onClick && accent!=='default',
         },
+        accentHover,
         className
       )}
     >

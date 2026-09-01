@@ -89,7 +89,7 @@ export default function ProviderModal({ open, provider, onSave, onClose }: Props
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-surface-700 dark:text-night-200">Custom Headers</label>
-              <button onClick={addHeader} className="text-xs text-primary-600 dark:text-[#90B9A4] flex items-center gap-1">
+              <button onClick={addHeader} className="text-xs text-primary-600 dark:text-success-300 flex items-center gap-1">
                 <Plus size={12} /> Add
               </button>
             </div>
@@ -112,7 +112,7 @@ export default function ProviderModal({ open, provider, onSave, onClose }: Props
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white flex items-center gap-2">
+            className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-success-300 dark:hover:bg-success-200 text-white flex items-center gap-2">
             {saving && <Loader2 size={14} className="animate-spin" />}
             {provider ? 'Save Changes' : 'Add Provider'}
           </button>

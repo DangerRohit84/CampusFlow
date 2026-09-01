@@ -237,16 +237,16 @@ export default function InternshipsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Notice Board Head */}
+    <div className="space-y-6 section--internships">
+      {/* Notice Board Head — blue #2563EB 5% wash — one wash per section */}
       <div className="paper overflow-hidden">
-        <div className="h-[3px] bg-brass-400" />
+        <div className="h-[3px] bg-primary-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brass-400 flex items-center justify-center"><Briefcase size={18} className="text-surface-900 dark:text-night-50" /></div>
+            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><Briefcase size={18} className="text-white" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Notice Board — Internships</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Training & placement desk · Due slips below</p>
+              <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Notice Board — Internships</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Blue wash 5% · #2563EB · slate #1E293B text</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -277,8 +277,9 @@ export default function InternshipsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs — blue for internships */}
       <FilterTabs
+        accent="blue"
         tabs={[
           { key: 'all', label: 'All', icon: Filter, count: tabCounts.all },
           { key: 'upcoming', label: 'Upcoming', icon: Clock, count: tabCounts.upcoming },
@@ -320,27 +321,27 @@ export default function InternshipsPage() {
               <div
                 key={i.id}
                 onClick={() => navigate(`/internships/${i.id}`)}
-                className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow', isUrgent && 'due-slip--urgent')}
+                className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow', isUrgent ? 'due-slip--urgent' : 'due-slip--blue')}
               >
                   <div className="flex items-center justify-between">
-                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-primary-50 text-primary-700 border-primary-100': status==='active'?'bg-warning-50 text-warning-700 border-warning-100':'bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}>
-                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-primary-600': status==='active'?'bg-warning-500':'bg-surface-400')} /> {getStatusLabel(status)}
+                    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/40': status==='active'?'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40':'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700')}>
+                      <span className={clsx('w-1.5 h-1.5 rounded-full', status==='upcoming'?'bg-sky-600': status==='active'?'bg-emerald-500':'bg-zinc-400')} /> {getStatusLabel(status)}
                     </span>
                     {i.mode && <span className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 dark:text-night-400 border border-surface-200 dark:border-night-600 rounded-full px-2 py-1">{i.mode}</span>}
                   </div>
                   <h3 className="mt-3 font-display font-bold text-surface-900 dark:text-night-50 line-clamp-1 hover:text-primary-700">
                     {i.title}
                   </h3>
-                  {i.company && <p className="text-sm font-semibold text-primary-600 flex items-center gap-1.5 mt-1"><Building2 size={13}/> {i.company}</p>}
+                  {i.company && <p className="text-sm font-semibold text-sky-700 dark:text-sky-300 flex items-center gap-1.5 mt-1"><Building2 size={13}/> {i.company}</p>}
                   {i.description && <p className="text-sm text-surface-500 dark:text-night-400 line-clamp-2 mt-2 flex-1">{i.description}</p>}
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    {i.stipend && <span className="px-2 py-1 bg-success-50 text-success-700 border border-success-100 rounded-full text-xs font-semibold">{i.stipend}</span>}
+                    {i.stipend && <span className="px-2 py-1 bg-success-50 dark:bg-emerald-950/30 text-success-700 dark:text-emerald-300 border border-success-100 dark:border-emerald-800/40 rounded-full text-xs font-semibold">{i.stipend}</span>}
                     {i.duration && <span className="inline-flex items-center gap-1 text-surface-500 dark:text-night-400"><Timer size={12}/> {i.duration}</span>}
-                    {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 text-danger-700 border-danger-100' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
+                    {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 dark:bg-danger-950/30 text-danger-700 dark:text-danger-300 border-danger-100 dark:border-danger-900/40' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
                     <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12}/> {i.role}</span>}</span>
-                    <span className="w-8 h-8 rounded-full bg-surface-900 text-white inline-flex items-center justify-center"><ChevronRight size={14}/></span>
+                    <span className="w-8 h-8 rounded-full bg-sky-600 text-white inline-flex items-center justify-center"><ChevronRight size={14}/></span>
                   </div>
               </div>
             )
@@ -396,7 +397,7 @@ export default function InternshipsPage() {
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     placeholder="e.g., Software Development Intern"
                   />
                 </div>
@@ -407,7 +408,7 @@ export default function InternshipsPage() {
                       type="text"
                       value={form.company}
                       onChange={(e) => setForm({ ...form, company: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="Company name"
                     />
                   </div>
@@ -417,7 +418,7 @@ export default function InternshipsPage() {
                       type="text"
                       value={form.role}
                       onChange={(e) => setForm({ ...form, role: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="e.g., Frontend Developer"
                     />
                   </div>
@@ -427,7 +428,7 @@ export default function InternshipsPage() {
                   <textarea
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm h-20"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm h-20"
                     placeholder="About the internship"
                   />
                 </div>
@@ -437,7 +438,7 @@ export default function InternshipsPage() {
                     type="url"
                     value={form.url}
                     onChange={(e) => setForm({ ...form, url: e.target.value })}
-                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                    className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     placeholder="https://..."
                   />
                 </div>
@@ -448,7 +449,7 @@ export default function InternshipsPage() {
                       type="text"
                       value={form.stipend}
                       onChange={(e) => setForm({ ...form, stipend: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="e.g., ₹15,000/mo"
                     />
                   </div>
@@ -458,7 +459,7 @@ export default function InternshipsPage() {
                       type="text"
                       value={form.duration}
                       onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                       placeholder="e.g., 3 months"
                     />
                   </div>
@@ -467,7 +468,7 @@ export default function InternshipsPage() {
                     <select
                       value={form.mode}
                       onChange={(e) => setForm({ ...form, mode: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     >
                       <option value="REMOTE">Remote</option>
                       <option value="ONSITE">On-site</option>
@@ -482,7 +483,7 @@ export default function InternshipsPage() {
                       type="date"
                       value={form.startDate}
                       onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     />
                   </div>
                   <div>
@@ -491,7 +492,7 @@ export default function InternshipsPage() {
                       type="date"
                       value={form.deadline}
                       onChange={(e) => setForm({ ...form, deadline: e.target.value })}
-                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm"
+                      className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 rounded-xl text-sm"
                     />
                   </div>
                 </div>

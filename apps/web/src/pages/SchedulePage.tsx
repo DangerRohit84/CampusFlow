@@ -63,7 +63,7 @@ export default function SchedulePage() {
   const timeline = useMemo(() => {
     const items: any[] = []
     dayClasses.forEach((c) => items.push({ ...c, _type: 'class' }))
-    dayTasks.forEach((t) => items.push({ id: t.id, title: t.title, startTime: t.startTime, endTime: t.endTime, location: t.location, color: '#845ef7', _type: 'task', _data: t }))
+    dayTasks.forEach((t) => items.push({ id: t.id, title: t.title, startTime: t.startTime, endTime: t.endTime, location: t.location, _colorClass: 'border-l-violet-600 dark:border-l-violet-400', _type: 'task', _data: t }))
     items.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
     return items
   }, [dayClasses, dayTasks])
@@ -113,18 +113,18 @@ export default function SchedulePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      {/* Header — campus paper */}
+      {/* Header — blue #2563EB for timetable — one wash per section */}
       <div className="paper overflow-hidden">
-        <div className="h-[3px] bg-brass-400" />
+        <div className="h-[3px] bg-primary-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><CalendarDays size={18} className="text-brass-400" /></div>
+            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><CalendarDays size={18} className="text-white" /></div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Timetable — Period Grid</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Your week, period by period. Upload once, reuse.</p>
+              <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Timetable — Period Grid</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400">Blue wash 5% · #2563EB · slate #1E293B text</p>
             </div>
           </div>
-          <Button size="sm" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
+          <Button size="sm" variant="accent" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
             <Upload size={16} /> Upload Timetable
           </Button>
         </div>
@@ -136,10 +136,10 @@ export default function SchedulePage() {
           const classCount = schedules.filter((s) => s.dayOfWeek === i).length
           return (
               <button key={day} onClick={() => setSelectedDay(i)}
-              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-colors duration-150 shrink-0 min-w-[70px] border ${selectedDay === i ? 'bg-primary-600 text-white border-primary-600 shadow-e1' : 'bg-white dark:bg-night-850 text-surface-600 dark:text-night-300 hover:bg-surface-50 dark:hover:bg-night-700 border-surface-200 dark:border-night-600'}`}>
+              className={`flex flex-col items-center px-4 py-3 rounded-xl font-medium transition-all duration-150 shrink-0 min-w-[70px] border ${selectedDay === i ? 'bg-primary-700 text-white dark:bg-primary-500/30 dark:text-primary-200 border-primary-700 dark:border-primary-400 shadow-sm' : 'bg-white dark:bg-night-900 text-surface-600 dark:text-night-300 hover:bg-surface-100 dark:hover:bg-night-700 border-surface-200 dark:border-night-700'}`}>
               <span className="text-[10px] opacity-80">{dayShort[i]}</span>
               <span className="text-lg font-bold mt-0.5">{14 + i}</span>
-              {classCount > 0 && selectedDay !== i && <div className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1" />}
+              {classCount > 0 && selectedDay !== i && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1" />}
             </button>
           )
         })}
@@ -168,7 +168,7 @@ export default function SchedulePage() {
                   </div>
                   <p className="text-surface-500 dark:text-night-400 font-medium mb-2">No classes on {days[selectedDay]}</p>
                   <p className="text-sm text-surface-400 dark:text-night-400 mb-4">Upload your timetable to get started</p>
-                  <Button size="sm" onClick={() => setUploadModalOpen(true)}><Upload size={16} /> Upload Timetable</Button>
+                  <Button size="sm" variant="accent" onClick={() => setUploadModalOpen(true)}><Upload size={16} /> Upload Timetable</Button>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -186,8 +186,8 @@ export default function SchedulePage() {
                           <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-surface-200 group-hover:bg-primary-400 transition-colors" />
                           {itemsAtHour.map((item) => (
                             <motion.div key={item.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                              className="mb-2 p-3 rounded-xl border-l-4 bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-all group/item cursor-pointer"
-                              style={{ borderLeftColor: item.color || '#5c7cfa' }}>
+                              className={`mb-2 p-3 rounded-xl border-l-4 bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-all group/item cursor-pointer ${item._colorClass ? item._colorClass : item.color ? '' : 'border-l-primary-500 dark:border-l-primary-400'}`}
+                              style={item.color ? { borderLeftColor: item.color } : undefined}>
                               <div className="flex items-start justify-between gap-2">
                                 <div>
                                   <div className="flex items-center gap-2">
@@ -226,7 +226,7 @@ export default function SchedulePage() {
                 const count = schedules.filter((s) => s.dayOfWeek === i).length
                 const isSelected = selectedDay === i
                 return (
-                  <button key={day} onClick={() => setSelectedDay(i)} className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all ${isSelected ? 'bg-primary-50 border border-primary-200' : 'hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800'}`}>
+                  <button key={day} onClick={() => setSelectedDay(i)} className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all ${isSelected ? 'bg-primary-50 dark:bg-sky-950/30 border border-primary-200 dark:border-sky-800/40' : 'hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 border border-transparent'}`}>
                     <span className="text-xs font-medium text-surface-500 dark:text-night-400 w-8">{dayShort[i]}</span>
                     <div className="flex-1 h-5 bg-surface-100 dark:bg-night-700 rounded overflow-hidden">
                       <div className="h-full bg-primary-500 rounded" style={{ width: `${(count / 5) * 100}%` }} />
@@ -238,25 +238,25 @@ export default function SchedulePage() {
             </div>
           </Card>
 
-          {/* Stats */}
+          {/* Stats — triadic: blue #2563EB / brass #B5A268 / emerald #059669 / neutral #F8F9FA (rose only errors) — slate #1E293B text */}
           <Card hover>
-            <h3 className="font-bold text-surface-900 dark:text-night-50 mb-4">Stats</h3>
+            <h3 className="font-bold text-slate-800 dark:text-night-50 mb-4">Stats</h3>
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-primary-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-primary-600">{schedules.length}</p>
-                <p className="text-[10px] text-primary-500 font-medium">Total Classes</p>
+              <div className="p-3 bg-primary-50 dark:bg-sky-950/30 rounded-xl text-center border border-primary-200 dark:border-sky-900/30">
+                <p className="text-2xl font-bold text-primary-700 dark:text-sky-300">{schedules.length}</p>
+                <p className="text-[10px] text-primary-600 dark:text-sky-400 font-medium">Total Classes</p>
               </div>
-              <div className="p-3 bg-primary-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-primary-600">{new Set(schedules.map((s) => s.course || s.title)).size}</p>
-                <p className="text-[10px] text-primary-500 font-medium">Subjects</p>
+              <div className="p-3 bg-warning-50 dark:bg-amber-950/30 rounded-xl text-center border border-warning-200 dark:border-amber-900/30">
+                <p className="text-2xl font-bold text-brass-700 dark:text-amber-300">{new Set(schedules.map((s) => s.course || s.title)).size}</p>
+                <p className="text-[10px] text-brass-500 dark:text-amber-400 font-medium">Subjects</p>
               </div>
-              <div className="p-3 bg-primary-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-primary-600">{schedules.filter((s) => s.type === 'LAB').length}</p>
-                <p className="text-[10px] text-primary-500 font-medium">Labs</p>
+              <div className="p-3 bg-success-50 dark:bg-emerald-950/30 rounded-xl text-center border border-success-200 dark:border-emerald-900/30">
+                <p className="text-2xl font-bold text-success-700 dark:text-emerald-300">{schedules.filter((s) => s.type === 'LAB').length}</p>
+                <p className="text-[10px] text-success-600 dark:text-emerald-400 font-medium">Labs</p>
               </div>
-              <div className="p-3 bg-warning-50 rounded-xl text-center">
-                <p className="text-2xl font-bold text-warning-600">{new Set(schedules.map((s) => s.dayOfWeek)).size}</p>
-                <p className="text-[10px] text-warning-500 font-medium">Days Active</p>
+              <div className="p-3 bg-surface-50 dark:bg-zinc-900 rounded-xl text-center border border-surface-200 dark:border-zinc-700">
+                <p className="text-2xl font-bold text-slate-700 dark:text-zinc-300">{new Set(schedules.map((s) => s.dayOfWeek)).size}</p>
+                <p className="text-[10px] text-slate-600 dark:text-zinc-400 font-medium">Days Active</p>
               </div>
             </div>
           </Card>
@@ -332,7 +332,7 @@ export default function SchedulePage() {
                 ))}
               </div>
               <div className="flex gap-3">
-                <Button onClick={handleSaveClasses} loading={uploading} className="flex-1"><Zap size={16} /> Save to Timetable</Button>
+                <Button onClick={handleSaveClasses} loading={uploading} variant="accent" className="flex-1"><Zap size={16} /> Save to Timetable</Button>
               </div>
               <p className="text-xs text-surface-400 dark:text-night-400 text-center">This will replace your existing timetable</p>
             </div>

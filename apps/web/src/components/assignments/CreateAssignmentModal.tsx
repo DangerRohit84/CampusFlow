@@ -179,91 +179,91 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         </div>
 
         {/* SECTION 1: Basic Details */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-4">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-4">
           <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-[#111920] flex items-center justify-center"><FileText size={16} className="text-surface-700 dark:text-[#A6B3BE]"/></span>
+            <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-800 flex items-center justify-center"><FileText size={16} className="text-surface-700 dark:text-night-300"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Basic details</h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Basic details</h3>
               <p className="text-xs text-surface-500 dark:text-night-400">What students will see first</p>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-surface-700 dark:text-[#A6B3BE] mb-1.5">Assignment title <span className="text-danger-500">*</span></label>
+            <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Assignment title <span className="text-danger-500">*</span></label>
             <input
               value={form.title}
               onChange={e=> setForm(p=>({...p, title:e.target.value}))}
               disabled={saving}
               placeholder="e.g. Data Structures — Linked List Implementation"
-              className={`w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:ring-2 transition disabled:opacity-50 disabled:cursor-not-allowed ${errors.title ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-[#202C35] focus:border-primary-400 focus:ring-primary-500/20'}`}
+              className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:ring-2 transition disabled:opacity-50 disabled:cursor-not-allowed ${errors.title ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`}
             />
             {errors.title ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.title}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Clear, specific titles get faster submissions. {form.title.length>0 && `${form.title.length} chars`}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-surface-700 dark:text-[#A6B3BE] mb-1.5">Course <span className="text-surface-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Course <span className="text-surface-400 font-normal">(optional)</span></label>
             <input
               value={form.courseId}
               onChange={e=> setForm(p=>({...p, courseId:e.target.value}))}
               disabled={saving}
               placeholder="e.g. CS301 — Data Structures"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border border-surface-200 dark:border-[#202C35] rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Links this assignment to a course code. Leave blank for general assignments.</p>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-surface-700 dark:text-[#A6B3BE] mb-1.5">Instructions / Description</label>
+            <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Instructions / Description</label>
             <textarea
               value={form.description}
               onChange={e=> setForm(p=>({...p, description:e.target.value}))}
               disabled={saving}
               rows={4}
               placeholder="Add instructions, requirements, grading criteria, or links. Example: &#10;• Implement singly linked list with insert/delete&#10;• Submit .java file or PDF&#10;• See attached rubric"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border border-surface-200 dark:border-[#202C35] rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Supports plain text and links. {form.description.length} / 2000</p>
           </div>
         </section>
 
         {/* SECTION 2: Timing & Points */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-4">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-4">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center"><Calendar size={16} className="text-amber-700 dark:text-amber-400"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Due date & grading</h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Due date & grading</h3>
               <p className="text-xs text-surface-500 dark:text-night-400">When it’s due and how many points it’s worth</p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-surface-700 dark:text-[#A6B3BE] mb-1.5">Due date <span className="text-danger-500">*</span></label>
-              <input type="date" value={form.dueDate} disabled={saving} onChange={e=> setForm(p=>({...p, dueDate:e.target.value}))} className={`w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.dueDate ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-[#202C35] focus:border-primary-400 focus:ring-primary-500/20'}`} />
+              <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Due date <span className="text-danger-500">*</span></label>
+              <input type="date" value={form.dueDate} disabled={saving} onChange={e=> setForm(p=>({...p, dueDate:e.target.value}))} className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.dueDate ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`} />
               {errors.dueDate ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.dueDate}</p> : duePreview ? <p className={`text-xs mt-1.5 flex items-center gap-1 ${duePreview.tone==='danger'?'text-danger-600':duePreview.tone==='warning'?'text-amber-600':'text-emerald-600'}`}><Clock size={12}/>{duePreview.text}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Students get reminders before the due date.</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-surface-700 dark:text-[#A6B3BE] mb-1.5 flex items-center gap-1.5"><Award size={14}/> Max points <span className="text-danger-500">*</span></label>
-              <input type="number" min={1} value={form.maxPoints} disabled={saving} onChange={e=> setForm(p=>({...p, maxPoints: parseInt(e.target.value)||0}))} placeholder="100" className={`w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.maxPoints ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-[#202C35] focus:border-primary-400 focus:ring-primary-500/20'}`} />
+              <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5 flex items-center gap-1.5"><Award size={14}/> Max points <span className="text-danger-500">*</span></label>
+              <input type="number" min={1} value={form.maxPoints} disabled={saving} onChange={e=> setForm(p=>({...p, maxPoints: parseInt(e.target.value)||0}))} placeholder="100" className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.maxPoints ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`} />
               {errors.maxPoints ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.maxPoints}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Total score for grading (e.g. 100).</p>}
             </div>
           </div>
 
-          <label className="flex items-start gap-3 p-3 rounded-xl border border-surface-200 dark:border-[#202C35] bg-surface-50 dark:bg-[#0D151C] cursor-pointer hover:bg-white dark:hover:bg-[#111920] transition">
+          <label className="flex items-start gap-3 p-3 rounded-xl border border-surface-200 dark:border-night-700 bg-surface-50 dark:bg-night-800 cursor-pointer hover:bg-white dark:hover:bg-night-800 transition">
             <input type="checkbox" checked={form.allowLateSubmission} onChange={e=> setForm(p=>({...p, allowLateSubmission:e.target.checked}))} className="mt-1 w-4 h-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500" />
             <div>
-              <div className="text-sm font-medium text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Allow late submissions</div>
+              <div className="text-sm font-medium text-surface-900 dark:text-night-50 dark:text-night-50">Allow late submissions</div>
               <div className="text-xs text-surface-500 dark:text-night-400">If off, students can’t submit after the due date. If on, late work is marked “Late” for you to grade.</div>
             </div>
           </label>
         </section>
 
         {/* SECTION 3: Who */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-3">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center"><Users size={16} className="text-blue-700 dark:text-blue-400"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Who should receive this?</h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Who should receive this?</h3>
               <p className="text-xs text-surface-500 dark:text-night-400">Choose who can see and submit — you can’t change scope after creation without re-creating</p>
             </div>
           </div>
@@ -272,11 +272,11 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         </section>
 
         {/* SECTION 4: How submit */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-3">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center"><UploadCloud size={16} className="text-emerald-700 dark:text-emerald-400"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">How should students submit?</h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">How should students submit?</h3>
               <p className="text-xs text-surface-500 dark:text-night-400">Pick the submission method — this tells students what to do</p>
             </div>
           </div>
@@ -285,11 +285,11 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         </section>
 
         {/* SECTION 5: Visibility */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-3">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center"><Eye size={16} className="text-violet-700 dark:text-violet-400"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">What can students see after submitting?</h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">What can students see after submitting?</h3>
               <p className="text-xs text-surface-500 dark:text-night-400">Control feedback visibility — you can change this anytime, even after grading</p>
             </div>
           </div>
@@ -298,30 +298,30 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         </section>
 
         {/* SECTION 6: Attachments */}
-        <section className="rounded-xl border border-surface-200 dark:border-[#202C35] p-4 space-y-3">
+        <section className="rounded-xl border border-surface-200 dark:border-night-700 p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-[#111920] flex items-center justify-center"><Paperclip size={16} className="text-surface-700 dark:text-[#A6B3BE]"/></span>
+            <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-800 flex items-center justify-center"><Paperclip size={16} className="text-surface-700 dark:text-night-300"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Attachments <span className="font-normal text-surface-500">(optional)</span></h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Attachments <span className="font-normal text-surface-500">(optional)</span></h3>
               <p className="text-xs text-surface-500 dark:text-night-400">Add question PDF, rubric, or reference files — up to 5 files</p>
             </div>
           </div>
-          <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-surface-200 dark:border-[#202C35] rounded-xl bg-surface-50 dark:bg-[#0D151C] hover:bg-white dark:hover:bg-[#111920] cursor-pointer transition group">
-            <span className="w-10 h-10 rounded-full bg-white dark:bg-[#1A242E] border border-surface-200 dark:border-[#202C35] flex items-center justify-center group-hover:border-primary-300 transition"><UploadCloud size={18} className="text-surface-500 dark:text-night-400 group-hover:text-primary-600"/></span>
-            <span className="text-sm font-medium text-surface-700 dark:text-[#F4F7F8]">Click to upload or drag and drop</span>
+          <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-surface-200 dark:border-night-700 rounded-xl bg-surface-50 dark:bg-night-800 hover:bg-white dark:hover:bg-night-800 cursor-pointer transition group">
+            <span className="w-10 h-10 rounded-full bg-white dark:bg-night-700 border border-surface-200 dark:border-night-700 flex items-center justify-center group-hover:border-primary-300 transition"><UploadCloud size={18} className="text-surface-500 dark:text-night-400 group-hover:text-primary-600"/></span>
+            <span className="text-sm font-medium text-surface-700 dark:text-night-50">Click to upload or drag and drop</span>
             <span className="text-xs text-surface-500 dark:text-night-400">PDF, DOC, images — max 10MB each, 5 files</span>
             <input type="file" multiple onChange={e=> setFiles(Array.from(e.target.files||[]).slice(0,5))} className="hidden" />
           </label>
           {files.length>0 && (
             <div className="space-y-2">
               {files.map((f, i)=> (
-                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg border border-surface-200 dark:border-[#202C35] bg-white dark:bg-[#111920]">
+                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg border border-surface-200 dark:border-night-700 bg-white dark:bg-night-800">
                   <span className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center shrink-0"><File size={14} className="text-primary-600"/></span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">{f.name}</div>
+                    <div className="text-sm font-medium truncate text-surface-900 dark:text-night-50 dark:text-night-50">{f.name}</div>
                     <div className="text-xs text-surface-500 dark:text-night-400">{(f.size/1024).toFixed(1)} KB</div>
                   </div>
-                  <button onClick={()=> removeFile(i)} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-[#202C35] text-surface-500 dark:text-night-400 hover:text-danger-600 transition"><X size={16}/></button>
+                  <button onClick={()=> removeFile(i)} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 dark:text-night-400 hover:text-danger-600 transition"><X size={16}/></button>
                 </div>
               ))}
               <p className="text-xs text-surface-500 dark:text-night-400">{files.length}/5 files selected — they’ll be visible to all recipients.</p>
@@ -332,12 +332,12 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         {/* LIVE PREVIEW */}
         <div className="rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50/60 dark:bg-primary-900/10 p-4 space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold tracking-wide uppercase text-primary-700 dark:text-primary-300"><Eye size={14}/> Live preview — what students will see</div>
-          <div className="bg-white dark:bg-[#111920] rounded-lg border border-surface-200 dark:border-[#202C35] p-3 space-y-1.5">
-            <div className="font-semibold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8] text-sm leading-tight">{form.title || 'Untitled assignment'}</div>
+          <div className="bg-white dark:bg-night-800 rounded-lg border border-surface-200 dark:border-night-700 p-3 space-y-1.5">
+            <div className="font-semibold text-surface-900 dark:text-night-50 dark:text-night-50 text-sm leading-tight">{form.title || 'Untitled assignment'}</div>
             {form.courseId && <div className="text-xs text-surface-500 dark:text-night-400">{form.courseId}</div>}
-            {form.description && <div className="text-xs text-surface-600 dark:text-[#A6B3BE] line-clamp-2 whitespace-pre-wrap">{form.description.slice(0,120)}{form.description.length>120?'…':''}</div>}
+            {form.description && <div className="text-xs text-surface-600 dark:text-night-300 line-clamp-2 whitespace-pre-wrap">{form.description.slice(0,120)}{form.description.length>120?'…':''}</div>}
             <div className="flex flex-wrap gap-1.5 pt-1">
-              <span className="px-2 py-1 rounded-full text-xs font-medium bg-surface-100 dark:bg-[#0D151C] text-surface-700 dark:text-[#A6B3BE] border border-surface-200 dark:border-[#202C35]">{form.scope==='ALL'?'Everyone':form.scope==='DEPARTMENT'?'Department':'Classroom'} • {form.submissionMode.toLowerCase()}</span>
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-surface-100 dark:bg-night-800 text-surface-700 dark:text-night-300 border border-surface-200 dark:border-night-700">{form.scope==='ALL'?'Everyone':form.scope==='DEPARTMENT'?'Department':'Classroom'} • {form.submissionMode.toLowerCase()}</span>
               <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border border-amber-200 dark:border-amber-800">{duePreview?.text || 'No due date yet'} • {form.maxPoints} pts</span>
               {form.allowLateSubmission && <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 border border-blue-200">Late allowed</span>}
             </div>

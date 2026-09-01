@@ -258,16 +258,18 @@ export default function FormsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 section--forms">
+      {/* Header — neutral gray for forms (rose reserved for errors only, one wash per section) */}
       <PageHeader
+        accent="neutral"
         title="Forms"
-        subtitle="Create and manage custom forms for feedback, surveys, and more"
+        subtitle="Create and manage custom forms — gray #F8F9FA slips · slate #1E293B (rose only expired)"
+        icon={<FileText size={18} />}
         action={
           canCreate && (
             <button
               onClick={createModal.open}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 dark:bg-white text-white dark:text-slate-900 rounded-xl hover:bg-slate-700 dark:hover:bg-slate-100 transition-all text-sm font-medium shadow-sm"
             >
               <Plus size={16} /> Create Form
             </button>
@@ -275,8 +277,9 @@ export default function FormsPage() {
         }
       />
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs — neutral for forms */}
       <FilterTabs
+        accent="neutral"
         tabs={[
           { key: 'all', label: 'All', icon: Filter, count: tabCounts.all },
           { key: 'active', label: 'Active', icon: CheckCircle2, count: tabCounts.active },
@@ -310,10 +313,10 @@ export default function FormsPage() {
             >
               <div
                 onClick={() => navigate(`/forms/${f.id}`)}
-                className="due-slip p-4 flex items-center gap-4 cursor-pointer hover:shadow-e2 transition-shadow group"
+                className={clsx('due-slip p-4 flex items-center gap-4 cursor-pointer hover:shadow-e2 transition-shadow group', getFormStatus(f)==='expiring' ? 'due-slip--urgent' : 'due-slip--neutral')}
               >
-                <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center shrink-0">
-                  <FileText size={18} className="text-primary-600" />
+                <div className="w-10 h-10 rounded-xl bg-surface-50 border border-surface-200 dark:bg-zinc-900 dark:border-zinc-700 flex items-center justify-center shrink-0">
+                  <FileText size={18} className="text-slate-700 dark:text-zinc-400" />
                 </div>
 
                   {/* Content */}
@@ -347,7 +350,7 @@ export default function FormsPage() {
                     {isTeacher && (
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditModal(f) }}
-                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
+                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-500 dark:hover:text-sky-300 hover:bg-primary-50 dark:hover:bg-sky-950/30 transition-colors"
                       >
                         <Pencil size={14} />
                       </button>
@@ -355,7 +358,7 @@ export default function FormsPage() {
                     {f.creatorId === user?.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(f.id) }}
-                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50 transition-colors"
+                        className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 dark:hover:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-950/30 transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -497,7 +500,7 @@ export default function FormsPage() {
                   </div>
                   <button
                     onClick={addField}
-                    className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-lg"
+                    className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 dark:text-sky-300 hover:bg-primary-50 dark:hover:bg-sky-950/30 rounded-lg"
                   >
                     <Plus size={12} /> Add Field
                   </button>
@@ -505,7 +508,7 @@ export default function FormsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#232F3B] transition-colors">
+                <button onClick={createModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-night-700 transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleCreate} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">
@@ -586,7 +589,7 @@ export default function FormsPage() {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-[#232F3B] transition-colors">
+                <button onClick={editModal.close} className="flex-1 px-4 py-2 bg-surface-100 dark:bg-night-600 text-surface-700 dark:text-night-200 rounded-xl font-medium hover:bg-surface-200 dark:hover:bg-night-700 transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleEdit} className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors shadow-sm">

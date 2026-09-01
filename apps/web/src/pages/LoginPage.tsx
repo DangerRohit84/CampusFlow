@@ -87,7 +87,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right — Quad photo (campus-native, no gradient blobs) */}
-      <div className="hidden lg:flex flex-1 relative overflow-hidden border-l border-surface-200 dark:border-night-600 bg-[#EDE8DA]">
+      <div className="hidden lg:flex flex-1 relative overflow-hidden border-l border-surface-200 dark:border-night-600 bg-warning-100">
         {/* quad image — CSS campus texture + photo frame */}
         <div className="absolute inset-0">
           {/* subtle paper grain */}

@@ -42,10 +42,17 @@ import StudentRoomDetailPage from './pages/StudentRoomDetailPage'
 import ResumeStudioPage from './pages/ResumeStudioPage'
 import PortfolioStudioPage from './pages/PortfolioStudioPage'
 import PublicProfilePage from './pages/PublicProfilePage'
+import LandingPage from './pages/LandingPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function LandingRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  if (isAuthenticated) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -74,18 +81,19 @@ export default function App() {
         position="top-right"
         toastOptions={{
           className: 'font-medium rounded-xl',
-          style: { background: '#1f2937', color: '#f9fafb' },
+          style: { background: '#0F0F12', color: '#FAFAFA' },
         }}
       />
       <ErrorBoundary>
         <Routes>
+          <Route path="/" element={<LandingRoute><LandingPage /></LandingRoute>} />
+          <Route path="/landing" element={<LandingRoute><LandingPage /></LandingRoute>} />
           <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
           <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
           <Route path="/register-college" element={<CollegeRegistrationPage />} />
           {/* public profile - accessible without layout but also needs auth for private data; keep outside ProtectedRoute but still render */}
           <Route path="/u/:username" element={<PublicProfilePage />} />
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="chat" element={<ChatPage />} />

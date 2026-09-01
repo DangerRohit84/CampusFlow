@@ -21,14 +21,14 @@ interface Stats {
 }
 
 const HACKATHON_PLATFORMS = [
-  { id: 'DEVFOLIO', name: 'Devfolio', icon: '💻', color: 'border-l-[#635BFF]' },
-  { id: 'DEVPOST', name: 'Devpost', icon: '🏆', color: 'border-l-[#635BFF]' },
-  { id: 'MLH', name: 'MLH', icon: '🎯', color: 'border-l-[#DC2626]' },
-  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-[#D1B48C]' },
+  { id: 'DEVFOLIO', name: 'Devfolio', icon: '💻', color: 'border-l-indigo-500' },
+  { id: 'DEVPOST', name: 'Devpost', icon: '🏆', color: 'border-l-indigo-500' },
+  { id: 'MLH', name: 'MLH', icon: '🎯', color: 'border-l-red-600' },
+  { id: 'UNSTOP', name: 'Unstop', icon: '🚀', color: 'border-l-warning-300' },
 ]
 
 const INTERNSHIP_PLATFORMS = [
-  { id: 'INTERNSHALA', name: 'Internshala', icon: '💼', color: 'border-l-[#007060]' },
+  { id: 'INTERNSHALA', name: 'Internshala', icon: '💼', color: 'border-l-success-700' },
 ]
 
 function getPlatformStats(platforms: PlatformStats[] | undefined, id: string): { fetched: number; enriched: number; pending: number } {

@@ -191,7 +191,7 @@ export default function AvatarDropdown() {
                     onClick={goProfile}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700/60 text-left group transition-colors"
                   >
-                    <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-[#90B9A4] transition-colors shrink-0">
+                    <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-success-300 transition-colors shrink-0">
                       <User size={16} />
                     </span>
                     <span className="flex-1 min-w-0">
@@ -207,7 +207,7 @@ export default function AvatarDropdown() {
                     onClick={goSettings}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700/60 text-left group transition-colors"
                   >
-                    <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-[#90B9A4] transition-colors shrink-0">
+                    <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-success-300 transition-colors shrink-0">
                       <Settings size={16} />
                     </span>
                     <span className="flex-1 min-w-0">
@@ -222,7 +222,7 @@ export default function AvatarDropdown() {
                       onClick={() => { setOpen(false); navigate('/admin') }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700/60 text-left group transition-colors"
                     >
-                      <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-[#90B9A4] transition-colors shrink-0">
+                      <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-700 group-hover:bg-white dark:hover:bg-night-700 dark:group-hover:bg-night-600 border border-surface-200/60 dark:border-night-600 flex items-center justify-center text-surface-600 dark:text-night-200 group-hover:text-primary-600 dark:group-hover:text-success-300 transition-colors shrink-0">
                         <Shield size={16} />
                       </span>
                       <span className="flex-1 min-w-0">

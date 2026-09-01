@@ -36,13 +36,13 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between"><h3 className="font-semibold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Submission</h3>{visibleStatus && <Badge variant={visibleStatus==='GRADED'?'success':visibleStatus==='LATE'?'danger':'primary'}>{visibleStatus}</Badge>}</div>
+      <div className="flex items-center justify-between"><h3 className="font-semibold text-surface-900 dark:text-night-50 dark:text-night-50">Submission</h3>{visibleStatus && <Badge variant={visibleStatus==='GRADED'?'success':visibleStatus==='LATE'?'danger':'primary'}>{visibleStatus}</Badge>}</div>
       {submission && (
-        <div className="p-3 bg-surface-50 dark:bg-[#0D151C] rounded-xl text-sm space-y-2">
+        <div className="p-3 bg-surface-50 dark:bg-night-800 rounded-xl text-sm space-y-2">
           <div>Submitted: {new Date(submission.submittedAt).toLocaleString()}</div>
           {submission.fileUrl && <a href={submission.fileUrl} target="_blank" rel="noreferrer" className="text-primary-600 underline">{submission.fileName}</a>}
           {visiblePoints !== null && <div>Grade: {visibleGrade} {visiblePoints !== null && `(${visiblePoints}/${hub.maxPoints})`}</div>}
-          {visibleFeedback && <div className="p-2 bg-white dark:bg-[#111920] rounded-lg border">Feedback: {visibleFeedback}</div>}
+          {visibleFeedback && <div className="p-2 bg-white dark:bg-night-800 rounded-lg border">Feedback: {visibleFeedback}</div>}
           {!hub.showGrades && submission.grade && <div className="text-xs text-surface-500 dark:text-night-400">Grade hidden by teacher</div>}
           {!hub.showFeedback && submission.feedback && <div className="text-xs text-surface-500 dark:text-night-400">Feedback hidden</div>}
         </div>
@@ -51,7 +51,7 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
       {!submission && !isLate && (
         <div className="space-y-3">
           {hub.submissionMode==='OFFLINE' && <div className="p-3 bg-warning-50 dark:bg-warning-900/20 rounded-xl text-sm">Offline mode: submit in person. Enter confirmation text (e.g., receipt number or declaration).</div>}
-          <textarea value={content} onChange={e=> setContent(e.target.value)} rows={4} placeholder={hub.submissionMode==='OFFLINE'?'Confirmation text...':'Write your submission...'} disabled={submitting} className="w-full px-4 py-3 bg-surface-50 dark:bg-[#0D151C] border border-surface-200 dark:border-[#202C35] rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed" />
+          <textarea value={content} onChange={e=> setContent(e.target.value)} rows={4} placeholder={hub.submissionMode==='OFFLINE'?'Confirmation text...':'Write your submission...'} disabled={submitting} className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed" />
           {(hub.submissionMode==='ONLINE' || hub.submissionMode==='HYBRID') && <input type="file" onChange={e=> setFile(e.target.files?.[0]||null)} disabled={submitting} className="w-full text-sm disabled:opacity-50 disabled:cursor-not-allowed" />}
           <Button onClick={handleSubmit} loading={submitting} disabled={submitting || !canSubmit} className="w-full">{submitting?'Submitting...':'Submit'}</Button>
         </div>

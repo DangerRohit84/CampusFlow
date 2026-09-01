@@ -5,107 +5,98 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Green — main brand color (buttons, links, active states)
-        // Light tints are soft mint for backgrounds, dark shades for text and hovers
+        // Primary — True Blue #2563EB (WCAG AA 5.67:1 on white, 4.5+)
         primary: {
-          50: '#EEF4F0',  // very light mint — card tint
-          100: '#D6E9DE', // light mint — subtle background
-          200: '#B6D2C3', // soft green border
-          300: '#90B9A4', // muted green — icons, secondary
-          400: '#5A8B75', // mid green
-          500: '#2D6A4F', // main green — 6.4:1 on white, use for buttons
-          600: '#1E4935', // dark green — hover, 11:1 on white
-          700: '#163828',
-          800: '#112921',
-          900: '#0B1C16',
+          50: '#EFF6FF',
+          100: '#DBEAFE',
+          200: '#BFDBFE',
+          300: '#93C5FD',
+          400: '#60A5FA',
+          500: '#3B82F6',
+          600: '#2563EB',
+          700: '#1D4ED8',
+          800: '#1E40AF',
+          900: '#1E3A8A',
+          950: '#172554',
         },
-        // Terracotta — secondary warm accent (highlights, second button, badges)
-        // Warm orange-red, friendly and visible but not too strong
+        // Accent — Blue alias for internships / CTAs (kept in sync with primary)
         accent: {
-          50: '#FDF3EB',   // light peach — tint
-          100: '#FBE9D8',
-          200: '#F4C8A8',
-          300: '#E5A582',
-          400: '#D07E56',
-          500: '#B5533C',  // main terracotta — 4.9:1 on white
-          600: '#9A4532',  // darker for text — 6.4:1
-          700: '#7D3728',
-          800: '#5E2A1E',
-          900: '#3F1C14',
+          50: '#EFF6FF',
+          100: '#DBEAFE',
+          200: '#BFDBFE',
+          300: '#93C5FD',
+          400: '#60A5FA',
+          500: '#2563EB',
+          600: '#2563EB',
+          700: '#1D4ED8',
+          800: '#1E40AF',
+          900: '#1E3A8A',
         },
-        // Red — errors, urgent, delete actions
+        // Rose / Red — Errors ONLY (not domain washes) — WCAG AA protected
         danger: {
-          50: '#FEF2F2',100: '#FEE2E2',200: '#FECACA',300: '#FCA5A5',400: '#F87171',
-          500: '#DC2626',600: '#B91C1C',700: '#991B1B',800: '#7F1D1D',900: '#450A0A',
+          50: '#FFF1F2',100: '#FFE4E6',200: '#FECDD3',300: '#FDA4AF',400: '#FB7185',
+          500: '#F43F5E',600: '#E11D48',700: '#BE123C',800: '#9F1239',900: '#881337',
         },
-        // Emerald — success, done, safe states (slightly brighter than primary for clarity)
+        // Emerald — Success / Rooms #059669 (WCAG AA 4.89:1 on white)
         success: {
           50: '#ECFDF5',100: '#D1FAE5',200: '#A7F3D0',300: '#6EE7B7',400: '#34D399',
-          500: '#0F7F5B',600: '#0B5E44',700: '#064E3B',800: '#065F46',900: '#064E3B',
+          500: '#10B981',600: '#059669',700: '#047857',800: '#065F46',900: '#022C22',950: '#02140F',
         },
-        // Gold — warnings and highlight color (decorative gold, warm and visible)
-        // 300 and lighter are only for decoration — not for text (low contrast ~1.4-1.9)
-        // 500 and darker are safe for text — 4.71:1 on white AA PASS
-        // Mapping: warning is semantic (white text) — needs darker 500 #8B6F47 for AA white-on-gold;
-        //          brass/gold is decorative (black text on gold) — lighter 400 #D1B48C gives 9.5:1 black-on-gold;
-        //          values intentionally offset by 1 tier — do not unify blindly. Use warning-500 for white-on-gold,
-        //          brass-400/gold-400 for black-on-gold or borders. See palette-contrast.test.js for ratios.
+        // Warning — Brass alias (Gold triadic) #B5A268
         warning: {
-          50: '#FFFBEB',   // cream
-          100: '#FEF3C7',  // light gold
-          200: '#FDE68A',  // soft gold
-          300: '#D1B48C',  // decorative gold — 1.98:1 not for text (maps to brass-400/gold-400)
-          400: '#BD9D69',  // 2.56:1 not for text
-          500: '#8B6F47',  // text-safe gold — 4.71:1 on white, white on gold also 4.71 AA PASS
-          600: '#6E5A3A',  // 6.59:1 on white
-          700: '#4D3F27',
-          800: '#312A1A',
-          900: '#1E1910',
+          50: '#FBF9F0',100: '#F5F0D9',200: '#EADFC0',300: '#DFCF9F',400: '#C9B67A',
+          500: '#B5A268',600: '#9A8A58',700: '#7F724A',800: '#655A3B',900: '#4B4330',
         },
-        // Light neutral — page background, borders, and text
-        // Clean off-white for eye comfort, not too yellow
+        // Neutral — Clean Gray Canvas — light mode #F8F9FA base
         surface: {
-          50: '#FEFCF7',  // page background — warm white, easy on eyes
-          100: '#F6F1E5', // sidebar, subtle card
-          200: '#EAE2CF', // border — visible but soft
-          300: '#DBCCB8', // stronger border, scrollbar
-          400: '#5F6B7D', // muted text — 5.5:1 on white, 5.2 on #FEFCF7
-          500: '#475569', // secondary text — 7.5:1
-          600: '#334155', // strong text — 10:1
-          700: '#1E293B', // headings — 15:1
-          800: '#0F172A',
-          900: '#0C1218', // main text — near black, high contrast
+          50: '#F8F9FA',  // spec neutral wash base (was #FAFAFA)
+          100: '#F1F3F5', // subtle card background
+          200: '#E9ECEF', // hairline border
+          300: '#DEE2E6', // active border
+          400: '#868E96', // muted text — 4.6:1 on white
+          500: '#495057', // secondary text — 8.3:1
+          600: '#343A40', // dark secondary
+          700: '#212529', // headings fallback
+          800: '#1E293B', // slate #1E293B — primary text (spec)
+          900: '#1E293B', // slate text #1E293B (was #09090B)
         },
-        // Dark — dark mode backgrounds and text (soft dark, not pure black)
-        // Page is dark gray-blue for comfort, cards slightly lighter
+        // Slate — Text #1E293B (WCAG AA 15.9:1 on white)
+        slate: {
+          50: '#F8FAFC',
+          100: '#F1F5F9',
+          200: '#E2E8F0',
+          300: '#CBD5E1',
+          400: '#94A3B8',
+          500: '#64748B',
+          600: '#475569',
+          700: '#334155',
+          800: '#1E293B',
+          900: '#0F172A',
+        },
+        // Apple / Linear True Deep Onyx Dark Mode (unchanged structure)
         night: {
-          50: '#F1F5F9',  // main text in dark
-          100: '#E2E8F0',
-          200: '#CBD5E1', // secondary text in dark
-          300: '#98A7B8', // muted
-          400: '#90A1AD', // muted text — 6.3:1 on #16202C
-          500: '#7F8D9A',
-          600: '#3D4E5C',
-          650: '#273642', // border
-          700: '#1E2E3B', // subtle surface
-          800: '#16202C', // card
-          850: '#131D28', // sidebar
-          900: '#0F1821', // page alt
-          950: '#0B1216', // page background — softer than pure black
+          50: '#FAFAFA',
+          100: '#F4F4F5',
+          200: '#E4E4E7',
+          300: '#D4D4D8',
+          400: '#A1A1AA',
+          500: '#71717A',
+          600: '#3F3F46',
+          650: '#27272A',
+          700: '#18181B',
+          800: '#0F0F12',
+          850: '#09090B',
+          900: '#050507',
+          950: '#000000',
         },
-        // Gold — decorative accent (lighter gold for black text / borders, kept for existing code)
-        // Use "gold" in new code — normal English word, easier to remember
-        // Note: brass/gold 400 #D1B48C is decorative (9.5:1 black-on-gold); for white-on-gold use warning-500 #8B6F47
-        // brass/gold scale is 1 tier lighter than warning by design — intentional, not a copy error
+        // Brass / Gold — #B5A268 core (5% wash, 15% border) triadic with Blue+Emerald+Neutral
         brass: {
-          50: '#FFFBEB',100: '#FEF3C7',200: '#FDE68A',300: '#FCD34D',400: '#D1B48C',
-          500: '#BD9D69',600: '#8F7350',700: '#6E5A3A',
+          50: '#FBF9F0',100: '#F5F0D9',200: '#EADFC0',300: '#DFCF9F',400: '#C9B67A',
+          500: '#B5A268',600: '#9A8A58',700: '#7F724A',800: '#655A3B',900: '#4B4330',
         },
-        // Gold — same as brass, plain English name (prefer this in new code)
-        // Identical to brass — decorative lighter gold; warning-500 is darker for white-text AA
         gold: {
-          50: '#FFFBEB',100: '#FEF3C7',200: '#FDE68A',300: '#FCD34D',400: '#D1B48C',
-          500: '#BD9D69',600: '#8F7350',700: '#6E5A3A',
+          50: '#FBF9F0',100: '#F5F0D9',200: '#EADFC0',300: '#DFCF9F',400: '#C9B67A',
+          500: '#B5A268',600: '#9A8A58',700: '#7F724A',800: '#655A3B',900: '#4B4330',
         }
       },
       fontFamily: {
@@ -117,7 +108,7 @@ export default {
         'campus': '1280px',
       },
       spacing: {
-        '11': '44px', // touch target
+        '11': '44px',
       },
       minHeight: {
         '11': '44px',
@@ -133,17 +124,15 @@ export default {
         'card': '14px',
       },
       boxShadow: {
-        // 3 elevations only - flat design, no glass or glow
-        'e1': '0 1px 2px rgba(27,67,50,0.06), 0 1px 3px rgba(27,67,50,0.04)',
-        'e2': '0 2px 8px rgba(27,67,50,0.08), 0 4px 12px rgba(27,67,50,0.06)',
-        'e3': '0 8px 24px rgba(27,67,50,0.12), 0 4px 8px rgba(27,67,50,0.08)',
-        // legacy aliases (kept so old code still works)
-        'soft': '0 1px 2px rgba(27,67,50,0.06), 0 1px 3px rgba(27,67,50,0.04)',
-        'soft-lg': '0 2px 8px rgba(27,67,50,0.08), 0 4px 12px rgba(27,67,50,0.06)',
-        'glass': '0 1px 2px rgba(27,67,50,0.06)',
-        'glass-lg': '0 2px 8px rgba(27,67,50,0.08)',
-        'glow': '0 0 0 rgba(0,0,0,0)',
-        'glow-accent': '0 0 0 rgba(0,0,0,0)',
+        'e1': '0 1px 3px 0 rgba(30, 41, 59, 0.05), 0 1px 2px -1px rgba(30, 41, 59, 0.03)',
+        'e2': '0 4px 6px -1px rgba(30, 41, 59, 0.07), 0 2px 4px -2px rgba(30, 41, 59, 0.04)',
+        'e3': '0 10px 15px -3px rgba(30, 41, 59, 0.09), 0 4px 6px -4px rgba(30, 41, 59, 0.04)',
+        'soft': '0 1px 3px 0 rgba(30, 41, 59, 0.05), 0 1px 2px -1px rgba(30, 41, 59, 0.03)',
+        'soft-lg': '0 4px 6px -1px rgba(30, 41, 59, 0.07), 0 2px 4px -2px rgba(30, 41, 59, 0.04)',
+        'glass': '0 1px 3px 0 rgba(30, 41, 59, 0.05)',
+        'glass-lg': '0 4px 6px -1px rgba(30, 41, 59, 0.07)',
+        'glow': '0 0 15px rgba(37, 99, 235, 0.18)',
+        'glow-accent': '0 0 15px rgba(181, 162, 104, 0.22)',
       },
       animation: {
         'slideUp': 'slideUp 0.32s ease-out',

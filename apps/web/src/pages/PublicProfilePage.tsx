@@ -131,13 +131,13 @@ export default function PublicProfilePage() {
         <div className="p-6 md:p-7">
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex gap-4 flex-1 min-w-0">
-              <div className="w-20 h-20 rounded-2xl bg-primary-600 dark:bg-[#90B9A4] flex items-center justify-center text-white font-bold text-2xl shrink-0 overflow-hidden">
+              <div className="w-20 h-20 rounded-2xl bg-primary-600 dark:bg-success-300 flex items-center justify-center text-white font-bold text-2xl shrink-0 overflow-hidden">
                 {u.avatar ? <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">{u.name}</h1>
-                  {isOwn && <span className="px-2 py-0.5 rounded-full bg-primary-50 dark:bg-[#90B9A4]/15 text-primary-700 dark:text-[#90B9A4] text-xs font-bold border border-primary-100 dark:border-[#90B9A4]/20">You</span>}
+                  {isOwn && <span className="px-2 py-0.5 rounded-full bg-primary-50 dark:bg-success-300/15 text-primary-700 dark:text-success-300 text-xs font-bold border border-primary-100 dark:border-success-300/20">You</span>}
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-100 dark:bg-night-700 text-surface-600 dark:text-night-300 text-xs font-medium border border-surface-200 dark:border-night-600">
                     <Building2 size={12}/> {u.college?.name || u.collegeName || 'CampusFlow'}
                   </span>
@@ -178,7 +178,7 @@ export default function PublicProfilePage() {
                 ))}
               </div>
               {isOwn && (
-                <Link to="/coding-profile" className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 dark:text-[#90B9A4] hover:underline">Edit coding profile <ExternalLink size={12}/></Link>
+                <Link to="/coding-profile" className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 dark:text-success-300 hover:underline">Edit coding profile <ExternalLink size={12}/></Link>
               )}
             </div>
           </div>
@@ -192,7 +192,7 @@ export default function PublicProfilePage() {
           {/* contributions calendar */}
           <div className="bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2"><BarChart3 size={16} className="text-primary-600 dark:text-[#90B9A4]"/> Activity
+              <h2 className="font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2"><BarChart3 size={16} className="text-primary-600 dark:text-success-300"/> Activity
                 {data?.calendarSource === 'github' ? (
                   <span className="inline-flex items-center gap-1 text-[10px] leading-none px-2 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-surface-900 dark:text-night-50 border"><Github size={10}/> GitHub-synced</span>
                 ) : (
@@ -202,7 +202,7 @@ export default function PublicProfilePage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-surface-500 dark:text-night-300">{totalContribs} contributions in last year</span>
                 {data?.codingProfile?.githubUsername && (
-                  <a href={`https://github.com/${data.codingProfile.githubUsername}`} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center gap-1 text-xs text-primary-600 dark:text-[#90B9A4] hover:underline"><Github size={12}/> @{data.codingProfile.githubUsername} <ExternalLink size={10}/></a>
+                  <a href={`https://github.com/${data.codingProfile.githubUsername}`} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center gap-1 text-xs text-primary-600 dark:text-success-300 hover:underline"><Github size={12}/> @{data.codingProfile.githubUsername} <ExternalLink size={10}/></a>
                 )}
               </div>
             </div>
@@ -218,9 +218,9 @@ export default function PublicProfilePage() {
                   {week.map((day, di) => {
                     const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
                     const bg = levelColor(day.level, isDark)
-                    const border = day.level===0 ? (isDark ? '#273642' : '#EAE2CF') : 'transparent'
-                    return <div key={di} title={`${day.count} on ${day.date}`} className="w-[11px] h-[11px] rounded-[3px] border hover:brightness-110 hover:scale-[1.08] transition-all cursor-pointer"
-                      style={{ background: bg, borderColor: border, borderWidth: 1 }} />
+                    const borderClass = day.level===0 ? (isDark ? 'border-night-700' : 'border-surface-200') : 'border-transparent'
+                    return <div key={di} title={`${day.count} on ${day.date}`} className={`w-[11px] h-[11px] rounded-[3px] border ${borderClass} hover:brightness-110 hover:scale-[1.08] transition-all cursor-pointer`}
+                      style={{ background: bg }} />
                   })}
                   {week.length < 7 && Array.from({ length: 7 - week.length }).map((_,k)=><div key={`p-${k}`} className="w-[11px] h-[11px]" />)}
                 </div>
@@ -228,14 +228,14 @@ export default function PublicProfilePage() {
             </div>
             <div className="flex items-center justify-between mt-3 text-xs text-surface-500 dark:text-night-300">
               <span className="inline-flex items-center gap-1.5"><Flame size={12} className="text-orange-500"/> {curStreak} day streak · Best {bestStreak} days</span>
-              <span className="flex items-center gap-1">Less <span className="flex gap-1 ml-1">{[0,1,2,3,4].map(l=> <span key={l} className="w-[11px] h-[11px] rounded-[3px] border" style={{ background: levelColor(l, typeof document !== 'undefined' && document.documentElement.classList.contains('dark')), borderColor: l===0?'#EAE2CF':'transparent'}}/>)}</span> More</span>
+              <span className="flex items-center gap-1">Less <span className="flex gap-1 ml-1">{[0,1,2,3,4].map(l=> { const isD = typeof document !== 'undefined' && document.documentElement.classList.contains('dark'); return <span key={l} className={`w-[11px] h-[11px] rounded-[3px] border ${l===0 ? (isD ? 'border-night-700' : 'border-surface-200') : 'border-transparent'}`} style={{ background: levelColor(l, isD) }}/>})}</span> More</span>
             </div>
           </div>
 
           {/* coding analysis — leetcode + github combined */}
           <div className="bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 p-5">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2"><Code2 size={16} className="text-primary-600 dark:text-[#90B9A4]"/> Coding Analysis</h2>
+              <h2 className="font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2"><Code2 size={16} className="text-primary-600 dark:text-success-300"/> Coding Analysis</h2>
               <span className="text-xs text-surface-500 dark:text-night-300">{platformStats.length} platforms linked</span>
             </div>
             {platformStats.length===0 ? (
@@ -273,7 +273,7 @@ export default function PublicProfilePage() {
                           <span className="inline-flex items-center gap-2 font-bold text-surface-900 dark:text-night-50 text-sm">
                             <PlatformLogo platform={s.platform} size={18}/> {s.platform}
                           </span>
-                          <a href={s.handle ? `https://${s.platform==='leetcode'?'leetcode.com/u/'+s.handle: s.platform==='codeforces'?'codeforces.com/profile/'+s.handle: s.platform==='codechef'?'codechef.com/users/'+s.handle: s.platform==='gfg'?'geeksforgeeks.org/user/'+s.handle+'/':'hackerrank.com/profile/'+s.handle}` : '#'} target="_blank" rel="noreferrer" className="text-xs text-primary-600 dark:text-[#90B9A4] hover:underline inline-flex items-center gap-1">@{s.handle} <ExternalLink size={10}/></a>
+                          <a href={s.handle ? `https://${s.platform==='leetcode'?'leetcode.com/u/'+s.handle: s.platform==='codeforces'?'codeforces.com/profile/'+s.handle: s.platform==='codechef'?'codechef.com/users/'+s.handle: s.platform==='gfg'?'geeksforgeeks.org/user/'+s.handle+'/':'hackerrank.com/profile/'+s.handle}` : '#'} target="_blank" rel="noreferrer" className="text-xs text-primary-600 dark:text-success-300 hover:underline inline-flex items-center gap-1">@{s.handle} <ExternalLink size={10}/></a>
                         </div>
                         <div className="space-y-2 text-xs">
                           <div className="flex justify-between"><span className="text-surface-500 dark:text-night-300">Solved</span><span className="font-bold text-surface-900 dark:text-night-50">{s.problemsSolved ?? 0}{s.totalProblems ? ` / ${s.totalProblems}`:''}</span></div>
@@ -361,7 +361,7 @@ export default function PublicProfilePage() {
                 </div>
               ))}
             </div>
-            <div className="mt-4 p-3 rounded-xl bg-primary-50 dark:bg-[#90B9A4]/10 border border-primary-100 dark:border-[#90B9A4]/20">
+            <div className="mt-4 p-3 rounded-xl bg-primary-50 dark:bg-success-300/10 border border-primary-100 dark:border-success-300/20">
               <p className="text-xs font-bold text-surface-700 dark:text-night-200 inline-flex items-center gap-1"><Star size={12} className="text-brass-500"/> {u.name} on CampusFlow</p>
               <p className="text-xs text-surface-500 dark:text-night-300 mt-1">Share your coding profile and activity with friends and recruiters.</p>
             </div>
@@ -384,7 +384,7 @@ export default function PublicProfilePage() {
                       {p.rating ? <span className="px-1.5 py-0.5 rounded-full border font-semibold" style={{ color: cfColor(p.rating), borderColor: cfColor(p.rating)+ '40' }}>{p.rating}</span> : null}
                       {p.ratingChange ? <span className={`px-1.5 py-0.5 rounded-full font-bold ${p.ratingChange>0?'bg-emerald-50 text-emerald-600 border-emerald-200':'bg-red-50 text-red-600 border-red-200'} border`}>{p.ratingChange>0?'+':''}{p.ratingChange}</span> : null}
                     </div>
-                    {p.contestUrl ? <a href={p.contestUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 dark:text-[#90B9A4] hover:underline">View <ExternalLink size={10}/></a> : null}
+                    {p.contestUrl ? <a href={p.contestUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 dark:text-success-300 hover:underline">View <ExternalLink size={10}/></a> : null}
                     <p className="text-[11px] text-surface-400 dark:text-night-400 mt-1">{p.participatedAt ? new Date(p.participatedAt).toLocaleDateString() : ''}</p>
                   </div>
                 ))}

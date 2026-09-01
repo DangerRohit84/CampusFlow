@@ -34,7 +34,7 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-night-800 flex">
       {/* Left — Quad photo */}
-      <div className="hidden lg:flex flex-1 relative overflow-hidden border-r border-surface-200 dark:border-night-600 bg-[#EDE8DA]">
+      <div className="hidden lg:flex flex-1 relative overflow-hidden border-r border-surface-200 dark:border-night-600 bg-warning-100">
         <div className="absolute inset-0 paper-grain opacity-60" />
         <div className="absolute inset-6 rounded-[14px] overflow-hidden border border-surface-200 dark:border-night-600 shadow-e2 bg-white dark:bg-night-800">
           <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200&q=80&auto=format&fit=crop" alt="Library hall with arches" className="w-full h-full object-cover" loading="eager" />

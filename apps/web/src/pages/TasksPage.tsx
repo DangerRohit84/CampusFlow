@@ -237,7 +237,7 @@ export default function TasksPage() {
         </div>
         <button
           onClick={handleSummary}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-xl text-sm font-medium transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-brass-500 dark:hover:bg-brass-400 text-white dark:text-night-950 rounded-xl text-sm font-medium transition-colors"
         >
           <Sparkles size={16} />
           AI Day Summary
@@ -256,7 +256,7 @@ export default function TasksPage() {
             <div className="bg-surface-50 border border-surface-200 rounded-2xl dark:bg-night-800 dark:border-night-600 p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-primary-600 dark:text-[#90B9A4]" />
+                  <Sparkles size={16} className="text-primary-600 dark:text-brass-400" />
                   <span className="font-semibold text-surface-900 dark:text-night-50">AI Day Summary</span>
                 </div>
                 <button onClick={() => setShowSummary(false)} className="text-surface-400 hover:text-surface-600 dark:text-night-300 dark:hover:text-night-200 text-sm">✕S"</button>
@@ -277,7 +277,7 @@ export default function TasksPage() {
                       { label: 'Classes', value: summaryData.stats?.totalClasses },
                     ].filter(s => s.value !== undefined).map(s => (
                       <span key={s.label} className="inline-flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-lg text-xs font-medium text-surface-700 dark:text-night-200">
-                        <span className="text-primary-600 dark:text-[#90B9A4]">{s.value}</span> {s.label}
+                        <span className="text-primary-600 dark:text-brass-400">{s.value}</span> {s.label}
                       </span>
                     ))}
                   </div>
@@ -293,8 +293,8 @@ export default function TasksPage() {
       {/* Quick Add */}
       <div className="bg-surface-50 border border-surface-200 rounded-2xl dark:bg-night-800 dark:border-night-600 p-4">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-primary-100 dark:bg-[#90B9A4]/10 flex items-center justify-center shrink-0">
-            <Plus size={16} className="text-primary-600 dark:text-[#90B9A4]" />
+          <div className="w-8 h-8 rounded-xl bg-primary-100 dark:bg-brass-500/15 flex items-center justify-center shrink-0">
+            <Plus size={16} className="text-primary-600 dark:text-brass-500" />
           </div>
           <input
             ref={inputRef}
@@ -315,7 +315,7 @@ export default function TasksPage() {
           <button
             onClick={handleCreate}
             disabled={creating}
-            className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+            className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-brass-500 dark:hover:bg-brass-400 text-white dark:text-night-950 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
           >
             {creating ? <Loader2 size={16} className="animate-spin" /> : 'Add'}
           </button>
@@ -413,7 +413,7 @@ export default function TasksPage() {
             onClick={() => setActiveTab(tab.key as any)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.key
-                ? 'bg-white dark:bg-night-650 text-primary-600 dark:text-[#90B9A4] shadow-sm'
+                ? 'bg-white dark:bg-night-650 text-primary-600 dark:text-brass-400 shadow-sm'
                 : 'text-surface-500 dark:text-night-300 hover:text-surface-700 dark:hover:text-night-200'
             }`}
           >
@@ -421,7 +421,7 @@ export default function TasksPage() {
             {tabCounts[tab.key as keyof typeof tabCounts] > 0 && (
               <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold ${
                 activeTab === tab.key
-                  ? 'bg-primary-100 dark:bg-[#90B9A4]/20 text-primary-700 dark:text-[#90B9A4]'
+                  ? 'bg-primary-100 dark:bg-brass-500/20 text-primary-700 dark:text-brass-400'
                   : 'bg-surface-200 dark:bg-night-600 text-surface-500 dark:text-night-300'
               }`}>
                 {tabCounts[tab.key as keyof typeof tabCounts]}
@@ -469,11 +469,11 @@ export default function TasksPage() {
                   onClick={() => handleToggle(task.id)}
                   className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
                     task.completed
-                      ? 'bg-primary-600 dark:bg-[#90B9A4] border-primary-600 dark:border-[#90B9A4]'
+                      ? 'bg-primary-600 dark:bg-brass-500 border-primary-600 dark:border-brass-500'
                       : 'border-surface-300 dark:border-night-300 hover:border-primary-400'
                   }`}
                 >
-                  {task.completed && <Check size={14} className="text-white" />}
+                  {task.completed && <Check size={14} className="text-white dark:text-night-950" />}
                 </button>
 
                 {/* Content */}
@@ -527,7 +527,7 @@ export default function TasksPage() {
           onClick={() => setShowSchedule(!showSchedule)}
           className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-night-200 hover:text-surface-900 dark:text-night-50 dark:hover:text-night-50 transition-colors w-full"
         >
-          <Sparkles size={16} className="text-primary-600 dark:text-[#90B9A4]" />
+          <Sparkles size={16} className="text-primary-600 dark:text-brass-400" />
           <span>AI Auto-Schedule</span>
           <ChevronDown size={14} className={`ml-auto transition-transform ${showSchedule ? 'rotate-180' : ''}`} />
         </button>
@@ -554,7 +554,7 @@ export default function TasksPage() {
                 <button
                   onClick={handleAiSchedule}
                   disabled={scheduleLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 dark:bg-brass-500 dark:hover:bg-brass-400 text-white dark:text-night-950 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   {scheduleLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                   Schedule with AI
@@ -574,7 +574,7 @@ export default function TasksPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <Clock size={14} className="text-primary-600 dark:text-[#90B9A4] shrink-0" />
+                              <Clock size={14} className="text-primary-600 dark:text-brass-400 shrink-0" />
                               <span className="text-sm font-medium text-surface-900 dark:text-night-50">{item.task}</span>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-surface-500 dark:text-night-300">
@@ -587,7 +587,7 @@ export default function TasksPage() {
                           </div>
                           <button
                             onClick={() => handleAddScheduled(item)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-primary-100 dark:bg-[#90B9A4]/10 text-primary-700 dark:text-[#90B9A4] rounded-lg text-xs font-medium hover:bg-primary-200 dark:hover:bg-[#90B9A4]/20 transition-colors shrink-0"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-primary-100 dark:bg-brass-500/15 text-primary-700 dark:text-brass-400 rounded-lg text-xs font-medium hover:bg-primary-200 dark:hover:bg-brass-500/25 transition-colors shrink-0"
                           >
                             <Plus size={12} /> Add
                           </button>

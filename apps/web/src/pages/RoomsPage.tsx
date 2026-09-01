@@ -26,25 +26,25 @@ type RoomType = 'department' | 'club' | 'study_group' | 'custom'
 const typeConfig: Record<RoomType, { gradient: string; overlay: string; icon: any; label: string }> = {
   department: {
     gradient: 'bg-primary-600',
-    overlay: 'from-primary-500/10 to-primary-600/5',
+    overlay: 'from-primary-600/10 to-primary-600/5',
     icon: Building2,
     label: 'Department',
   },
   club: {
     gradient: 'bg-primary-600',
-    overlay: 'from-primary-500/10 to-primary-600/5',
+    overlay: 'from-primary-600/10 to-primary-600/5',
     icon: UsersRound,
     label: 'Club',
   },
   study_group: {
-    gradient: 'bg-primary-600',
-    overlay: 'from-primary-500/10 to-primary-600/5',
+    gradient: 'bg-success-600',
+    overlay: 'from-success-600/10 to-success-600/5',
     icon: GraduationCap,
     label: 'Study Group',
   },
   custom: {
-    gradient: 'bg-warning-500',
-    overlay: 'from-warning-500/10 to-warning-500/5',
+    gradient: 'bg-brass-500',
+    overlay: 'from-brass-500/10 to-brass-500/5',
     icon: Layers,
     label: 'Custom',
   },
@@ -238,35 +238,36 @@ export default function RoomsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Hallway head — brass live rail */}
-      <div className="paper overflow-hidden">
-        <div className="h-[3px] bg-brass-400" />
+      {/* Hallway head — emerald #059669 for rooms — one wash per section */}
+      <div className="paper overflow-hidden section--rooms">
+        <div className="h-[3px] bg-success-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center">
-              <DoorOpen size={18} className="text-brass-400" />
+            <div className="w-10 h-10 rounded-xl bg-success-600 flex items-center justify-center">
+              <DoorOpen size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none flex items-center gap-2">
+              <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none flex items-center gap-2">
                 Hallway — Rooms
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-widest uppercase bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-1">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-widest uppercase bg-success-50 text-success-800 border border-success-200 rounded-full px-2.5 py-1">
                   <span className="live-dot live-dot--on" /> Live
                 </span>
               </h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Lockers, clubs, and study halls. Brass dot = live.</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Lockers, clubs, and study halls. Emerald wash 4% • #059669</p>
             </div>
           </div>
           <button
             onClick={() => { resetForm(); setShowCreate(true) }}
-            className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold"
+            className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-slate-800 text-white rounded-xl hover:bg-slate-700 text-sm font-semibold"
           >
             <Plus size={16} /> New Locker
           </button>
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs — emerald for rooms */}
       <FilterTabs
+        accent="emerald"
         tabs={[
           { key: 'all', label: 'All', icon: Layers, count: tabCounts.all },
           { key: 'department', label: 'Department', icon: Building2, count: tabCounts.department },
@@ -301,13 +302,13 @@ export default function RoomsPage() {
               <div
                 key={room.id}
                 onClick={() => navigate(`/rooms/${room.id}`)}
-                className="paper p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow group relative overflow-hidden"
+                className="paper p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow group relative overflow-hidden card-accent--emerald"
               >
-                  {/* brass live rail + dot */}
-                  <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-brass-400" />
+                  {/* emerald live rail + dot */}
+                  <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-500" />
                   <div className="flex items-start justify-between">
-                    <div className="w-11 h-11 rounded-xl bg-surface-900 flex items-center justify-center">
-                      <TypeIcon size={18} className="text-brass-400" />
+                    <div className="w-11 h-11 rounded-xl bg-emerald-600 flex items-center justify-center">
+                      <TypeIcon size={18} className="text-white" />
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase border rounded-full px-2.5 py-1 bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600">
                       <span className={clsx('live-dot', isLive && 'live-dot--on')} /> {config.label}
@@ -329,7 +330,7 @@ export default function RoomsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-3 pt-3 border-t border-surface-100 dark:border-night-600">
-                    <button onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${room.id}`) }} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">
+                    <button onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${room.id}`) }} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700">
                       Open <ChevronRight size={14} />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openEditModal(room) }} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 border border-surface-200 dark:border-night-600" title="Edit"><Pencil size={14} /></button>

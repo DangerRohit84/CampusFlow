@@ -329,8 +329,7 @@ export default function InternshipDetailPage() {
               {/* Student Registration Card */}
               {isStudent && (
                 <div
-                  className="relative overflow-hidden rounded-2xl border-2 border-transparent bg-white dark:bg-night-800 p-6 print:hidden"
-                  style={{ backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #10b981, #059669, #22c55e)', backgroundOrigin: 'border-box', backgroundClip: 'padding-box, border-box' }}>
+                  className="relative overflow-hidden rounded-2xl border-2 border-transparent bg-white dark:bg-night-800 p-6 print:hidden gradient-border-emerald">
                   {myRegistration ? (
                     <div>
                       <div className="flex items-center gap-2 mb-4">

@@ -41,9 +41,9 @@ function calcNeedClasses(attended: number, held: number, required: number) {
 }
 
 const statusConfig = {
-  safe: { color: 'text-primary-600 dark:text-[#90B9A4]', bg: 'bg-primary-100 dark:bg-[#90B9A4]/10', bar: 'bg-primary-500', label: 'SAFE' },
-  warning: { color: 'text-warning-600 dark:text-[#D1B48C]', bg: 'bg-warning-100 dark:bg-[#D1B48C]/10', bar: 'bg-warning-500', label: 'WARNING' },
-  risk: { color: 'text-danger-600 dark:text-[#F87171]', bg: 'bg-danger-100 dark:bg-[#F87171]/10', bar: 'bg-danger-500', label: 'RISK' },
+  safe: { color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40', bar: 'bg-emerald-500', label: 'SAFE' },
+  warning: { color: 'text-amber-800 dark:text-amber-300', bg: 'bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40', bar: 'bg-amber-500', label: 'WARNING' },
+  risk: { color: 'text-rose-700 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40', bar: 'bg-rose-500', label: 'RISK' },
 }
 
 export default function AttendancePage() {
@@ -215,7 +215,7 @@ export default function AttendancePage() {
             <span className="text-sm text-surface-500 dark:text-night-200">%</span>
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-[#1A242E] transition-colors ml-2"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-200 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700 transition-colors ml-2"
             >
               <Upload size={14} /> Upload
             </button>
@@ -264,7 +264,7 @@ export default function AttendancePage() {
               {totalSkipped > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {subjects.filter(s => s.skip > 0).map(s => (
-                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-[#D1B48C]/10 text-warning-600 dark:text-[#D1B48C]">
+                    <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-warning-300/10 text-warning-600 dark:text-warning-300">
                       {s.name || 'Untitled'}: ⚠️ {s.skip}
                     </span>
                   ))}
@@ -323,7 +323,7 @@ export default function AttendancePage() {
                         />
                         <button
                           onClick={() => deleteSubject(subject.id)}
-                          className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-[#F87171]/10 transition-colors shrink-0"
+                          className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-300/10 transition-colors shrink-0"
                         >
                           <Trash2 size={16} />
                         </button>

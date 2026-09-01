@@ -176,12 +176,12 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
                   <X size={16} />
                 </button>
               )}
-              <div className="w-12 h-12 rounded-xl bg-primary-600 dark:bg-[#90B9A4] flex items-center justify-center text-white mb-3">
+              <div className="w-12 h-12 rounded-xl bg-primary-600 dark:bg-success-300 flex items-center justify-center text-white mb-3">
                 <AtSign size={22} />
               </div>
               <h2 id="username-modal-title" className="text-xl font-bold text-surface-900 dark:text-night-50">Choose your username</h2>
               <p className="text-sm text-surface-500 dark:text-night-300 mt-1.5 leading-relaxed pr-6">
-                Your profile will be at <span className="font-mono font-semibold text-primary-600 dark:text-[#90B9A4]">/u/{sanitize(username) || suggestion || 'username'}</span>. You can change it later in settings.
+                Your profile will be at <span className="font-mono font-semibold text-primary-600 dark:text-success-300">/u/{sanitize(username) || suggestion || 'username'}</span>. You can change it later in settings.
               </p>
             </div>
 
@@ -228,7 +228,7 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
                 </button>
               )}
               <button onClick={handleSave} disabled={!canSave}
-                className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-[#90B9A4] dark:hover:bg-[#A8C2B3] text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-success-300 dark:hover:bg-success-200 text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                 {saving ? <Loader2 size={16} className="animate-spin" /> : null}
                 {saving ? 'Saving...' : 'Save username'} {!saving && <ArrowRight size={16} />}
               </button>

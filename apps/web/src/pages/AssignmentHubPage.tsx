@@ -94,12 +94,24 @@ export default function AssignmentHubPage() {
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
-      <div className="flex justify-between items-end"><div><h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 dark:text-[#F4F7F8]">Assignments</h1><p className="text-surface-500 dark:text-[#A6B3BE] mt-1">{isTeacher?'Manage and grade assignments':'Track and submit your assignments'}</p></div>{isTeacher && <Button size="sm" onClick={()=>{setEditing(null); setModalOpen(true)}}><Plus size={16}/> New Assignment</Button>}</div>
+      <div className="paper overflow-hidden section--assignments">
+        <div className="h-[3px] bg-surface-200 dark:bg-zinc-700" />
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white border border-surface-200 dark:bg-zinc-900 dark:border-zinc-700 flex items-center justify-center"><FileText size={18} className="text-slate-700 dark:text-zinc-300" /></div>
+            <div>
+              <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Assignments</h1>
+              <p className="text-xs text-surface-500 dark:text-night-400 mt-1">{isTeacher?'Manage and grade — neutral gray slips · slate #1E293B (rose only overdue)' :'Track and submit — gray slips · overdue turns rose'}</p>
+            </div>
+          </div>
+          {isTeacher && <Button size="sm" variant="secondary" onClick={()=>{setEditing(null); setModalOpen(true)}}><Plus size={16}/> New Assignment</Button>}
+        </div>
+      </div>
 
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." className="pl-9" onKeyDown={e=> e.key==='Enter' && load()} /></div>
-        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
-        <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} className="px-3 py-2 rounded-xl border bg-white dark:bg-[#111920] text-sm"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
+        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
+        <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
       </div>
 
       <div className="space-y-3">
@@ -130,7 +142,7 @@ export default function AssignmentHubPage() {
                 <div className="space-y-2">
                   <h4 className="font-semibold">Submissions ({submissions.length})</h4>
                   {submissions.map(s=> (
-                    <div key={s.id} className="flex items-center justify-between p-3 border rounded-xl dark:border-[#202C35]">
+                    <div key={s.id} className="flex items-center justify-between p-3 border rounded-xl dark:border-night-700">
                       <div><div className="font-medium text-sm">{s.student?.name} <span className="text-surface-500 dark:text-night-400">{s.student?.studentId}</span></div><div className="text-xs text-surface-500 dark:text-night-400">{s.status} • {new Date(s.submittedAt).toLocaleString()}</div></div>
                       <Button size="sm" onClick={()=> setGrading(s)}>Grade</Button>
                     </div>

@@ -9,7 +9,7 @@ const TAP_PULL = 38;
 export default function ThemeToggle() {
   const { dark, toggle } = useTheme();
 
-  // free drag: distance = hypot(dx,dy) — clamp angle to avoid 90deg snap on recoil
+  // free unlimited drag: distance = hypot(dx,dy) — angle = atan2(-dx, dy) free 360°, unlimited stretch
   const pull = useMotionValue(0);
   const angle = useMotionValue(0);
   const springPull = useSpring(pull, { stiffness: 420, damping: 26, mass: 0.5 });
@@ -95,23 +95,12 @@ export default function ThemeToggle() {
       const dy = e.clientY - startYRef.current;
       const dist = Math.hypot(dx, dy);
       if (dist > 3) hasMovedRef.current = true;
-      // FIX: inverted drag — left was going right. Toggle sign to follow cursor.
-      // Screen +y down, angle from vertical: Math.atan2(-dx, dy) flips horizontal
-      // so drag left (dx negative) => -dx positive => rawAngle positive => tilt follows cursor
-      // (positive = right tilt, negative = left tilt — flipped sign corrects mirror).
-      // Verified mentally: dx=-10, dy=20 => atan2(10,20)=+26.6° follows right when dragged right,
-      // dx negative gives opposite sign after flip. Alternative also valid is atan2(dx, -dy)
-      // which flips vertical axis (kept as reference below).
+      // free unlimited drag anywhere — no angle clamp, full 360° via atan2(-dx, dy)
+      // distance = hypot(dx,dy) unlimited stretch, angle = atan2(-dx, dy) free
       const rawAngle = Math.atan2(-dx, dy) * (180 / Math.PI);
-      // Reference alternative flip (kept for spec coverage): also valid is Math.atan2(dx, -dy)
-      void Math.atan2(dx, -dy); // ensures both sign-flip patterns present for spec compliance
-      const damped = rawAngle * 0.92;
-      // FIX: clamp angle to prevent 90deg snap on extreme horizontal drag (dy ~0 => atan2 ~90)
-      // limit to ~38deg so recoil spring back is smooth, not 90deg jump
-      const clamped = Math.max(-38, Math.min(38, damped));
-      // unlimited stretch — no MAX_PULL
+      // unlimited stretch — no MAX_PULL, free angle — no clamp
       pull.set(dist);
-      angle.set(clamped);
+      angle.set(rawAngle);
     },
     [isDragging, pull, angle],
   );
