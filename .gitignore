@@ -11,3 +11,6 @@ build/
 backend.err.log
 frontend.err.log
 uploads/
+*.tsbuildinfo
+*.tmp
+coverage/
