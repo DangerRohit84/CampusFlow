@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function AddTeacherPage() {
   const { user } = useAuthStore()
@@ -108,7 +109,16 @@ export default function AddTeacherPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<UserPlus size={18} />}
+        eyebrow="Admin · Teachers"
+        title={<>Add Teachers</>}
+        subtitle="Onboard faculty — quick, verified and department-assigned."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">Add Teachers</h1>

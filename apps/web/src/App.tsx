@@ -43,6 +43,10 @@ import ResumeStudioPage from './pages/ResumeStudioPage'
 import PortfolioStudioPage from './pages/PortfolioStudioPage'
 import PublicProfilePage from './pages/PublicProfilePage'
 import LandingPage from './pages/LandingPage'
+import AssignmentDetailPage from './pages/AssignmentDetailPage'
+import SuperAdminDashboardPage from './pages/SuperAdminDashboardPage'
+import SuperAdminCollegesPage from './pages/SuperAdminCollegesPage'
+import SuperAdminCollegeView from './pages/SuperAdminCollegeView'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -74,6 +78,12 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function SuperAdminGuard({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  if (user?.role !== 'SUPER_ADMIN') return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -81,7 +91,7 @@ export default function App() {
         position="top-right"
         toastOptions={{
           className: 'font-medium rounded-xl',
-          style: { background: '#0F0F12', color: '#FAFAFA' },
+          style: { background: '#121212', color: '#ffffff' },
         }}
       />
       <ErrorBoundary>
@@ -98,6 +108,7 @@ export default function App() {
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
+            <Route path="assignments/:hubId" element={<AssignmentDetailPage />} />
             <Route path="grades" element={<GradesPage />} />
             <Route path="attendance" element={<AttendancePage />} />
             <Route path="tasks" element={<TasksPage />} />
@@ -123,6 +134,10 @@ export default function App() {
             <Route path="rooms" element={<RoomsRoute />} />
             <Route path="rooms/:id" element={<RoomDetailRoute />} />
             <Route path="admin" element={<AdminPage />} />
+            <Route path="superadmin" element={<SuperAdminGuard><SuperAdminDashboardPage /></SuperAdminGuard>} />
+            <Route path="superadmin/colleges" element={<SuperAdminGuard><SuperAdminCollegesPage /></SuperAdminGuard>} />
+            <Route path="superadmin/colleges/:collegeId" element={<SuperAdminGuard><SuperAdminCollegeView /></SuperAdminGuard>} />
+            <Route path="admin/dashboard" element={<Navigate to="/superadmin" replace />} />
             <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
             <Route path="admin/add-teachers" element={<AddTeacherPage />} />
             <Route path="admin/add-students" element={<AddStudentPage />} />

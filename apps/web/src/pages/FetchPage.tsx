@@ -6,6 +6,7 @@ import {
 import api from '../lib/api'
 import PlatformCard from '../components/fetch/PlatformCard'
 import FetchStats from '../components/fetch/FetchStats'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 interface PlatformStats {
   platform: string
@@ -98,9 +99,18 @@ export default function FetchPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header — campus paper */}
-      <div className="paper overflow-hidden">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Download size={18} />}
+        eyebrow="Platform · Fetch"
+        title={<>Fetch Center</>}
+        subtitle="Import opportunities — hackathons, internships and contests."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+      {/* Header — campus rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm */}
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
         <div className="h-[3px] bg-brass-400" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

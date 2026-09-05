@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { gradesAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 interface Course {
   id: string
@@ -199,6 +200,15 @@ export default function GradesPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[45vh]">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Award size={18} />}
+        eyebrow="Academics · Grades"
+        title={<>Grades</>}
+        subtitle="Performance overview — SGPA, CGPA and semester breakdowns."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
         <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
       </div>
     )

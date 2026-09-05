@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { visionCompletion } from '../ai/client'
 import prisma from '../config/db'
+import { broadcastAttendanceMutation } from '../services/socket'
 
 const router = Router()
 
@@ -47,6 +48,7 @@ router.post('/data', authenticate, async (req: AuthRequest, res: Response) => {
         requiredPct: requiredPct ?? 75,
       },
     })
+    try { broadcastAttendanceMutation({ userId, action: 'saved' }) } catch {}
     res.json({ saved: true, id: record.id })
   } catch (error) {
     console.error('[Attendance] Save error:', error)
@@ -61,6 +63,7 @@ router.delete('/data', authenticate, async (req: AuthRequest, res: Response) => 
     await prisma.attendanceData.deleteMany({
       where: { studentId: userId },
     })
+    try { broadcastAttendanceMutation({ userId, action: 'deleted' }) } catch {}
     res.json({ deleted: true })
   } catch (error) {
     console.error('[Attendance] Delete error:', error)

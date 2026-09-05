@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { getDayOfWeek } from '../utils/dateUtils'
+import { getSuperAdminTargetCollegeId } from '../utils/roles'
 
 const router = Router()
 router.use(authenticate)
@@ -246,10 +247,11 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
 
     // ── Admin Dashboard (College Admin & Super Admin) ──────────────
     if (user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN') {
+      const scopedCollegeId = user.role === 'SUPER_ADMIN' ? getSuperAdminTargetCollegeId(req as any) : null
       const collegeFilter =
-        user.role === 'COLLEGE_ADMIN' && user.collegeId
-          ? { collegeId: user.collegeId }
-          : {}
+        user.role === 'SUPER_ADMIN'
+          ? scopedCollegeId ? { collegeId: scopedCollegeId } : {}
+          : user.collegeId ? { collegeId: user.collegeId } : {}
 
       const [
         totalUsers,
@@ -266,12 +268,12 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
         prisma.user.count({ where: { ...collegeFilter, role: 'STUDENT' } }),
         prisma.user.count({ where: { ...collegeFilter, role: 'COLLEGE_ADMIN' } }),
         prisma.hackathon.findMany({
-          where: user.role === 'SUPER_ADMIN' ? {} : collegeFilter,
+          where: user.role === 'SUPER_ADMIN' ? collegeFilter : collegeFilter,
           select: { id: true, title: true, status: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
         }),
         prisma.form.findMany({
-          where: user.role === 'SUPER_ADMIN' ? {} : collegeFilter,
+          where: user.role === 'SUPER_ADMIN' ? collegeFilter : collegeFilter,
           select: { id: true, title: true, status: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
         }),

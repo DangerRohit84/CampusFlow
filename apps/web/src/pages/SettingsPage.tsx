@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import {
-  User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor
-} from 'lucide-react'
+import { User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor, Settings2 } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -10,6 +8,7 @@ import Badge from '../components/ui/Badge'
 import { useAuthStore } from '../store/authStore'
 import { userAPI, codingProfileAPI, waitForCodingSync, publicProfileAPI, authAPI } from '../lib/api'
 import toast from 'react-hot-toast'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 const codingPlatforms = [
   { key: 'leetcodeHandle', label: 'LeetCode', color: 'bg-yellow-500', url: 'https://leetcode.com/' },
@@ -149,6 +148,7 @@ export default function SettingsPage() {
       animate={{ opacity: 1 }} 
       className="space-y-6 max-w-4xl"
     >
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Page Header */}
       <motion.div 
         initial={{ opacity: 0, y: 10 }} 

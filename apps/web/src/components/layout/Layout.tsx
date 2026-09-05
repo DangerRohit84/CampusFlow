@@ -6,7 +6,7 @@ import {
   Sparkles, Search, Award, Target, Clock, Trophy,
   ClipboardList, Shield, DoorOpen, Briefcase, CheckSquare,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
-  Medal, UserCheck, Code2, FileText, Globe
+  Medal, UserCheck, Code2, FileText, Globe, Building2, ArrowLeft
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
@@ -17,6 +17,7 @@ import UsernameSetupModal from '../UsernameSetupModal'
 import toast from 'react-hot-toast'
 import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI, authAPI } from '../../lib/api'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
+import { useSuperAdminCollegeStore, getSuperAdminCollegeId } from '../../store/superAdminCollegeStore'
 
 type NavItem = { path: string; label: string; icon: any }
 type NavSection = { label: string; items: NavItem[] }
@@ -94,6 +95,16 @@ const navByRole: Record<string, NavSection[]> = {
     { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   SUPER_ADMIN: [
+    { label: '', items: [
+      { path: '/superadmin', label: 'Superadmin Overview', icon: BarChart2 },
+      { path: '/superadmin/colleges', label: 'Colleges', icon: Building2 },
+      { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
+      { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
+    ]},
+  ],
+  // Scoped view when SUPER_ADMIN drills into a tenant — mirrors COLLEGE_ADMIN full sidebar
+  // Sidebar all like remaining based on it plan — full tenant UI scoped to collegeId
+  SUPER_ADMIN_SCOPED: [
     { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
     { label: 'ACADEMICS', items: [
       { path: '/assignments', label: 'Assignments', icon: FileText },
@@ -114,11 +125,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
       { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
-    { label: 'Management', items: [
-      { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
-      { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
-      { path: '/admin', label: 'Admin Panel', icon: Shield },
-    ]},
+    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
 }
 
@@ -128,6 +135,28 @@ export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpenLocal] = useState(false)
+  // SUPER_ADMIN scoped college context — drives tenant sidebar when inside a college
+  const { selectedCollegeId, selectedCollegeName, clear: clearSuperCollege } = useSuperAdminCollegeStore()
+  const superScopedMatch = location.pathname.match(/^\/superadmin\/colleges\/([^\/]+)/)
+  const urlScopedId = superScopedMatch ? superScopedMatch[1] : null
+  const searchCollegeId = new URLSearchParams(location.search).get('collegeId')
+  const effectiveCollegeId = urlScopedId || selectedCollegeId || searchCollegeId
+  const effectiveCollegeName = selectedCollegeName || (urlScopedId ? urlScopedId : null)
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+  const tenantRoutePrefixes = ['/dashboard','/assignments','/tasks','/schedule','/calendar','/hackathons','/internships','/contests','/forms','/rooms','/admin','/resume-studio','/portfolio-studio','/announcements','/notifications','/settings','/search','/chat','/superadmin/colleges/']
+  const isOnTenantRoute = tenantRoutePrefixes.some(p => location.pathname === p || location.pathname.startsWith(p + '/'))
+  const isSuperScoped = isSuperAdmin && ( !!urlScopedId || (!!effectiveCollegeId && isOnTenantRoute && !['/superadmin','/superadmin/colleges','/admin/fetch','/admin/ai-manager'].includes(location.pathname)) )
+  // Keep legacy localStorage keys in sync for api interceptor when scoped via URL or query
+  useEffect(() => {
+    if (isSuperAdmin && urlScopedId && urlScopedId !== selectedCollegeId) {
+      useSuperAdminCollegeStore.getState().setSelectedCollege(urlScopedId, selectedCollegeName || urlScopedId)
+      try { localStorage.setItem('superadmin_selectedCollegeId', urlScopedId) } catch {}
+    }
+    if (isSuperAdmin && searchCollegeId && searchCollegeId !== selectedCollegeId && !urlScopedId) {
+      useSuperAdminCollegeStore.getState().setSelectedCollege(searchCollegeId, selectedCollegeName || searchCollegeId)
+      try { localStorage.setItem('superadmin_selectedCollegeId', searchCollegeId) } catch {}
+    }
+  }, [isSuperAdmin, urlScopedId, searchCollegeId, selectedCollegeId, selectedCollegeName])
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [nearDeadlineCount, setNearDeadlineCount] = useState({ hackathons: 0, forms: 0, internships: 0, contests: 0 })
   // Assignments urgent badge: overdue + due within 3 days (for students: only if not yet submitted)
@@ -238,8 +267,15 @@ export default function Layout() {
   }, [token, location.pathname])
 
   useEffect(() => {
-    if (!token) return
+    if (!token) {
+      disconnectSocket()
+      return
+    }
     const socket = connectSocket(token)
+    // If already connected (e.g., after fast navigation with fixed singleton), ensure server knows us
+    if (socket.connected) {
+      socket.emit('auth:join')
+    }
     const onConnect = () => socket.emit('auth:join')
     socket.on('connect', onConnect)
     const onNotification = (n:any) => { setUnreadCount(p=>p+1); toast(n.title||'New Notification',{icon:'📌',duration:3000}) }
@@ -247,7 +283,10 @@ export default function Layout() {
     const onRoomMessage = (msg:any) => {
       if (!msg?.roomId) return
       if (msg.senderId === user?.id) return
-      const isOnRoomRoute = location.pathname.includes(`/rooms/${msg.roomId}`)
+      // Use window.location instead of closure-captured location.pathname to avoid
+      // needing `location.pathname` in deps (which would recreate socket on every navigation -> leak).
+      const currentPath = window.location.pathname
+      const isOnRoomRoute = currentPath.includes(`/rooms/${msg.roomId}`)
       if (isOnRoomRoute) {
         roomAPI.markRead(msg.roomId).catch(()=>{})
         roomAPI.getUnreadCounts().then((map:any)=>{
@@ -263,13 +302,36 @@ export default function Layout() {
       }).catch(()=>{}) },400)
     }
     socket.on('room:message:new', onRoomMessage)
+    // Cross-client assignment realtime: broadcast -> trigger global window event so all assignment-aware components refresh
+    const onAssignmentMutated = (payload:any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('assignment:mutated', { detail: { hubId: payload?.hubId } }))
+      } catch {}
+    }
+    const assignmentEvents = ['assignment:submission:updated','assignment:graded','assignment:offline:marked','assignment:bulk:graded','assignment:pending:updated','assignment:stats:updated','assignment:mutated','assignment:hub:updated']
+    assignmentEvents.forEach(ev=> socket.on(ev, onAssignmentMutated))
+    // Forms realtime parity — mirrors assignment bridge for cross-client live updates
+    const onFormMutated = (payload:any) => {
+      try {
+        const fid = payload?.formId || payload?.hubId || payload?.id
+        window.dispatchEvent(new CustomEvent('form:mutated', { detail: { formId: fid } }))
+        // also dispatch generic for list refresh
+        window.dispatchEvent(new Event('form:mutated'))
+      } catch {}
+    }
+    const formEvents = ['form:mutated','form:updated','form:response:updated','form:extended']
+    formEvents.forEach(ev=> socket.on(ev, onFormMutated))
     return () => {
       socket.off('connect', onConnect)
       socket.off('notification:new', onNotification)
       socket.off('room:message:new', onRoomMessage)
-      disconnectSocket()
+      assignmentEvents.forEach(ev=> socket.off(ev, onAssignmentMutated))
+      formEvents.forEach(ev=> socket.off(ev, onFormMutated))
+      // Do NOT disconnect here — socket is a global singleton tied to auth session, not route.
+      // Disconnecting on every location change causes rapid connect/disconnect and orphaned "connecting" sockets.
+      // Cleanup is only listeners; actual disconnect happens when token becomes falsy (logout) or Layout unmounts.
     }
-  }, [token, user?.id, location.pathname])
+  }, [token, user?.id])
 
   useEffect(() => {
     const isNear = (dateStr:string) => {
@@ -341,31 +403,60 @@ export default function Layout() {
   }
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      {/* Logo — hallway plate */}
-      <div className="px-4 py-5 flex items-center gap-3 border-b border-surface-200 dark:border-night-600/70">
-        <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center shrink-0">
-          <GraduationCap className="w-6 h-6 text-white" />
+    <div className="flex flex-col h-full max-h-screen">
+      {/* Logo — hallway plate — compact 12px padding */}
+      <div className="px-3 py-3 flex items-center gap-2 border-b border-surface-200 dark:border-night-600/70 shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shrink-0">
+          <GraduationCap className="w-5 h-5 text-white" />
         </div>
         {sidebarOpen && (
           <div>
-            <span className="text-[15px] font-bold tracking-tight text-surface-900 dark:text-night-50 font-display">CampusFlow</span>
+            <span className="text-[13px] font-bold tracking-tight text-surface-900 dark:text-night-50 font-display">CampusFlow</span>
             <p className="text-[10px] font-semibold tracking-widest uppercase text-surface-400 dark:text-night-400">Hall 01 · Campus OS</p>
           </div>
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-3 overflow-y-auto">
-        {(navByRole[user?.role || 'STUDENT'] || navByRole.STUDENT).map((section)=>(
-          <div key={section.label} className="mb-5">
-            {sidebarOpen && section.label && (
-              <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-surface-400 dark:text-night-400">
-                {section.label}
-              </p>
-            )}
-            {!sidebarOpen && section.label && <div className="h-px bg-surface-200 mx-2 mb-3" />}
-            <div className="space-y-1">
+      {/* Scoped banner — when SUPER_ADMIN inside a college */}
+      {isSuperScoped && sidebarOpen && (
+        <div className="mx-2 mt-2 p-2.5 rounded-xl bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 flex items-center justify-between gap-2 shrink-0">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold tracking-widest uppercase text-primary-600 dark:text-primary-300">Viewing College</p>
+            <p className="text-xs font-semibold text-surface-900 dark:text-night-50 truncate">{effectiveCollegeName || effectiveCollegeId || 'College'}</p>
+            <p className="text-[10px] font-mono text-surface-500 dark:text-night-400 truncate">{effectiveCollegeId}</p>
+          </div>
+          <button
+            onClick={() => { clearSuperCollege(); try{ localStorage.removeItem('superadmin_selectedCollegeId'); localStorage.removeItem('superadmin_selectedCollegeName'); localStorage.removeItem('campusflow-superadmin-college'); }catch{}; navigate('/superadmin/colleges') }}
+            className="shrink-0 w-7 h-7 rounded-lg bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center text-surface-500 hover:text-primary-600 hover:border-primary-300 transition-colors"
+            title="Exit college view"
+          >
+            <ArrowLeft size={14} />
+          </button>
+        </div>
+      )}
+      {isSuperScoped && !sidebarOpen && (
+        <div className="mx-2 mt-2 flex justify-center">
+          <button
+            onClick={() => { clearSuperCollege(); try{ localStorage.removeItem('superadmin_selectedCollegeId'); localStorage.removeItem('superadmin_selectedCollegeName'); localStorage.removeItem('campusflow-superadmin-college'); }catch{}; navigate('/superadmin/colleges') }}
+            className="w-8 h-8 rounded-xl bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 flex items-center justify-center text-primary-600"
+            title="Exit college view"
+          >
+            <ArrowLeft size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Nav — flex-1 overflow-auto, compact spacing */}
+      <nav className="flex-1 px-2 py-2 overflow-y-auto min-h-0">
+        {(isSuperScoped ? navByRole['SUPER_ADMIN_SCOPED'] : (navByRole[user?.role || 'STUDENT'] || navByRole.STUDENT)).map((section)=>(
+           <div key={section.label} className="mb-3">
+             {sidebarOpen && section.label && (
+               <p className="px-2.5 pt-2.5 pb-1 mb-1 text-[8.5px] font-bold uppercase tracking-widest text-surface-400 dark:text-night-400">
+                 {section.label}
+               </p>
+             )}
+             {!sidebarOpen && section.label && <div className="h-px bg-surface-200 mx-2 mb-2" />}
+             <div className="space-y-0.5">
               {section.items.map((item)=>{
                 const isActive = location.pathname===item.path
                 const Icon=item.icon
@@ -375,7 +466,7 @@ export default function Layout() {
                 const isAssignments=item.path==='/assignments'
                 const assignmentCount=assignmentUrgent.count
                 const showAssignmentBadge=isAssignments && assignmentCount>0
-                const assignmentTone=assignmentUrgent.hasOverdue ? 'bg-danger-500' : 'bg-amber-500'
+                const assignmentTone=assignmentUrgent.hasOverdue ? 'bg-danger-500' : 'bg-danger-500'
                 const assignmentTitle = isAssignments && showAssignmentBadge
                   ? `Assignments — ${assignmentCount} ${assignmentUrgent.hasOverdue ? 'overdue' : 'due soon'}`
                   : item.label
@@ -386,28 +477,28 @@ export default function Layout() {
                     onClick={()=>navigate(item.path)}
                     title={title}
                     className={clsx(
-                      'w-full flex items-center gap-3 rounded-xl font-medium transition-colors duration-150 relative text-left',
-                      sidebarOpen ? 'px-3 min-h-[44px]' : 'justify-center px-0 min-h-[44px]',
+                      'w-full flex items-center gap-2 rounded-lg font-medium transition-colors duration-150 relative text-left text-[12px]',
+                      sidebarOpen ? 'px-2.5 min-h-[32px] py-1.5' : 'justify-center px-0 min-h-[32px]',
                       isActive ? 'sidebar-link-active' : 'sidebar-link'
                     )}
                   >
                     {isActive && <span className="locker-stripe" />}
                     <span className="relative inline-flex">
-                      <Icon size={18} className={clsx(isActive ? 'text-primary-700 dark:text-primary-300' : 'text-surface-500')} />
+                      <Icon size={16} className={clsx(isActive ? 'text-primary-700 dark:text-primary-300' : 'text-surface-500')} />
                       {!sidebarOpen && showRoomsBadge && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{roomUnreadCount>99?'99+':roomUnreadCount}</span>
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-3.5 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{roomUnreadCount>99?'99+':roomUnreadCount}</span>
                       )}
                       {!sidebarOpen && showAssignmentBadge && (
-                        <span className={clsx('absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>
+                        <span className={clsx('absolute -top-1.5 -right-1.5 min-w-[15px] h-3.5 px-1 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>
                       )}
                       {!sidebarOpen && !showRoomsBadge && !showAssignmentBadge && nearCount>0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{nearCount>99?'99+':nearCount}</span>
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-3.5 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{nearCount>99?'99+':nearCount}</span>
                       )}
                     </span>
-                    {sidebarOpen && <span className="flex-1 text-left">{item.label}</span>}
-                    {sidebarOpen && showAssignmentBadge && <span className={clsx('inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-white rounded-full text-[10px] font-bold', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>}
-                    {sidebarOpen && !showAssignmentBadge && nearCount>0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{nearCount}</span>}
-                    {sidebarOpen && showRoomsBadge && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-danger-500 text-white rounded-full text-[10px] font-bold">{roomUnreadCount>99?'99+':roomUnreadCount}</span>}
+                    {sidebarOpen && <span className="flex-1 text-left text-[12px]">{item.label}</span>}
+                    {sidebarOpen && showAssignmentBadge && <span className={clsx('inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-white rounded-full text-[9px] font-bold', assignmentTone)}>{assignmentCount>99?'99+':assignmentCount}</span>}
+                    {sidebarOpen && !showAssignmentBadge && nearCount>0 && <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold">{nearCount}</span>}
+                    {sidebarOpen && showRoomsBadge && <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold">{roomUnreadCount>99?'99+':roomUnreadCount}</span>}
                   </button>
                 )
               })}
@@ -416,26 +507,26 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Locker bottom — assistant card */}
+      {/* Locker bottom — assistant card — compact */}
       {sidebarOpen && (
-        <div className="px-3 pb-3">
-          <div className="rounded-xl border border-surface-200 dark:border-night-650 bg-surface-100/70 dark:bg-night-800/80 p-3.5 shadow-sm">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold tracking-wide uppercase text-surface-800 dark:text-night-200">Campus Assistant</span>
+        <div className="px-2.5 pb-2 shrink-0">
+          <div className="rounded-lg border border-surface-200 dark:border-night-650 bg-surface-100/70 dark:bg-night-800/80 p-2.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-bold tracking-wide uppercase text-surface-800 dark:text-night-200">Campus Assistant</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-surface-500 dark:text-night-400">Instant answers for courses, exams, schedules, and campus life.</p>
-            <button onClick={()=>navigate('/chat')} className="mt-3 w-full min-h-[36px] px-3 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors shadow-sm">
-              <Sparkles size={14} /> Ask Assistant
+            <p className="text-[10px] leading-snug text-surface-500 dark:text-night-400">Instant answers for courses, exams, schedules, and campus life.</p>
+            <button onClick={()=>navigate('/chat')} className="mt-2 w-full min-h-[30px] px-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white text-white rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors shadow-sm">
+              <Sparkles size={12} /> Ask Assistant
             </button>
           </div>
         </div>
       )}
 
-      {/* User */}
-      <div className="px-3 py-3 border-t border-surface-200 dark:border-night-600">
-        <div className={clsx('flex items-center gap-3', !sidebarOpen && 'justify-center')}>
-          <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
+      {/* User — compact 28px avatar, reduced padding */}
+      <div className="px-2.5 py-2 border-t border-surface-200 dark:border-night-600 shrink-0">
+        <div className={clsx('flex items-center gap-2', !sidebarOpen && 'justify-center')}>
+          <div className="w-7 h-7 rounded-lg bg-primary-600 flex items-center justify-center text-white font-bold text-[11px] shrink-0">
             {user?.name?.charAt(0) || 'S'}
           </div>
           {sidebarOpen && (

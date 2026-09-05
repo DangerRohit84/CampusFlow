@@ -55,7 +55,21 @@ app.use(helmet({ crossOriginResourcePolicy: false }))
 app.use(etagCacheMiddleware)
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map((o: string) => o.trim())
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '10mb', strict: false }))
+// Normalize primitive JSON bodies (e.g., `JSON.stringify(null)` -> "null" -> `null`) to {} so downstream
+// handlers don't see `req.body === null` and strict-mode rejections never surface as 500s.
+// With `strict:false`, "null" parses to JS `null` instead of throwing SyntaxError.
+app.use((req, _res, next) => {
+  if (req.body === null || req.body === undefined) {
+    ;(req as any).body = {}
+  } else if (typeof req.body !== 'object') {
+    // e.g., "42" or "\"string\"" with strict:false — normalize to empty object for routes expecting object
+    ;(req as any).body = {}
+  }
+  next()
+})
+// Also parse urlencoded bodies (harmless, keeps parity with body-parser defaults)
+app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // Serve uploaded files from local disk in local mode (production uses Cloudinary URLs).
 // Resolves to packages/backend/uploads, matching storage.ts's LOCAL_UPLOAD_ROOT.
@@ -274,7 +288,7 @@ if (process.env.DISABLE_EMBEDDED_CRON !== 'true') {
   // Initial fetch on server start
   runContestsJob().catch(console.error)
 
-  // Cron: fetch opportunities (hackathons + internships) every 12 hours
+  // Cron: fetch opportunities (hackathons + internships) every 12 hours -- BUILD MODE: Other Sources detached, only 5 platforms via fetchFromAllSources
   cron.schedule('0 */12 * * *', async () => {
     try {
       await runOpportunitiesJob()

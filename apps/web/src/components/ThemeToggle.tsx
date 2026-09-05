@@ -261,9 +261,9 @@ export default function ThemeToggle() {
               <line x1="12" y1="36" x2="20" y2="36" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
               <line x1="13" y1="39" x2="19" y2="39" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
               <line x1="14" y1="42" x2="18" y2="42" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-              <circle cx="16" cy="17" r="6" fill="#fef3c7" opacity="0.6" />
-              <circle cx="16" cy="17" r="8" fill="#fef3c7" opacity="0.3" />
-              <circle cx="16" cy="17" r="10" fill="#fef3c7" opacity="0.15" />
+              <circle cx="16" cy="17" r="6" fill="#fef3c7" opacity="0.65" />
+              <circle cx="16" cy="17" r="8" fill="#fde68a" opacity="0.35" />
+              <circle cx="16" cy="17" r="10" fill="#fde68a" opacity="0.18" />
             </>
           ) : (
             <>

@@ -9,18 +9,99 @@ const WS_URL = API_BASE
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 10000,
+  // Enrichment fetches multiple pages + Groq (6023 chars) can exceed 10s; 60s default prevents false "Enrich failed" when backend succeeded (11 fields, trust HIGH).
+  timeout: 60000,
 })
 
+export function getSuperAdminOverrideCollegeId(): string | null {
+  try {
+    const raw = localStorage.getItem('campusflow-superadmin-college')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      const id = parsed?.state?.selectedCollegeId || parsed?.selectedCollegeId || null
+      if (id) return String(id)
+    }
+  } catch {}
+  try {
+    const legacy = localStorage.getItem('superadmin_selectedCollegeId')
+    if (legacy) return String(legacy)
+  } catch {}
+  // Also check URL param ?collegeId for direct scoped navigation (e.g., /dashboard?collegeId=xxx)
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    const q = sp.get('collegeId')
+    if (q) return String(q)
+  } catch {}
+  return null
+}
+
 api.interceptors.request.use((config) => {
+  // Defensive: never send literal `null` as JSON body — `JSON.stringify(null)` is "null" which
+  // strict body-parser rejects ("null" is not valid JSON for object/array). Convert to {}.
+  // This catches `api.post(url, null)` and any `fetch(..., { body: JSON.stringify(null) })` equivalent.
+  if (config.data === null) {
+    config.data = {}
+  }
+  // Also guard against string "null" being sent explicitly (e.g., body: "null")
+  if (config.data === 'null') {
+    config.data = {}
+  }
   const stored = localStorage.getItem('campusflow-auth')
+  let isSuperAdmin = false
   if (stored) {
     try {
       const { state } = JSON.parse(stored)
       if (state?.token) {
         config.headers.Authorization = `Bearer ${state.token}`
       }
+      if (state?.user?.role === 'SUPER_ADMIN') isSuperAdmin = true
     } catch {}
+  }
+  // SUPER_ADMIN scoped college override — inject collegeId for tenant APIs when inside a college workspace
+  if (isSuperAdmin) {
+    const overrideId = getSuperAdminOverrideCollegeId()
+    if (overrideId) {
+      const url = String(config.url || '')
+      // Always send header so backend deriveCollegeId can resolve even when query/body missing (e.g. FormData without collegeId)
+      try {
+        (config.headers as any)['x-superadmin-college-id'] = overrideId
+        ;(config.headers as any)['x-college-id'] = overrideId
+      } catch {}
+      // Exclude global super admin endpoints that must remain unscoped unless explicitly requested
+      const excludeExact = ['/admin/super/dashboard', '/admin/colleges', '/auth/', '/colleges/public', '/colleges/register']
+      const isExcluded = excludeExact.some((p) => url.includes(p))
+      // Whitelist tenant endpoints that support ?collegeId scoping
+      const allowList = ['/user/dashboard', '/rooms', '/assignments/hub', '/forms', '/hackathons', '/internships', '/contests', '/timetable', '/tasks', '/announcements', '/departments', '/admin/analytics', '/admin/users', '/admin/hackathons', '/admin/forms', '/schedules', '/grades', '/attendance', '/coding-profile']
+      const isAllowed = allowList.some((p) => url.includes(p))
+      if (!isExcluded && isAllowed) {
+        // Only inject if not already present
+        const params: any = (config.params = config.params || {})
+        if (!params.collegeId && !url.includes('collegeId=')) {
+          params.collegeId = overrideId
+        }
+        // For mutating requests, also inject into JSON body or FormData so backend deriveCollegeId(req) works even if query ignored
+        const method = String(config.method || '').toLowerCase()
+        if (['post', 'put', 'patch'].includes(method)) {
+          try {
+            if (config.data instanceof FormData) {
+              if (!config.data.has('collegeId')) config.data.append('collegeId', overrideId)
+            } else if (config.data && typeof config.data === 'object' && !Array.isArray(config.data)) {
+              if (!(config.data as any).collegeId) (config.data as any).collegeId = overrideId
+            } else if (!config.data || (typeof config.data === 'object' && Object.keys(config.data as any).length === 0)) {
+              // Empty body on POST (e.g. /assignments/hub with only files) — ensure collegeId present
+              if (!config.data) config.data = {}
+              if (typeof config.data === 'object' && !(config.data as any).collegeId) (config.data as any).collegeId = overrideId
+            }
+          } catch {}
+        }
+      }
+      // Always ensure legacy storage sync for api wrappers that read localStorage directly
+      try {
+        if (!localStorage.getItem('superadmin_selectedCollegeId')) {
+          localStorage.setItem('superadmin_selectedCollegeId', overrideId)
+        }
+      } catch {}
+    }
   }
   return config
 })
@@ -99,7 +180,7 @@ export const assignmentAPI = {
 }
 
 export const assignmentHubAPI = {
-  getHubs: (params?: { page?: number; limit?: number; search?: string; scope?: string; submissionMode?: string; signal?: AbortSignal }) => {
+  getHubs: (params?: { page?: number; limit?: number; search?: string; scope?: string; submissionMode?: string; collegeId?: string; signal?: AbortSignal }) => {
     const { signal, ...query } = params || {}
     return api.get('/assignments/hub', { params: query, signal }).then(r => {
       const b = r.data
@@ -115,13 +196,20 @@ export const assignmentHubAPI = {
   },
   update: (id: string, data: any) => {
     const hasFile = data instanceof FormData
+    // QA compat: return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } }
     return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': undefined } as any } : {}).then(r => r.data)
   },
   delete: (id: string) => api.delete(`/assignments/hub/${id}`).then(r => r.data),
-  submit: (hubId: string, payload: { content?: string; file?: File }) => {
+  submit: (hubId: string, payload: { content?: string; file?: File; files?: File[] }) => {
     const fd = new FormData()
     if (payload.content) fd.append('content', payload.content)
-    if (payload.file) fd.append('file', payload.file)
+    const allFiles: File[] = []
+    if (payload.files?.length) allFiles.push(...payload.files)
+    if (payload.file) allFiles.push(payload.file)
+    // Dedupe by reference
+    const uniq = Array.from(new Set(allFiles))
+    uniq.slice(0, 5).forEach(f => fd.append('files', f))
+    // Fallback keep single file field for legacy if needed (already appended as files)
     return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': undefined } as any }).then(r => r.data)
   },
   listSubmissions: (hubId: string, params?: { page?: number; limit?: number }) =>
@@ -130,6 +218,11 @@ export const assignmentHubAPI = {
     api.put(`/assignments/submissions/${submissionId}/grade`, data).then(r => r.data),
   mySubmissions: () => api.get('/assignments/my-submissions').then(r => r.data),
   stats: (hubId: string) => api.get(`/assignments/hub/${hubId}/stats`).then(r => r.data),
+  offlineSubmit: (hubId: string, data: { studentId: string; offlineNote?: string; content?: string; points?: number; grade?: string; feedback?: string }) =>
+    api.post(`/assignments/hub/${hubId}/submissions/offline`, data).then(r => r.data),
+  bulkGrade: (hubId: string, data: { grades: Array<{ studentId: string; points?: number; grade?: string; feedback?: string; offlineNote?: string; content?: string }> }) =>
+    api.post(`/assignments/hub/${hubId}/submissions/bulk-grade`, data).then(r => r.data),
+  getPending: (hubId: string) => api.get(`/assignments/hub/${hubId}/pending`).then(r => r.data),
 }
 
 // Notifications (unified via room notifications)
@@ -374,6 +467,8 @@ export const formAPI = {
   extend: (id: string, expiresAt: string) => api.post(`/forms/${id}/extend`, { expiresAt }).then((r) => r.data),
   update: (id: string, data: any) => api.put(`/forms/${id}`, data).then((r) => r.data),
   updateFields: (id: string, fields: any[]) => api.put(`/forms/${id}/fields`, { fields }).then((r) => r.data),
+  stats: (id: string) => api.get(`/forms/${id}/stats`).then((r) => r.data),
+  getPending: (id: string) => api.get(`/forms/${id}/pending`).then((r) => r.data),
 }
 
 // Rooms
@@ -468,7 +563,7 @@ export const roomAPI = {
 // Departments
 export const departmentAPI = {
   getAll: (collegeId?: string) => api.get('/departments', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
-  create: (data: { name: string }) => api.post('/departments', data).then((r) => r.data),
+  create: (data: { name: string; collegeId?: string }) => api.post('/departments', data).then((r) => r.data),
   update: (id: string, data: { name: string }) => api.put(`/departments/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/departments/${id}`).then((r) => r.data),
 }
@@ -506,8 +601,8 @@ export const adminAPI = {
   getUsers: (collegeId?: string) => api.get('/admin/users', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   addTeacher: (data: any) => api.post('/admin/users/teacher', data).then((r) => r.data),
   addStudent: (data: any) => api.post('/admin/users/student', data).then((r) => r.data),
-  bulkAddTeachers: (teachers: any[]) => api.post('/admin/users/teachers/bulk', { teachers }).then((r) => r.data),
-  bulkAddStudents: (students: any[]) => api.post('/admin/users/students/bulk', { students }).then((r) => r.data),
+  bulkAddTeachers: (teachers: any[], collegeId?: string) => api.post('/admin/users/teachers/bulk', { teachers, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data),
+  bulkAddStudents: (students: any[], collegeId?: string) => api.post('/admin/users/students/bulk', { students, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data),
   updateUser: (id: string, data: any) => api.put(`/admin/users/${id}`, data).then((r) => r.data),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`).then((r) => r.data),
   getAnalytics: (collegeId?: string) => api.get('/admin/analytics', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
@@ -521,6 +616,12 @@ export const adminAPI = {
   getForms: (collegeId?: string) => api.get('/admin/forms', { params: collegeId ? { collegeId } : {} }).then((r) => r.data),
   deleteHackathon: (id: string) => api.delete(`/admin/hackathons/${id}`).then((r) => r.data),
   deleteForm: (id: string) => api.delete(`/admin/forms/${id}`).then((r) => r.data),
+}
+
+// Super Admin Dashboard
+export const superAdminAPI = {
+  getDashboard: (params?: { collegeId?: string; from?: string; to?: string }) =>
+    api.get('/admin/super/dashboard', { params }).then((r) => r.data),
 }
 
 // College
@@ -609,6 +710,44 @@ export const codingProfileAPI = {
     api.get(`/coding-profile/github/${encodeURIComponent(username)}`, { params: opts }).then((r) => r.data) as Promise<{ date: string; count: number; level: number }[]>,
 }
 
+// Groq API key per-user (frontend storage) — spec: user/student adds own key in Settings → AI, not global backend key.
+// Superadmin's AI Manager provides global model (e.g., qwen/qwen3-32b for vision, gpt-oss-120b for text); per-user key + global model.
+export function getUserGroqKey(): string | null {
+  try {
+    const keys = ['campusflow:groq-key', 'campusflow-groq-api-key', 'groq-api-key', 'campusflow:groq-api-key']
+    for (const k of keys) {
+      const v = localStorage.getItem(k)
+      if (v && String(v).trim().length > 10) return String(v).trim()
+    }
+    // Also check user preferences stored via resumeStorage? Check JSON in campusflow-auth? maybe store in preferences
+    // Fallback: try reading from any localStorage key that ends with groq
+    for (let i=0;i<localStorage.length;i++) {
+      const kk = localStorage.key(i) || ''
+      if (kk.toLowerCase().includes('groq') && localStorage.getItem(kk) && String(localStorage.getItem(kk)).trim().length>10) {
+        const vv = localStorage.getItem(kk)
+        if (vv) return String(vv).trim()
+      }
+    }
+  } catch {}
+  return null
+}
+export function setUserGroqKey(key: string) {
+  const trimmed = String(key || '').trim()
+  if (!trimmed) { clearUserGroqKey(); return }
+  try { localStorage.setItem('campusflow:groq-key', trimmed) } catch {}
+}
+export function clearUserGroqKey() {
+  try {
+    localStorage.removeItem('campusflow:groq-key')
+    localStorage.removeItem('campusflow-groq-api-key')
+    localStorage.removeItem('groq-api-key')
+  } catch {}
+}
+function groqHeader(): Record<string,string> {
+  const k = getUserGroqKey()
+  return k ? { 'X-GROQ-API-KEY': k } : {}
+}
+
 // POST /coding-profile/sync returns 202 and runs server-side; poll until
 // lastSyncedAt advances past the baseline (or give up after maxTries).
 // Resume Studio — LaTeX vector + AI + Parse
@@ -653,40 +792,90 @@ export const resumeAPI = {
     return true
   },
 
+  // DOCX export — mirror jsPDF templates via docx Document/Paragraph
+  downloadDocx: async (data: any, filename?: string) => {
+    const res = await api.post('/resume/export-docx', data, { responseType: 'blob' })
+    const ct = (res.headers as any)['content-type'] || ''
+    if (ct.includes('application/json')) {
+      const text = await (res.data as Blob).text()
+      const j = JSON.parse(text)
+      throw new Error(j.error || 'DOCX failed')
+    }
+    const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = (res.headers as any)['content-disposition'] || ''
+    const m = cd.match(/filename="([^"]+)"/)
+    a.download = filename || (m ? m[1] : `${(data.personalInfo?.fullName || 'Resume').replace(/\s+/g, '_')}_Resume.docx`)
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+    return true
+  },
+  downloadTxt: async (data: any, filename?: string) => {
+    const res = await api.post('/resume/export-txt', data, { responseType: 'blob' })
+    const ct = (res.headers as any)['content-type'] || ''
+    if (ct.includes('application/json')) {
+      const text = await (res.data as Blob).text()
+      const j = JSON.parse(text)
+      throw new Error(j.error || 'TXT failed')
+    }
+    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = (res.headers as any)['content-disposition'] || ''
+    const m = cd.match(/filename="([^"]+)"/)
+    a.download = filename || (m ? m[1] : `${(data.personalInfo?.fullName || 'Resume').replace(/\s+/g, '_')}_Resume.txt`)
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+    return true
+  },
+
   // Probe health
   health: () => api.get('/resume/latex/health').then((r) => r.data),
 
-  // AI upgrade — mode: summary|bullets|skills|full|tailor|upgrade
+  // AI upgrade — mode: summary|bullets|skills|full|tailor|upgrade — requires per-user Groq key (spec)
   aiUpgrade: (payload: { data: any; mode?: string; jobDescription?: string; prompt?: string; targetId?: string }) =>
-    api.post('/resume/ai-upgrade', payload).then((r) => r.data),
+    api.post('/resume/ai-upgrade', payload, { headers: { ...groqHeader() } as any }).then((r) => r.data),
   aiEnhance: (payload: { data: any; mode?: string; jobDescription?: string; prompt?: string; targetId?: string }) =>
-    api.post('/resume/ai-upgrade', payload).then((r) => r.data),
+    api.post('/resume/ai-upgrade', payload, { headers: { ...groqHeader() } as any }).then((r) => r.data),
   atsScore: (payload: { data: any; jobDescription?: string }) =>
-    api.post('/resume/ats-score', payload).then((r) => r.data),
+    api.post('/resume/ats-score', payload, { headers: { ...groqHeader() } as any }).then((r) => r.data),
 
-  // Parse uploaded resume — PDF/DOCX/TXT → ResumeData (uses backend + heuristic + optional Groq)
+  // Parse uploaded resume — PDF/DOCX/TXT → ResumeData — heuristic works without API, AI structuring needs per-user key
   parseResume: async (file: File) => {
     const fd = new FormData()
     fd.append('resume', file)
-    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined } as any })
-    return res.data as { data: any; rawText: string; heuristic: boolean; usedAI: boolean }
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any })
+    return res.data as { data: any; rawText: string; heuristic: boolean; usedAI: boolean; hasGroq?: boolean; placeholder?: string }
   },
   parseText: (rawText: string) =>
-    api.post('/resume/parse-text', { rawText }).then((r) => r.data),
+    api.post('/resume/parse-text', { rawText }, { headers: { ...groqHeader() } as any }).then((r) => r.data),
   parseUpload: async (file: File) => {
     const fd = new FormData()
     fd.append('resume', file)
-    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined } as any })
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any })
     return res.data
   },
+  // Convert PDF/Image/DOCX/TXT → LaTeX code — vision & AI text->LaTeX need per-user Groq key + global model
+  convertToLatex: async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await api.post('/resume/convert-to-latex', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any, timeout: 90000 })
+    return res.data as { latex: string; rawText: string; data: any; usedAI: boolean; method: string; hasGroq: boolean; fileName: string; placeholder?: string }
+  },
+  convertTextToLatex: (rawText: string) =>
+    api.post('/resume/convert-to-latex', { rawText }, { headers: { ...groqHeader() } as any, timeout: 90000 }).then((r) => r.data as { latex: string; rawText: string; data: any; usedAI: boolean; method: string; hasGroq?: boolean }),
+  convertHealth: () => api.get('/resume/convert-to-latex/health', { headers: { ...groqHeader() } as any }).then((r) => r.data),
 }
 
 export function waitForCodingSync(
   baseline: number,
   opts?: { intervalMs?: number; maxTries?: number }
 ): Promise<{ completed: boolean; profile: any }> {
-  const intervalMs = opts?.intervalMs ?? 4000
-  const maxTries = opts?.maxTries ?? 15
+  const intervalMs = opts?.intervalMs ?? 2000
+  const maxTries = opts?.maxTries ?? 30
   return new Promise((resolve) => {
     let tries = 0
     const timer = setInterval(async () => {

@@ -67,7 +67,9 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
   const handleFetch = async () => {
     setFetching(true)
     try {
-      await api.post(`/fetch/${platform.platform.toLowerCase()}`, { limit })
+      const { data } = await api.post(`/fetch/${platform.platform.toLowerCase()}`, { limit }, { timeout: 120000 })
+      if (data?.success === false) throw new Error(data?.error || 'Fetch failed')
+      // success includes enriched even when trust HIGH vs computed MEDIUM — show success
       onRefresh()
     } catch (error) {
       console.error('Fetch error:', error)
@@ -82,7 +84,9 @@ export default function PlatformCard({ platform, type, onRefresh }: PlatformCard
       const endpoint = type === 'hackathons'
         ? `/fetch/hackathons/enrich?source=${platform.platform.toLowerCase()}${limit > 0 ? `&limit=${limit}` : ''}`
         : `/fetch/internships/enrich?source=${platform.platform.toLowerCase()}${limit > 0 ? `&limit=${limit}` : ''}`
-      await api.post(endpoint)
+      const { data } = await api.post(endpoint, {}, { timeout: 120000 })
+      // Backend returns success:true + enriched count even for trust HIGH (ai:HIGH computed:MEDIUM) — do not treat enriched===0 or trust mismatch as failure.
+      if (data?.success === false) throw new Error(data?.error || 'Enrich failed')
       onRefresh()
     } catch (error) {
       console.error('Enrich error:', error)

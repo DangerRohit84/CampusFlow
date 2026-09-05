@@ -16,7 +16,7 @@ const registerSchema = z.object({
   departmentId: z.string().optional(),
   department: z.string().optional(),
   role: z.string().optional(),
-  collegeId: z.string().optional(),
+  collegeId: z.string().uuid().optional(),
   college: z.string().optional(),
   empNumber: z.string().optional(),
   studentId: z.string().optional(),
@@ -64,6 +64,31 @@ router.post('/register', async (req: Request, res: Response) => {
       return
     }
 
+    // SECURITY: public registration must not allow privilege escalation.
+    // SUPER_ADMIN is platform owner (collegeId=null, global) and can only be created via admin panel/seed.
+    // COLLEGE_ADMIN is created via college registration flow or super admin promotion.
+    const requestedRole = (body.role as string) || 'STUDENT'
+    if (requestedRole === 'SUPER_ADMIN') {
+      res.status(403).json({ error: 'Super admin accounts can only be created by existing super admins' })
+      return
+    }
+    if (requestedRole === 'COLLEGE_ADMIN') {
+      // Allow only if COLLEGE_ADMIN is created through admin flows, not self-registration.
+      // Block public self-registration as college admin — use /register-college instead.
+      res.status(403).json({ error: 'College admin registration must go through /register-college or admin panel' })
+      return
+    }
+    const safeRole = requestedRole === 'TEACHER' ? 'TEACHER' : 'STUDENT'
+
+    // MEDIUM IDOR fix: validate collegeId on public registration — must exist and be APPROVED
+    if (body.collegeId) {
+      const college = await prisma.college.findUnique({ where: { id: body.collegeId } })
+      if (!college || (college as any).status !== 'APPROVED') {
+        res.status(400).json({ error: 'Invalid college' })
+        return
+      }
+    }
+
     const passwordHash = await bcrypt.hash(body.password, 10)
     // username: use provided or generate from name/email, ensure unique
     let username: string | undefined
@@ -93,7 +118,7 @@ router.post('/register', async (req: Request, res: Response) => {
           passwordHash,
           departmentId: body.departmentId || undefined,
           departmentName: body.department || undefined,
-          role: body.role as any || 'STUDENT',
+          role: safeRole as any,
           collegeId: body.collegeId,
           collegeName: body.college,
           empNumber: body.empNumber,
@@ -113,7 +138,7 @@ router.post('/register', async (req: Request, res: Response) => {
             passwordHash,
             departmentId: body.departmentId || undefined,
             departmentName: body.department || undefined,
-            role: body.role as any || 'STUDENT',
+            role: safeRole as any,
             collegeId: body.collegeId,
             collegeName: body.college,
             empNumber: body.empNumber,

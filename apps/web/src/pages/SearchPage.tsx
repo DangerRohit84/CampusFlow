@@ -4,6 +4,7 @@ import { Search as SearchIcon, Calendar, BookOpen, Bell, ArrowRight, Sparkles } 
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import { searchAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 const typeIcons: Record<string, React.ElementType> = {
   schedule: Calendar,
@@ -34,6 +35,15 @@ export default function SearchPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-3xl mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<SearchIcon size={18} />}
+        eyebrow="Campus · Search"
+        title={<>Search</>}
+        subtitle="Find people, rooms and content — instant, scoped and smart."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Search</h1>
         <p className="text-surface-500 dark:text-night-400 mt-1">Find schedules, assignments, notifications, and more</p>

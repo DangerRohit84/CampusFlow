@@ -1,11 +1,12 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 
 const router = Router()
 router.use(authenticate)
 
-// List departments for user's college (SUPER_ADMIN sees all, or filtered by ?collegeId=)
+// List departments for user's college (SUPER_ADMIN sees all, or filtered by ?collegeId=/header)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -15,7 +16,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     let where: any = {}
     if (user.role === 'SUPER_ADMIN') {
-      const collegeId = req.query.collegeId as string | undefined
+      const collegeId = getSuperAdminTargetCollegeId(req)
       if (collegeId) where = { collegeId }
     } else {
       where = { collegeId: user.collegeId! }
@@ -39,7 +40,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       res.status(403).json({ error: 'College admin or super admin access required' })
       return
     }
-    const collegeId = user.role === 'SUPER_ADMIN' ? (req.body.collegeId || user.collegeId) : user.collegeId
+    const collegeId = deriveCollegeId(user as any, req.body.collegeId as string | null | undefined, req)
     if (!collegeId) {
       res.status(400).json({ error: 'College ID is required' })
       return

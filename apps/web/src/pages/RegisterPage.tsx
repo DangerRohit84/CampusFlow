@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Mail, Lock, User, GraduationCap, BookOpen, Search, Building2, Library, Clock3 } from 'lucide-react'
+import { Mail, Lock, User, GraduationCap, BookOpen, Search, Building2, Library, Clock3, UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/authStore'
 import { collegeAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function RegisterPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', collegeId: '', studentId: '', department: '', incomingYear: '' })
@@ -33,9 +35,18 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-night-800 flex">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<UserPlus size={18} />}
+        eyebrow="CampusFlow · Create"
+        title={<>Create account</>}
+        subtitle="Join your campus — fast onboarding, instant access."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Left — Quad photo */}
       <div className="hidden lg:flex flex-1 relative overflow-hidden border-r border-surface-200 dark:border-night-600 bg-warning-100">
-        <div className="absolute inset-0 paper-grain opacity-60" />
+        <div className="absolute inset-0 rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm-grain opacity-60" />
         <div className="absolute inset-6 rounded-[14px] overflow-hidden border border-surface-200 dark:border-night-600 shadow-e2 bg-white dark:bg-night-800">
           <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200&q=80&auto=format&fit=crop" alt="Library hall with arches" className="w-full h-full object-cover" loading="eager" />
           <div className="absolute bottom-4 left-4 right-4 bg-white/95 dark:bg-night-800/95 backdrop-blur rounded-xl border border-surface-200 dark:border-night-600 p-3">
@@ -71,7 +82,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="paper overflow-hidden">
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
             <div className="h-[3px] bg-brass-400" />
             <div className="px-6 pt-6 pb-2">
               <div className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-widest uppercase text-surface-500 dark:text-night-400 border border-surface-200 dark:border-night-600 rounded-full px-2.5 py-1">

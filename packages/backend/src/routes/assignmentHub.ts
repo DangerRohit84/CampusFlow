@@ -3,9 +3,11 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { buildHubListWhere, filterSubmissionForStudentVisibility } from '../utils/assignmentVisibility'
+import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 import multer from 'multer'
 import { uploadFile } from '../config/storage'
 import path from 'path'
+import { broadcastAssignmentMutation } from '../services/socket'
 
 export const hubBlocked = ['.html','.htm','.xhtml','.svg','.xml','.js','.mjs','.css','.exe','.sh']
 const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 }, fileFilter: (_req,file,cb)=> {
@@ -62,14 +64,16 @@ const updateHubSchema = assignmentHubSchema.partial()
 router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // QA compat: if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN'].includes(user.role))
     if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN','SUPER'].includes(user.role)) {
       res.status(403).json({ error: 'Only teachers and admins can create assignments' }); return
     }
     // multer populates req.body with strings; zod preprocess handles empty -> null/undef
     const body = assignmentHubSchema.parse(req.body)
     // Non-SUPER must have a collegeId on their user record; otherwise creation would be orphaned
+    // SUPER_ADMIN: body.collegeId OR query ?collegeId= (interceptor) OR header x-superadmin-college-id
     const derivedCollegeId = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
-      ? (body.collegeId || user.collegeId || null)
+      ? deriveCollegeId(user as any, body.collegeId as string | null | undefined, req)
       : user.collegeId
     if (!derivedCollegeId && user.role !== 'SUPER_ADMIN' && (user as any).role !== 'SUPER') {
       res.status(400).json({ error: 'Your account is not linked to a college — contact admin' }); return
@@ -86,7 +90,8 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
     if (body.scope === 'ROOM' && !body.roomId) { res.status(400).json({ error: 'roomId required for ROOM scope' }); return }
     if (body.scope === 'ALL' && (body.departmentId || body.roomId)) { res.status(400).json({ error: 'departmentId/roomId must be empty for ALL scope' }); return }
     if (body.departmentId) {
-      const dept = await prisma.department.findFirst({ where: { id: body.departmentId, collegeId: user.collegeId || undefined } })
+      const deptCollegeId = derivedCollegeId || user.collegeId
+      const dept = await prisma.department.findFirst({ where: { id: body.departmentId, ...(deptCollegeId ? { collegeId: deptCollegeId } : {}) } })
       if (!dept) { res.status(400).json({ error: 'Invalid departmentId for your college' }); return }
     }
     if (body.roomId) {
@@ -129,6 +134,7 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
       },
       include: { creator: { select: { id: true, name: true } }, college: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true } }, _count: { select: { submissions: true } } }
     })
+    try { broadcastAssignmentMutation(hub.id) } catch {}
     res.status(201).json(hub)
   } catch (e: any) {
     if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
@@ -150,8 +156,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const search = (req.query.search as string)?.trim()
     const scope = req.query.scope as string | undefined
     const submissionMode = req.query.submissionMode as string | undefined
+    const collegeId = (getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined)
 
-    let where: any = buildHubListWhere(user as any, { search, scope, submissionMode })
+    let where: any = buildHubListWhere(user as any, { search, scope, submissionMode, collegeId })
 
     if (user.role === 'STUDENT') {
       const allHubs = await prisma.assignmentHub.findMany({ where, orderBy: { dueDate: 'asc' } })
@@ -267,7 +274,8 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
         data.roomId = null
       }
       if (data.departmentId) {
-        const dept = await prisma.department.findFirst({ where: { id: data.departmentId, collegeId: user.collegeId || undefined } })
+        const deptCollegeForUpdate = existing.collegeId || user.collegeId
+        const dept = await prisma.department.findFirst({ where: { id: data.departmentId, ...(deptCollegeForUpdate ? { collegeId: deptCollegeForUpdate } : {}) } })
         if (!dept) { res.status(400).json({ error: 'Invalid departmentId for your college' }); return }
       }
       if (data.roomId) {
@@ -307,7 +315,8 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
       if (body.departmentId !== undefined && effectiveScope === 'DEPARTMENT') {
         data.departmentId = body.departmentId
         if (body.departmentId) {
-          const dept = await prisma.department.findFirst({ where: { id: body.departmentId, collegeId: user.collegeId || undefined } })
+          const deptCollegeForPatch = existing.collegeId || user.collegeId
+          const dept = await prisma.department.findFirst({ where: { id: body.departmentId, ...(deptCollegeForPatch ? { collegeId: deptCollegeForPatch } : {}) } })
           if (!dept) { res.status(400).json({ error: 'Invalid departmentId for your college' }); return }
         }
       }
@@ -345,6 +354,7 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
     if (body.allowLateSubmission !== undefined) data.allowLateSubmission = body.allowLateSubmission
 
     const updated = await prisma.assignmentHub.update({ where: { id: existing.id }, data })
+    try { broadcastAssignmentMutation(updated.id) } catch {}
     res.json(updated)
   } catch (e: any) {
     if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
@@ -366,6 +376,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const isSuper = user.role === 'SUPER_ADMIN'
     if (!isOwner && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Only creator or college admin can delete' }); return }
     await prisma.assignmentHub.delete({ where: { id: existing.id } })
+    try { broadcastAssignmentMutation(existing.id) } catch {}
     res.json({ message: 'Deleted' })
   } catch (e) { console.error('Delete hub error', e); res.status(500).json({ error: 'Failed to delete' }) }
 })

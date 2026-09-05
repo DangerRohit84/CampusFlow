@@ -5,6 +5,7 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { chatWithAI } from '../ai/groq'
 // chatWithAI now uses AI Manager routing (feature: 'chat')
 import { getDayOfWeek } from '../utils/dateUtils'
+import { broadcastScheduleMutation } from '../services/socket'
 
 const router = Router()
 router.use(authenticate)
@@ -98,6 +99,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const task = await prisma.task.create({
       data: { ...body, userId: req.userId!, date: new Date(body.date) },
     })
+    try { broadcastScheduleMutation({ action: 'task:created', taskId: task.id, userId: req.userId }) } catch {}
     res.status(201).json(task)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -116,6 +118,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: req.params.id as string, userId: req.userId },
       data: { ...body, date: body.date ? new Date(body.date) : undefined },
     })
+    try { broadcastScheduleMutation({ action: 'task:updated', taskId: task.id, userId: req.userId }) } catch {}
     res.json(task)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -136,6 +139,7 @@ router.put('/:id/toggle', async (req: AuthRequest, res: Response) => {
       where: { id: req.params.id as string },
       data: { completed: !task.completed, status: task.completed ? 'PENDING' : 'COMPLETED' },
     })
+    try { broadcastScheduleMutation({ action: 'task:toggled', taskId: updated.id, userId: req.userId }) } catch {}
     res.json(updated)
   } catch (error) {
     res.status(500).json({ error: 'Failed to toggle task' })
@@ -146,6 +150,7 @@ router.put('/:id/toggle', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.task.delete({ where: { id: req.params.id as string, userId: req.userId } })
+    try { broadcastScheduleMutation({ action: 'task:deleted', taskId: req.params.id as string, userId: req.userId }) } catch {}
     res.json({ message: 'Task deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete task' })

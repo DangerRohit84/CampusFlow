@@ -96,13 +96,13 @@
 }
 
 [data-theme="dark"] .theme-lamp__icon {
-  filter: drop-shadow(0 0 8px rgba(251,191,36,0.5)) drop-shadow(0 0 20px rgba(251,191,36,0.3)) drop-shadow(0 0 40px rgba(251,191,36,0.15));
+  filter: drop-shadow(0 0 8px rgba(245,158,11,0.5)) drop-shadow(0 0 20px rgba(245,158,11,0.3)) drop-shadow(0 0 40px rgba(245,158,11,0.15));
   animation: bulbGlow 2s ease-in-out infinite alternate;
 }
 
 @keyframes bulbGlow {
-  0% { filter: drop-shadow(0 0 6px rgba(251,191,36,0.4)) drop-shadow(0 0 16px rgba(251,191,36,0.2)) drop-shadow(0 0 30px rgba(251,191,36,0.1)); }
-  100% { filter: drop-shadow(0 0 10px rgba(251,191,36,0.6)) drop-shadow(0 0 24px rgba(251,191,36,0.35)) drop-shadow(0 0 50px rgba(251,191,36,0.2)); }
+  0% { filter: drop-shadow(0 0 6px rgba(245,158,11,0.4)) drop-shadow(0 0 16px rgba(245,158,11,0.2)) drop-shadow(0 0 30px rgba(245,158,11,0.1)); }
+  100% { filter: drop-shadow(0 0 10px rgba(245,158,11,0.6)) drop-shadow(0 0 24px rgba(245,158,11,0.35)) drop-shadow(0 0 50px rgba(245,158,11,0.2)); }
 }
 
 /* expanded hit area for drag anywhere */

@@ -37,6 +37,26 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 100)
 }
 
+function sanitizePathSegment(segment: string): string {
+  // Replace Windows-invalid characters :*?"<>| and control chars with '-'
+  // Also handle trailing dots/spaces which Windows disallows, and limit length
+  let sanitized = segment.replace(/[:*?"<>|]/g, '-').replace(/[\x00-\x1f\x7f]/g, '')
+  sanitized = sanitized.replace(/^[. ]+/, '').replace(/[. ]+$/, '').trim()
+  if (!sanitized || sanitized === '.' || sanitized === '..') sanitized = '_'
+  return sanitized.substring(0, 100)
+}
+
+function sanitizeFolderPath(folder: string): string {
+  return folder
+    .replace(/\\/g, '/')
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter((s) => s.length > 0)
+    .map(sanitizePathSegment)
+    .filter(Boolean)
+    .join('/')
+}
+
 function generateLocalFilename(fileName?: string): string {
   const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
   return `${uniqueSuffix}-${sanitizeFilename(fileName || 'file')}`
@@ -44,7 +64,7 @@ function generateLocalFilename(fileName?: string): string {
 
 function cloudinaryUploadOptions(options: UploadOptions) {
   return {
-    folder: options.folder,
+    folder: options.folder ? sanitizeFolderPath(options.folder) : undefined,
     resource_type: options.resourceType || 'auto',
     use_filename: true,
     unique_filename: true,
@@ -107,7 +127,7 @@ export async function uploadFile(input: Buffer | string, options: UploadOptions 
     return uploadBufferToCloudinary(input, options)
   }
 
-  const relativeFolder = options.folder ? options.folder.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : ''
+  const relativeFolder = options.folder ? sanitizeFolderPath(options.folder) : ''
   const dir = path.resolve(path.join(LOCAL_UPLOAD_ROOT, relativeFolder))
   const relDir = path.relative(LOCAL_UPLOAD_ROOT, dir)
   if (relDir === '' || relDir.startsWith('..') || path.isAbsolute(relDir)) {

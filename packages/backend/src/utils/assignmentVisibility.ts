@@ -32,9 +32,12 @@ export function isAssignmentVisibleToUser(assignment: AssignmentHubRow, user: Us
   return false
 }
 
-export function buildHubListWhere(user: UserRow, filters: { search?: string; scope?: string; submissionMode?: string }) {
+export function buildHubListWhere(user: UserRow, filters: { search?: string; scope?: string; submissionMode?: string; collegeId?: string }) {
   const where: any = {}
-  if (user.role !== 'SUPER_ADMIN' && user.collegeId) {
+  if (user.role === 'SUPER_ADMIN') {
+    if (filters.collegeId) where.collegeId = filters.collegeId
+    // else no college filter — global view
+  } else if (user.collegeId) {
     where.collegeId = user.collegeId
   }
   if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' }

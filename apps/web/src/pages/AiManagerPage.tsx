@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Zap, Loader2 } from 'lucide-react'
+import { Plus, Zap, Loader2, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import ProviderCard from '../components/ai/ProviderCard'
@@ -7,6 +7,8 @@ import ProviderModal from '../components/ai/ProviderModal'
 import RoutingTable from '../components/ai/RoutingTable'
 import AiGraph from '../components/ai/AiGraph'
 import type { AiProvider, AiRouting } from '../types/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function AiManagerPage() {
   const [providers, setProviders] = useState<AiProvider[]>([])
@@ -94,15 +96,24 @@ export default function AiManagerPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="paper overflow-hidden">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Sparkles size={18} />}
+        eyebrow="Platform · AI"
+        title={<>AI Manager</>}
+        subtitle="Models, routing and sync — powering Studio and Fetch."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
         <div className="h-[3px] bg-brass-400" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center"><Zap size={18} className="text-brass-400" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">AI Manager — Routing Desk</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Providers & feature routing. Flat, paper, no gradients.</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Providers & feature routing. Flat, rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm, no gradients.</p>
             </div>
           </div>
           <div className="flex gap-2">

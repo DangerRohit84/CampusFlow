@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import prisma from '../config/db'
 import { visionCompletion } from '../ai/client'
+import { broadcastGradeMutation } from '../services/socket'
 
 const router = Router()
 
@@ -26,6 +27,7 @@ router.post('/data', authenticate, async (req: AuthRequest, res: Response) => {
       update: { subjects: JSON.stringify(subjects || []), scale: scale || '10' },
       create: { studentId: req.userId!, subjects: JSON.stringify(subjects || []), scale: scale || '10' },
     })
+    try { broadcastGradeMutation({ userId: req.userId, action: 'saved' }) } catch {}
     res.json({ success: true })
   } catch (error) {
     console.error('[Grades] Save error:', error)
@@ -37,6 +39,7 @@ router.post('/data', authenticate, async (req: AuthRequest, res: Response) => {
 router.delete('/data', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     await prisma.gradeData.deleteMany({ where: { studentId: req.userId! } })
+    try { broadcastGradeMutation({ userId: req.userId, action: 'deleted' }) } catch {}
     res.json({ success: true })
   } catch (error) {
     console.error('[Grades] Delete error:', error)

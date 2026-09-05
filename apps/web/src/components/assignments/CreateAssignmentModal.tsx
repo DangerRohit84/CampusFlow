@@ -16,7 +16,7 @@ type FormState = {
   title: string
   description: string
   courseId: string
-  dueDate: string
+  dueDate: string // datetime-local string YYYY-MM-DDTHH:mm
   scope: 'ALL' | 'DEPARTMENT' | 'ROOM'
   departmentId: string | null
   roomId: string | null
@@ -29,6 +29,19 @@ type FormState = {
   allowLateSubmission: boolean
 }
 
+function toLocalDateTimeInputValue(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n:number)=> String(n).padStart(2,'0')
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth()+1)
+  const dd = pad(d.getDate())
+  const hh = pad(d.getHours())
+  const mi = pad(d.getMinutes())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+}
+
 export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState>({ title:'', description:'', courseId:'', dueDate:'', scope:'ALL', departmentId:null, roomId:null, submissionMode:'ONLINE', showGrades:true, showFeedback:true, showSubmissionStatus:true, showStats:false, maxPoints:100, allowLateSubmission:false })
   const [files, setFiles] = useState<File[]>([])
@@ -37,7 +50,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
 
   useEffect(()=> {
     if(open) {
-      if(hub) setForm({ title: hub.title, description: hub.description||'', courseId: hub.courseId||'', dueDate: hub.dueDate?.slice(0,10)||'', scope: hub.scope, departmentId: hub.departmentId, roomId: hub.roomId, submissionMode: hub.submissionMode, showGrades: hub.showGrades, showFeedback: hub.showFeedback, showSubmissionStatus: hub.showSubmissionStatus, showStats: hub.showStats, maxPoints: hub.maxPoints, allowLateSubmission: hub.allowLateSubmission })
+      if(hub) setForm({ title: hub.title, description: hub.description||'', courseId: hub.courseId||'', dueDate: toLocalDateTimeInputValue(hub.dueDate)||'', scope: hub.scope, departmentId: hub.departmentId, roomId: hub.roomId, submissionMode: hub.submissionMode, showGrades: hub.showGrades, showFeedback: hub.showFeedback, showSubmissionStatus: hub.showSubmissionStatus, showStats: hub.showStats, maxPoints: hub.maxPoints, allowLateSubmission: hub.allowLateSubmission })
       else setForm({ title:'', description:'', courseId:'', dueDate:'', scope:'ALL', departmentId:null, roomId:null, submissionMode:'ONLINE', showGrades:true, showFeedback:true, showSubmissionStatus:true, showStats:false, maxPoints:100, allowLateSubmission:false })
       setFiles([]); setErrors({})
     }
@@ -49,11 +62,11 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
     const d = new Date(form.dueDate)
     if(isNaN(d.getTime())) return null
     const diff = Math.ceil((d.getTime() - Date.now())/86400000)
-    if(diff<0) return { text: 'This date is in the past', tone: 'danger' }
-    if(diff===0) return { text: 'Due today', tone: 'warning' }
-    if(diff===1) return { text: 'Due tomorrow', tone: 'warning' }
-    if(diff<=7) return { text: `Due in ${diff} days`, tone: 'ok' }
-    return { text: `Due ${d.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric'})}`, tone: 'ok' }
+    if(diff<0) return { text: `Overdue — was due ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'danger' }
+    if(diff===0) return { text: `Due today at ${d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit'})}`, tone: 'warning' }
+    if(diff===1) return { text: `Due tomorrow at ${d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit'})}`, tone: 'warning' }
+    if(diff<=7) return { text: `Due in ${diff} days — ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'ok' }
+    return { text: `Due ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'ok' }
   }, [form.dueDate])
 
   const scopePreview = useMemo(()=> {
@@ -82,11 +95,19 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
     const e: Record<string,string> = {}
     if(!form.title.trim()) e.title = 'Please add a title so students know what this is'
     else if(form.title.trim().length < 3) e.title = 'Title should be at least 3 characters'
-    if(!form.dueDate) e.dueDate = 'Pick a due date'
+    if(!form.dueDate) e.dueDate = 'Pick a due date and time'
     else {
       const d = new Date(form.dueDate)
-      const today = new Date(); today.setHours(0,0,0,0)
-      if(d < today) e.dueDate = 'Due date is in the past — are you sure?'
+      if(isNaN(d.getTime())) e.dueDate = 'Invalid date/time'
+      else {
+        const now = new Date()
+        // allow past but warn; still treat as soft error
+        if(d < now && d.getTime() < now.getTime() - 60*1000) {
+          // only warn if more than 1 min in past to avoid immediate validation flicker
+          const todayStart = new Date(); todayStart.setHours(0,0,0,0)
+          if(d < todayStart) e.dueDate = 'Due date is in the past — are you sure?'
+        }
+      }
     }
     if(!form.maxPoints || form.maxPoints <=0) e.maxPoints = 'Points must be at least 1'
     if(form.scope==='DEPARTMENT' && !form.departmentId) e.scope = 'Please select a department'
@@ -105,9 +126,13 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
     if(errors.dueDate) { /* past date warning already */ }
     setSaving(true)
     try {
-      // Normalize dueDate: input type=date gives YYYY-MM-DD; convert to ISO at UTC midnight
-      // Use T00:00:00 to avoid off-by-one timezone issues where new Date('2026-08-30') is UTC but UI expects local
-      const isoDue = form.dueDate ? new Date(form.dueDate + 'T00:00:00').toISOString() : new Date(form.dueDate).toISOString()
+      // Normalize dueDate: datetime-local gives YYYY-MM-DDTHH:mm in local time; convert to ISO UTC.
+      // Fallback for legacy YYYY-MM-DD (date-only) preserves midnight handling.
+      let isoDue: string
+      if (!form.dueDate) isoDue = new Date().toISOString()
+      else if (form.dueDate.includes('T')) isoDue = new Date(form.dueDate).toISOString()
+      else isoDue = new Date(form.dueDate + 'T00:00:00').toISOString()
+      let savedHub: any = null
       if (files.length) {
         const fd = new FormData()
         fd.append('title', form.title.trim())
@@ -127,7 +152,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         fd.append('maxPoints', String(form.maxPoints))
         fd.append('allowLateSubmission', String(form.allowLateSubmission))
         files.forEach(f=> fd.append('attachments', f))
-        if(hub) await assignmentHubAPI.update(hub.id, fd as any); else await assignmentHubAPI.create(fd as any)
+        if(hub) savedHub = await assignmentHubAPI.update(hub.id, fd as any); else savedHub = await assignmentHubAPI.create(fd as any)
       } else {
         // JSON path — clean payload to avoid sending empty strings for optional fields
         const payload: any = {
@@ -148,13 +173,19 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         }
         // Remove nulls for ALL scope to satisfy backend's empty-check (null is ok, but undefined cleaner)
         if (payload.scope === 'ALL') { payload.departmentId = null; payload.roomId = null }
-        if(hub) await assignmentHubAPI.update(hub.id, payload); else await assignmentHubAPI.create(payload)
+        if(hub) savedHub = await assignmentHubAPI.update(hub.id, payload); else savedHub = await assignmentHubAPI.create(payload)
       }
       toast.success(hub?'Assignment updated':'Assignment created');
       // invalidate queries so lists refetch with new/updated assignment
       queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
       queryClient.invalidateQueries({ queryKey: ['hubs'] })
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      // runtime: notify all pages (socket will also broadcast from backend, this is same-tab instant)
+      try {
+        const mutatedId = hub?.id || savedHub?.id || savedHub?.data?.id
+        if (mutatedId) window.dispatchEvent(new CustomEvent('assignment:mutated', { detail: { hubId: mutatedId } }))
+        else window.dispatchEvent(new Event('assignment:mutated'))
+      } catch {}
       onSaved(); onClose()
     } catch(e:any){
       const data = e.response?.data
@@ -238,9 +269,9 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Due date <span className="text-danger-500">*</span></label>
-              <input type="date" value={form.dueDate} disabled={saving} onChange={e=> setForm(p=>({...p, dueDate:e.target.value}))} className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.dueDate ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`} />
-              {errors.dueDate ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.dueDate}</p> : duePreview ? <p className={`text-xs mt-1.5 flex items-center gap-1 ${duePreview.tone==='danger'?'text-danger-600':duePreview.tone==='warning'?'text-amber-600':'text-emerald-600'}`}><Clock size={12}/>{duePreview.text}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Students get reminders before the due date.</p>}
+              <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Due date & time <span className="text-danger-500">*</span></label>
+              <input type="datetime-local" value={form.dueDate} disabled={saving} onChange={e=> setForm(p=>({...p, dueDate:e.target.value}))} className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${errors.dueDate ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`} />
+              {errors.dueDate ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.dueDate}</p> : duePreview ? <p className={`text-xs mt-1.5 flex items-center gap-1 ${duePreview.tone==='danger'?'text-danger-600':duePreview.tone==='warning'?'text-amber-600':'text-emerald-600'}`}><Clock size={12}/>{duePreview.text}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Set date and time — e.g., tomorrow 11:59 PM. Students see exact deadline.</p>}
             </div>
             <div>
               <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5 flex items-center gap-1.5"><Award size={14}/> Max points <span className="text-danger-500">*</span></label>

@@ -7,10 +7,10 @@ export default function StatsPanel({ stats, hub, isTeacher }: any) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
       {[
-        { label: 'Eligible', value: stats.eligible, icon: Users, bg: 'bg-blue-50 dark:bg-blue-900/20', color: 'text-blue-600' },
+        { label: 'Eligible', value: stats.eligible, icon: Users, bg: 'bg-primary-50 dark:bg-primary-900/20', color: 'text-primary-600' },
         { label: 'Submitted', value: stats.submitted, icon: CheckCircle, bg: 'bg-primary-50 dark:bg-primary-900/20', color: 'text-primary-600' },
         { label: 'Pending', value: stats.pending, icon: Clock, bg: 'bg-warning-50 dark:bg-warning-900/20', color: 'text-warning-600' },
-        { label: 'Graded', value: stats.graded, icon: Award, bg: 'bg-purple-50 dark:bg-purple-900/20', color: 'text-purple-600' },
+        { label: 'Graded', value: stats.graded, icon: Award, bg: 'bg-success-50 dark:bg-success-900/20', color: 'text-success-600' },
         { label: 'Avg Points', value: stats.avgPoints ?? '—', icon: BarChart2, bg: 'bg-surface-50 dark:bg-night-800', color: 'text-surface-600' },
         { label: 'Rate', value: `${stats.submissionRate}%`, icon: BarChart2, bg: 'bg-surface-50 dark:bg-night-800', color: 'text-surface-600' },
       ].map(s => (

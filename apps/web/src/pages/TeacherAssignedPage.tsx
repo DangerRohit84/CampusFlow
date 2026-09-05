@@ -2,16 +2,15 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, internshipAPI } from '../lib/api'
 import { motion } from 'framer-motion'
-import {
-  Trophy, Briefcase, CheckCircle2, XCircle, Clock,
+import { Trophy, Briefcase, CheckCircle2, XCircle, Clock,
   ExternalLink, Calendar, Building2, IndianRupee, Filter,
-  Loader2, AlertCircle
-} from 'lucide-react'
+  Loader2, AlertCircle, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import PageHeader from '../components/shared/PageHeader'
 import EmptyState from '../components/shared/EmptyState'
 import { parseJsonArray, parseJsonNumberArray } from '../lib/parseJson'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function TeacherAssignedPage() {
   const { user } = useAuthStore()
@@ -84,6 +83,15 @@ export default function TeacherAssignedPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-50 dark:bg-night-800 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<BookOpen size={18} />}
+        eyebrow="Teaching · Assigned"
+        title={<>My Classes</>}
+        subtitle="Assignments you created — submissions, stats and grading."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
         <div className="flex items-center justify-center min-h-[45vh]">
           <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
         </div>

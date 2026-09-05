@@ -55,7 +55,7 @@ export default function RegisterScreen({ navigation }: any) {
         <TextInput
           style={styles.input}
           placeholder="Full Name"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#8a8f98"
           value={name}
           onChangeText={setName}
           autoCorrect={false}
@@ -64,7 +64,7 @@ export default function RegisterScreen({ navigation }: any) {
         <TextInput
           style={styles.input}
           placeholder="Email"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#8a8f98"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
@@ -75,7 +75,7 @@ export default function RegisterScreen({ navigation }: any) {
         <TextInput
           style={styles.input}
           placeholder="Password"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#8a8f98"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -102,26 +102,26 @@ export default function RegisterScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   inner: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#1F2937', textAlign: 'center', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#6B7280', textAlign: 'center', marginBottom: 32 },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#121212', textAlign: 'center', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: '#62666d', textAlign: 'center', marginBottom: 32 },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#e5e7eb',
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
     marginBottom: 16,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#f6f6f6',
   },
   button: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#1ed760',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     marginBottom: 16,
   },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#6B7280', textAlign: 'center', fontSize: 14 },
-  linkBold: { color: '#3B82F6', fontWeight: '600' },
+  buttonText: { color: '#000', fontSize: 16, fontWeight: '600' },
+  link: { color: '#62666d', textAlign: 'center', fontSize: 14 },
+  linkBold: { color: '#1db954', fontWeight: '600' },
 });

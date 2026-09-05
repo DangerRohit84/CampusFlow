@@ -21,6 +21,7 @@ import EmptyState from '../components/shared/EmptyState'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 type HackathonStatus = 'upcoming' | 'ongoing' | 'completed'
 
@@ -299,9 +300,18 @@ export default function HackathonsPage() {
   }
 
   return (
-    <div className="space-y-6 section--hackathons">
+    <div className="space-y-6 section--hackathons max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Trophy size={18} />}
+        eyebrow="Discover · Hackathons"
+        title={<>Hackathons</>}
+        subtitle="Discover hacking events — upcoming, ongoing and team-ups."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Notice Board Head — brass #B5A268 5% wash + 1px #B5A268/15% — one wash per section */}
-      <div className="paper overflow-hidden !border-brass-500/15 dark:!border-brass-500/20">
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden !border-brass-500/15 dark:!border-brass-500/20">
         <div className="h-[3px] bg-brass-500" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -431,7 +441,7 @@ export default function HackathonsPage() {
         </>
       )}
 
-      {/* Create Modal — campus paper */}
+      {/* Create Modal — campus rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm */}
       <AnimatePresence>
         {createModal.isOpen && (
           <motion.div

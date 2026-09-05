@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Plus, Trash2, Upload, CheckCircle, AlertCircle, Loader2,
-  X, FileImage, Save, Target
-} from 'lucide-react'
+import { Plus, Trash2, Upload, CheckCircle, AlertCircle, Loader2,
+  X, FileImage, Save, Target, UserCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { attendanceAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 interface Subject {
   id: string
@@ -166,6 +165,15 @@ export default function AttendancePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[45vh]">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<UserCheck size={18} />}
+        eyebrow="Academics · Attendance"
+        title={<>Attendance</>}
+        subtitle="Track presence — daily, weekly and period-wise insights."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
         <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
       </div>
     )

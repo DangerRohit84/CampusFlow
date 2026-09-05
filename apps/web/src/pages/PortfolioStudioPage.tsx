@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Globe, Upload, CheckCircle, Copy, ExternalLink, Sparkles, FileText, Loader2, Link as LinkIcon } from 'lucide-react'
+import { Globe, Upload, CheckCircle, Copy, ExternalLink, Sparkles, FileText, Loader2, Link as LinkIcon, Layout } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import type { ResumeData, PortfolioData } from '../types/resume'
@@ -8,6 +8,8 @@ import { loadResume, loadPortfolio, savePortfolio } from '../lib/resumeStorage'
 import { buildPortyImportUrl, buildPortyPublicUrl, PORTY_BASE } from '../lib/porty'
 import ThemeGrid from '../components/portfolio/ThemeGrid'
 import PortyFrame from '../components/portfolio/PortyFrame'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function PortfolioStudioPage() {
   const user = useAuthStore(s => s.user)
@@ -184,6 +186,15 @@ export default function PortfolioStudioPage() {
 
   return (
     <div className="max-w-[1280px] mx-auto space-y-6">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Layout size={18} />}
+        eyebrow="Career · Portfolio"
+        title={<>Portfolio Studio</>}
+        subtitle="Build your site — 30 themes, live Porty iframe and publish."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

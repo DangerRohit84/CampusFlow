@@ -3,15 +3,97 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
 import { notifyUsers } from '../services/notificationService'
+import { broadcastFormMutation, emitFormUpdated, emitFormResponseUpdated, emitFormExtended } from '../services/socket'
+import { canAccessCollege, deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 
 const router = Router()
 router.use(authenticate)
+
+// --- Helpers for form analytics (parity with assignmentHub) ---
+function parseJsonArraySafe(value: unknown): string[] {
+  try {
+    if (!value) return []
+    if (Array.isArray(value)) return value as string[]
+    if (typeof value === 'string') {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    }
+    return []
+  } catch { return [] }
+}
+function parseJsonNumberArraySafe(value: unknown): number[] {
+  try {
+    if (!value) return []
+    if (Array.isArray(value)) return (value as any[]).map(Number).filter(n=> !isNaN(n))
+    if (typeof value === 'string') {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed.map(Number).filter(n=> !isNaN(n))
+      return []
+    }
+    return []
+  } catch { return [] }
+}
+async function fetchEligibleFormStudents(form: any) {
+  const baseSelect = { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true, collegeId: true } as const
+  // 1) Room-linked: distinct members across all linked rooms
+  const linkRows: { roomId: string }[] = await prisma.formRoom.findMany({ where: { formId: form.id }, select: { roomId: true } })
+  const linkedRoomIds = linkRows.map(r=> r.roomId)
+  if (linkedRoomIds.length > 0) {
+    const members = await prisma.roomMember.findMany({
+      where: { roomId: { in: linkedRoomIds } },
+      include: { student: { select: baseSelect } }
+    })
+    const map = new Map<string, any>()
+    for (const m of members) {
+      const s: any = (m as any).student
+      if (s && s.role !== 'STUDENT' && !s.studentId) {
+        // still include if role STUDENT check fails due to missing role in select? We selected collegeId but not role — fetch role via extra query if needed
+        // fallback: include based on presence
+      }
+      if (s && !map.has(s.id)) map.set(s.id, s)
+    }
+    // Ensure we only return students (filter role if available, otherwise keep)
+    // Fetch role for deduped ids to filter non-students if college open
+    const ids = Array.from(map.keys())
+    if (ids.length) {
+      const users = await prisma.user.findMany({ where: { id: { in: ids }, role: 'STUDENT' }, select: baseSelect })
+      return users
+    }
+    return Array.from(map.values())
+  }
+  // 2) Eligibility-enabled department/year targeting
+  if (form.eligibilityEnabled) {
+    const targetDeptIds = parseJsonArraySafe(form.targetDepartments)
+    const targetYears = parseJsonNumberArraySafe(form.targetYears)
+    // if no targeting but eligibilityEnabled, treat as no eligible (avoid platform-wide leak)
+    if (targetDeptIds.length === 0 && targetYears.length === 0) return []
+    // Build base candidate set by department + college
+    const where: any = { role: 'STUDENT' as const }
+    if (form.collegeId) where.collegeId = form.collegeId
+    if (targetDeptIds.length > 0) where.departmentId = { in: targetDeptIds }
+    const candidates = await prisma.user.findMany({ where, select: baseSelect })
+    if (targetYears.length === 0) return candidates
+    // Filter by computed current year
+    const nowYear = new Date().getFullYear()
+    return candidates.filter((u:any)=> {
+      if (!u.incomingYear) return false
+      const currentYear = Math.min(nowYear - u.incomingYear + 1, 4)
+      return targetYears.includes(currentYear)
+    })
+  }
+  // 3) Open form: all students in same college
+  if (form.collegeId) {
+    return prisma.user.findMany({ where: { role: 'STUDENT', collegeId: form.collegeId }, select: baseSelect })
+  }
+  return []
+}
 
 // Create form (Teacher)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds } = req.body
+    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds, collegeId: bodyCollegeId } = req.body
+    const derivedCollegeId = deriveCollegeId(user as any, bodyCollegeId as string | null | undefined, req)
 
     const isCR = user?.role === 'STUDENT' && roomIds?.length > 0 && await prisma.roomMember.findFirst({
       where: {
@@ -78,7 +160,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const form = await prisma.form.create({
       data: {
         creatorId: req.userId!,
-        collegeId: user.collegeId,
+        collegeId: derivedCollegeId,
         title,
         description,
         status: 'ACTIVE',
@@ -123,11 +205,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         targetUserIds = members.map((m: any) => m.studentId)
       } else {
         // No rooms — notify all STUDENT users of the same college, excluding creator.
-        // If the creator has no college (e.g., SUPER_ADMIN), skip the broadcast entirely
-        // rather than notifying every student platform-wide.
-        const students = user.collegeId
+        // SUPER_ADMIN uses derivedCollegeId (target college), not own null.
+        const notifyCollegeId = derivedCollegeId || user.collegeId
+        const students = notifyCollegeId
           ? await prisma.user.findMany({
-              where: { role: 'STUDENT', collegeId: user.collegeId, id: { not: req.userId! } },
+              where: { role: 'STUDENT', collegeId: notifyCollegeId, id: { not: req.userId! } },
               select: { id: true },
             })
           : []
@@ -146,6 +228,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       console.error('Form notification error:', err)
     }
 
+    try { broadcastFormMutation(form.id); emitFormUpdated(form.id, form) } catch {}
     res.status(201).json(form)
   } catch (error) {
     console.error('Create form error:', error)
@@ -167,12 +250,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const skip = (page - 1) * limit
     const search = (req.query.search as string)?.trim()
 
-    // Build role-based where
+    // Build role-based where — SUPER_ADMIN scoped to ?collegeId= when inside a college workspace
     let where: any = undefined
     let includeFields = false // only include fields/response counts, not full blobs
 
     if (user.role === 'SUPER_ADMIN') {
-      where = {}
+      const scopedCollegeId = getSuperAdminTargetCollegeId(req)
+      where = scopedCollegeId ? { collegeId: scopedCollegeId } : {}
     } else if (user.role === 'COLLEGE_ADMIN' || user.role === 'TEACHER') {
       const teacherRoomIds = (await prisma.room.findMany({
         where: { teacherId: req.userId },
@@ -230,12 +314,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       prisma.form.count({ where }),
     ])
 
+    // Attach per-user myResponse for student card tags (Submitted/Pending) — parity with assignmentHub
+    let myResponseMap = new Map<string, any>()
+    if (user.role === 'STUDENT' && forms.length > 0) {
+      const myResponses = await prisma.formResponse.findMany({
+        where: { userId: req.userId!, formId: { in: forms.map((f: any) => f.id) } },
+        select: { formId: true, id: true, submittedAt: true },
+      })
+      myResponseMap = new Map(myResponses.map((r: any) => [r.formId, r]))
+    }
+
     const data = forms.map((f: any) => ({
       ...f,
       fields: Array(f._count.fields).fill({}),
       responses: Array(f._count.responses).fill({}),
       responsesCount: f._count.responses,
       fieldsCount: f._count.fields,
+      myResponse: myResponseMap.get(f.id) || null,
       _count: undefined,
     }))
 
@@ -265,9 +360,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // SECURITY: tenant isolation — edits are limited to the form's own college
-    // (creator / same-college admin / SUPER_ADMIN).
-    if (existingForm.collegeId && user.collegeId && existingForm.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+    // SECURITY: tenant isolation — global (collegeId=null) only SUPER_ADMIN may edit; tenants need exact match (canAccessCollege)
+    if (!canAccessCollege(user as any, existingForm.collegeId)) {
       res.status(403).json({ error: 'You do not have permission to edit this form' })
       return
     }
@@ -299,6 +393,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         ...(eligibilityEnabled !== undefined && { eligibilityEnabled }),
       },
     })
+    try { broadcastFormMutation(form.id); emitFormUpdated(form.id, form) } catch {}
     res.json(form)
   } catch (error) {
     console.error('Update form error:', error)
@@ -321,9 +416,7 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // SECURITY: tenant isolation — edits are limited to the form's own college
-    // (creator / same-college admin / SUPER_ADMIN).
-    if (existingForm.collegeId && user.collegeId && existingForm.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+    if (!canAccessCollege(user as any, existingForm.collegeId)) {
       res.status(403).json({ error: 'You do not have permission to edit this form' })
       return
     }
@@ -366,11 +459,56 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
       )
     )
 
+    try { broadcastFormMutation(req.params.id as string); emitFormUpdated(req.params.id as string, { fields: created }) } catch {}
     res.json(created)
   } catch (error) {
     console.error('Update fields error:', error)
     res.status(500).json({ error: 'Failed to update fields' })
   }
+})
+
+// Stats for a form — eligible / submitted / pending / rate (teacher/CR only)
+router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
+    if (!form) { res.status(404).json({ error: 'Form not found' }); return }
+    if (!canAccessCollege(user as any, form.collegeId)) {
+      res.status(403).json({ error: 'Access denied' }); return
+    }
+    const isTeacher = user.role === 'TEACHER' || user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
+    const isCR = user.role === 'STUDENT' && await prisma.formRoom.findFirst({ where: { formId: form.id, room: { members: { some: { studentId: req.userId!, isCR: true } } } } })
+    if (!isTeacher && !isCR) { res.status(403).json({ error: 'Only teachers/CRs can view stats' }); return }
+    const eligibleList = await fetchEligibleFormStudents(form)
+    const eligible = eligibleList.length
+    const submitted = await prisma.formResponse.count({ where: { formId: form.id } })
+    const pending = Math.max(0, eligible - submitted)
+    const submissionRate = eligible ? Math.round((submitted/eligible)*100) : 0
+    res.json({ eligible, submitted, pending, submissionRate, pendingCount: pending, eligibleCount: eligible })
+  } catch (e) { console.error('Form stats error', e); res.status(500).json({ error: 'Failed to get stats' }) }
+})
+
+// Pending students for a form — eligible minus submitted
+router.get('/:id/pending', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
+    if (!form) { res.status(404).json({ error: 'Form not found' }); return }
+    if (!canAccessCollege(user as any, form.collegeId)) {
+      res.status(403).json({ error: 'Access denied' }); return
+    }
+    const isTeacher = user.role === 'TEACHER' || user.role === 'COLLEGE_ADMIN' || user.role === 'SUPER_ADMIN'
+    const isCR = user.role === 'STUDENT' && await prisma.formRoom.findFirst({ where: { formId: form.id, room: { members: { some: { studentId: req.userId!, isCR: true } } } } })
+    if (!isTeacher && !isCR) { res.status(403).json({ error: 'Only teachers/CRs can view pending' }); return }
+    const eligible = await fetchEligibleFormStudents(form)
+    const responses = await prisma.formResponse.findMany({ where: { formId: form.id }, select: { userId: true } })
+    const submittedIds = new Set(responses.map(r=> r.userId))
+    const pending = eligible.filter((u:any)=> !submittedIds.has(u.id))
+    pending.sort((a:any,b:any)=> (a.name||'').localeCompare(b.name||''))
+    res.json({ data: pending, total: pending.length, count: pending.length })
+  } catch (e) { console.error('Form pending error', e); res.status(500).json({ error: 'Failed to get pending' }) }
 })
 
 // Get single form with fields
@@ -388,7 +526,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         creator: { select: { name: true, email: true, empNumber: true } },
         fields: { orderBy: { order: 'asc' } },
         responses: {
-          include: { user: { select: { name: true, email: true, department: true, studentId: true } } },
+          include: { user: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true, collegeId: true } } },
           orderBy: { submittedAt: 'desc' },
         },
         formRooms: {
@@ -543,24 +681,26 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    let finalResponse: any
     if (existing) {
       // Update existing response
-      const updated = await prisma.formResponse.update({
+      finalResponse = await prisma.formResponse.update({
         where: { id: existing.id },
         data: { answers: JSON.stringify(req.body.answers) },
       })
-      res.json(updated)
+      res.json(finalResponse)
     } else {
       // Create new response
-      const response = await prisma.formResponse.create({
+      finalResponse = await prisma.formResponse.create({
         data: {
           formId: req.params.id as string,
           userId: req.userId!,
           answers: JSON.stringify(req.body.answers),
         },
       })
-      res.status(201).json(response)
+      res.status(201).json(finalResponse)
     }
+    try { emitFormResponseUpdated(req.params.id as string, finalResponse); broadcastFormMutation(req.params.id as string) } catch {}
   } catch (error) {
     console.error('Submit form error:', error)
     res.status(500).json({ error: 'Failed to submit response' })
@@ -588,8 +728,7 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // SECURITY: tenant isolation — cross-college admins may not manage this form.
-    if (user.collegeId && form.collegeId && form.collegeId !== user.collegeId && user.role !== 'SUPER_ADMIN') {
+    if (!canAccessCollege(user as any, form.collegeId)) {
       res.status(403).json({ error: 'Not authorized' })
       return
     }
@@ -605,6 +744,7 @@ router.post('/:id/extend', async (req: AuthRequest, res: Response) => {
       data: { expiresAt: new Date(expiresAt) },
     })
 
+    try { emitFormExtended(updated.id, updated.expiresAt?.toISOString() || ''); broadcastFormMutation(updated.id); emitFormUpdated(updated.id, updated) } catch {}
     res.json(updated)
   } catch (error) {
     console.error('Extend form error:', error)
@@ -626,7 +766,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
       include: {
         fields: { orderBy: { order: 'asc' } },
         responses: {
-          include: { user: { select: { name: true, email: true, department: true, studentId: true } } },
+          include: { user: { select: { name: true, email: true, departmentName: true, studentId: true } } },
         },
       },
     })
@@ -636,9 +776,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // SECURITY: tenant isolation — responses may only be exported within the
-    // form's own college (SUPER_ADMIN exempt).
-    if (!(form.collegeId === user.collegeId || user.role === 'SUPER_ADMIN')) {
+    if (!canAccessCollege(user as any, form.collegeId)) {
       res.status(403).json({ error: 'Access denied' })
       return
     }
@@ -683,7 +821,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
         rollNo: resp.user.studentId || '',
         name: resp.user.name,
         email: resp.user.email,
-        department: resp.user.department || '',
+        department: (resp.user as any).departmentName || (resp.user as any).department?.name || '',
         submittedAt: resp.submittedAt.toLocaleDateString(),
       }
 
@@ -716,9 +854,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (user?.collegeId && form.collegeId && form.collegeId !== user.collegeId && user?.role !== 'SUPER_ADMIN') {
-      // SECURITY: tenant isolation — deletions are limited to the form's own
-      // college (creator / same-college admin / SUPER_ADMIN).
+    if (user && !canAccessCollege(user as any, form.collegeId)) {
       res.status(403).json({ error: 'You do not have permission to delete this form' })
       return
     }
@@ -737,6 +873,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.form.delete({ where: { id: req.params.id as string } })
+    try { broadcastFormMutation(req.params.id as string) } catch {}
     res.json({ message: 'Form deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete form' })

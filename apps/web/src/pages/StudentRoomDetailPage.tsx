@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
 import { getSocket } from '../lib/socket'
-import { Loader2 } from 'lucide-react'
+import { Loader2, DoorOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from '../components/ui/Modal'
 import RoomChatPanel from '../components/room/RoomChatPanel'
@@ -12,6 +12,8 @@ import RoomHeader from '../components/room/RoomHeader'
 import RoomTabs, { type RoomTabKey } from '../components/room/RoomTabs'
 import RoomResourcesPanel from '../components/room/RoomResourcesPanel'
 import RoomMembersPanel from '../components/room/RoomMembersPanel'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function StudentRoomDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -166,7 +168,16 @@ export default function StudentRoomDetailPage() {
   if (!room) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<DoorOpen size={18} />}
+        eyebrow="Rooms · My Space"
+        title={<>My Room</>}
+        subtitle="Your study space — chat, resources and members."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       <RoomHeader
         roomName={room.name}
         description={room.description}

@@ -1,15 +1,29 @@
 import { Router, Response } from 'express'
+import rateLimit from 'express-rate-limit'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
 import { chatCompletion } from '../ai/client'
+import { canAccessCollege, deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
+import { validateExternalUrl } from '../utils/secureUrl'
+import { broadcastInternshipMutation } from '../services/socket'
 
 const router = Router()
 router.use(authenticate)
 
+// SSRF fetch-details rate limit: 10/hour per IP+user (audit HIGH #2)
+const fetchLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many fetch attempts, please try again later' },
+})
+
 // AI now uses AI Manager routing via src/ai/client.ts
 
 // GET / - List internships (paginated, indexed, eligibility-aware)
+// SUPER_ADMIN: global view (or ?collegeId= filter), bypasses tenant isolation
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
@@ -18,7 +32,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    if (!user.collegeId) {
+    const isSuper = user.role === 'SUPER_ADMIN'
+    const filterCollegeId = isSuper ? ((getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined)) : undefined
+
+    if (!isSuper && !user.collegeId) {
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
       res.json({ data: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } })
       return
@@ -29,13 +46,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const skip = (page - 1) * limit
     const search = (req.query.search as string)?.trim()
 
-    let where: any = { collegeId: user.collegeId }
+    let where: any = {}
+    if (isSuper) {
+      if (filterCollegeId) where = { collegeId: filterCollegeId }
+      // else {} — global across all colleges, plus null global internships
+    } else {
+      where = { collegeId: user.collegeId }
+    }
     if (search) {
       const s: any = { contains: search, mode: 'insensitive' }
-      where = { ...where, OR: [{ title: s }, { company: s }, { role: s }] }
-      // When search is present we need AND with collegeId; Prisma OR would override collegeId.
-      // Re-structure as AND
-      where = { AND: [{ collegeId: user.collegeId }, { OR: [{ title: s }, { company: s }, { role: s }] }] }
+      const searchClause = { OR: [{ title: s }, { company: s }, { role: s }] } as any
+      if (isSuper && !filterCollegeId) {
+        where = searchClause
+      } else {
+        const baseCollege = isSuper && filterCollegeId ? { collegeId: filterCollegeId } : { collegeId: user.collegeId }
+        where = { AND: [baseCollege, searchClause] }
+      }
     }
 
     // Use _count instead of loading full registrations arrays; include only current user's registration flag via _count filtered?
@@ -77,7 +103,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       // For filtered total, do a full scan only when page===1 to avoid O(n) on every page; otherwise estimate
       if (page === 1) {
         const allForCount = await prisma.internship.findMany({
-          where: { collegeId: user.collegeId },
+          where: { collegeId: user.collegeId! },
           select: { targetDepartments: true, targetYears: true, eligibilityEnabled: true },
         })
         total = allForCount.filter((i) => {
@@ -241,7 +267,7 @@ router.get('/staging/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /:id - Get single internship with registrations
+// GET /:id - Get single internship with registrations - tenant isolated (PII)
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const internship = await prisma.internship.findUnique({
@@ -255,6 +281,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'Internship not found' })
       return
     }
+    // Tenant check: hide cross-college internships (list already filters, but direct ID must also deny)
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (user && !canAccessCollege(user as any, (internship as any).collegeId)) {
+      res.status(403).json({ error: 'Access denied: different college' })
+      return
+    }
     res.json(internship)
   } catch (error) {
     console.error('Error getting internship:', error)
@@ -262,16 +294,21 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST / - Create internship (teacher only)
+// POST / - Create internship (teacher/admin/super)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN')) {
-      res.status(403).json({ error: 'Only teachers can create internships' })
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'Only teachers and admins can create internships' })
       return
     }
 
-    const { title, description, company, role, url, stipend, duration, mode, startDate, deadline, targetDepartments, targetYears, eligibilityEnabled } = req.body
+    const { title, description, company, role, url, stipend, duration, mode, startDate, deadline, targetDepartments, targetYears, eligibilityEnabled, collegeId: bodyCollegeId } = req.body
+    const derivedCollegeId = deriveCollegeId(user as any, bodyCollegeId as string | null | undefined, req)
+    if (!derivedCollegeId) {
+      res.status(400).json({ error: 'College ID is required' })
+      return
+    }
 
     const internship = await prisma.internship.create({
       data: {
@@ -289,10 +326,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         targetYears: JSON.stringify(targetYears || []),
         eligibilityEnabled: eligibilityEnabled || false,
         creatorId: req.userId!,
-        collegeId: user.collegeId!,
+        collegeId: derivedCollegeId,
       },
     })
 
+    try { broadcastInternshipMutation({ internshipId: internship.id, collegeId: derivedCollegeId, action: 'created' }) } catch {}
     res.status(201).json(internship)
   } catch (error) {
     console.error('Error creating internship:', error)
@@ -300,7 +338,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// DELETE /:id - Delete internship (creator or admin only)
+// DELETE /:id - Delete internship (creator or admin only) - tenant isolated
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string } })
@@ -308,14 +346,25 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'Internship not found' })
       return
     }
-    if (internship.creatorId !== req.userId) {
-      const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-      if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-        res.status(403).json({ error: 'Not authorized' })
-        return
-      }
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    if (!user) {
+      res.status(403).json({ error: 'Not authorized' })
+      return
+    }
+    // HIGH BOLA fix: tenant isolation — only same college (or SUPER_ADMIN) may delete
+    if (!canAccessCollege(user as any, internship.collegeId)) {
+      res.status(403).json({ error: 'Access denied: different college' })
+      return
+    }
+    const isOwner = internship.creatorId === req.userId
+    const isSuper = user.role === 'SUPER_ADMIN'
+    const isCollegeAdminSameCollege = user.role === 'COLLEGE_ADMIN' && internship.collegeId === user.collegeId
+    if (!isOwner && !isSuper && !isCollegeAdminSameCollege) {
+      res.status(403).json({ error: 'Not authorized' })
+      return
     }
     await prisma.internship.delete({ where: { id: req.params.id as string } })
+    try { broadcastInternshipMutation({ internshipId: req.params.id as string, action: 'deleted' }) } catch {}
     res.json({ success: true })
   } catch (error) {
     console.error('Error deleting internship:', error)
@@ -380,12 +429,21 @@ router.put('/:id/report', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /:id/registrations - Get all registrations (teacher only)
+// GET /:id/registrations - Get all registrations (teacher/admin/super) - tenant isolated
 router.get('/:id/registrations', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN')) {
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Not authorized' })
+      return
+    }
+    const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string }, select: { collegeId: true } })
+    if (!internship) {
+      res.status(404).json({ error: 'Internship not found' })
+      return
+    }
+    if (!canAccessCollege(user as any, internship.collegeId)) {
+      res.status(403).json({ error: 'Access denied: different college' })
       return
     }
 
@@ -401,12 +459,21 @@ router.get('/:id/registrations', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// PUT /:id/registrations/:regId - Update registration status (teacher)
+// PUT /:id/registrations/:regId - Update registration status (teacher/admin/super) - tenant isolated
 router.put('/:id/registrations/:regId', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN')) {
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Not authorized' })
+      return
+    }
+    const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string }, select: { collegeId: true } })
+    if (!internship) {
+      res.status(404).json({ error: 'Internship not found' })
+      return
+    }
+    if (!canAccessCollege(user as any, internship.collegeId)) {
+      res.status(403).json({ error: 'Access denied: different college' })
       return
     }
 
@@ -423,11 +490,11 @@ router.put('/:id/registrations/:regId', async (req: AuthRequest, res: Response) 
   }
 })
 
-// GET /export/:id - Export registrations as Excel
+// GET /export/:id - Export registrations as Excel - tenant isolated
 router.get('/export/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
-    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN')) {
+    if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Not authorized' })
       return
     }
@@ -435,6 +502,10 @@ router.get('/export/:id', async (req: AuthRequest, res: Response) => {
     const internship = await prisma.internship.findUnique({ where: { id: req.params.id as string } })
     if (!internship) {
       res.status(404).json({ error: 'Internship not found' })
+      return
+    }
+    if (!canAccessCollege(user as any, internship.collegeId)) {
+      res.status(403).json({ error: 'Access denied: different college' })
       return
     }
 
@@ -484,8 +555,9 @@ router.get('/export-all', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    const collegeFilter = user.role === 'SUPER_ADMIN' ? {} : { collegeId: user.collegeId! }
     const internships = await prisma.internship.findMany({
-      where: { collegeId: user.collegeId! },
+      where: collegeFilter,
       include: { registrations: true },
       orderBy: { createdAt: 'desc' },
     })
@@ -530,8 +602,8 @@ router.get('/export-all', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /fetch-details - AI extract internship details from URL
-router.post('/fetch-details', async (req: AuthRequest, res: Response) => {
+// POST /fetch-details - AI extract internship details from URL - SSRF protected + rate limited
+router.post('/fetch-details', fetchLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { url } = req.body
     if (!url) {
@@ -539,19 +611,33 @@ router.post('/fetch-details', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    // HIGH SSRF fix: validate URL before fetching (block private IP / metadata / bad schemes)
+    try {
+      await validateExternalUrl(String(url))
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || 'Invalid URL' })
+      return
+    }
+
     // AI Manager handles provider resolution
 
-    // Fetch page content
+    // Fetch page content - SSRF hardened: manual redirect, 10s timeout, size cap 2MB
     let pageContent = ''
     try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 10000)
-      const response = await fetch(url, {
-        signal: controller.signal,
+      const response = await fetch(String(url), {
+        signal: AbortSignal.timeout(10000),
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      })
+        redirect: 'manual',
+      } as any)
+      // Block redirects to private hosts (manual prevents auto-follow)
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error('Redirect blocked')
+      }
+      // Size cap
+      const len = Number(response.headers.get('content-length') || 0)
+      if (len > 2 * 1024 * 1024) throw new Error('Response too large')
       const html = await response.text()
-      clearTimeout(timeout)
+      if (html.length > 2 * 1024 * 1024) throw new Error('Response too large')
       pageContent = html
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -622,8 +708,8 @@ CRITICAL RULES:
   }
 })
 
-// POST /fetch-external - Trigger auto-fetch of internships from external sources (staging flow)
-router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
+// POST /fetch-external - Trigger auto-fetch of internships from external sources (staging flow) - SUPER_ADMIN + rate limited
+router.post('/fetch-external', fetchLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId! } })
     if (!user || user.role !== 'SUPER_ADMIN') {
@@ -662,7 +748,7 @@ router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
             status: 'ACTIVE',
             source: opp.source,
             creatorId: user.id,
-            collegeId: user.collegeId!,
+            collegeId: deriveCollegeId(user as any, null, req) || user.collegeId || null,
           },
         })
         fetched++
@@ -688,6 +774,7 @@ router.post('/fetch-external', async (req: AuthRequest, res: Response) => {
       console.log(`[Fetch] Done — enriched ${idsToEnrich.length} internships`)
     })()
 
+    try { broadcastInternshipMutation({ action: 'fetched', fetched, total: internships.length }) } catch {}
     res.json({ message: `Internship fetch complete`, fetched, skipped, total: internships.length })
   } catch (error) {
     console.error('Fetch external internships error:', error)
@@ -711,6 +798,11 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'Staging internship not found' })
       return
     }
+    const targetCollegeId = deriveCollegeId(user as any, (staging as any).collegeId as string | null | undefined, req) || (staging as any).collegeId || user.collegeId || getSuperAdminTargetCollegeId(req)
+    if (!targetCollegeId) {
+      res.status(400).json({ error: 'College ID required for internship approval' })
+      return
+    }
 
     const internship = await prisma.internship.create({
       data: {
@@ -730,7 +822,7 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
         status: 'ACTIVE',
         source: staging.source,
         creatorId: user.id,
-        collegeId: user.collegeId!,
+        collegeId: targetCollegeId,
       },
     })
 
@@ -740,6 +832,7 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
       data: { status: 'APPROVED' },
     })
 
+    try { broadcastInternshipMutation({ internshipId: internship.id, stagingId: req.params.id as string, action: 'approved' }) } catch {}
     res.json({ message: 'Internship approved', internship })
   } catch (error) {
     console.error('Approve staging internship error:', error)
@@ -769,6 +862,7 @@ router.post('/staging/:id/reject', async (req: AuthRequest, res: Response) => {
       data: { status: 'REJECTED' },
     })
 
+    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'rejected' }) } catch {}
     res.json({ message: 'Internship rejected' })
   } catch (error) {
     console.error('Reject staging internship error:', error)
@@ -808,6 +902,7 @@ router.post('/staging/:id/assign', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
+    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'staging:assigned', teacherId }) } catch {}
     res.json({ message: `Assigned to ${teacher.name}`, staging: updated })
   } catch (error) {
     console.error('Assign internship staging error:', error)
@@ -841,6 +936,7 @@ router.post('/staging/assign-all', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
+    try { broadcastInternshipMutation({ action: 'staging:bulk-assigned', teacherId, count: result.count }) } catch {}
     res.json({ assigned: result.count, teacher: teacher.name })
   } catch (error) {
     console.error('Assign all internship staging error:', error)

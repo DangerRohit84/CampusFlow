@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Mail, Lock, ArrowRight, GraduationCap, Library, MapPin, Clock3 } from 'lucide-react'
+import { Mail, Lock, ArrowRight, GraduationCap, Library, MapPin, Clock3, LogIn } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/authStore'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -25,6 +27,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-night-800 flex">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<LogIn size={18} />}
+        eyebrow="CampusFlow · Sign in"
+        title={<>Welcome back</>}
+        subtitle="Sign in to your campus — secure and fast."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Left — Admission card */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-10">
         <div className="w-full max-w-[440px] animate-slideUp">
@@ -43,7 +54,7 @@ export default function LoginPage() {
           </div>
 
           {/* library card */}
-          <div className="paper overflow-hidden">
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
             {/* brass rule + header */}
             <div className="h-[3px] bg-brass-400" />
             <div className="px-6 pt-6 pb-5">
@@ -90,8 +101,8 @@ export default function LoginPage() {
       <div className="hidden lg:flex flex-1 relative overflow-hidden border-l border-surface-200 dark:border-night-600 bg-warning-100">
         {/* quad image — CSS campus texture + photo frame */}
         <div className="absolute inset-0">
-          {/* subtle paper grain */}
-          <div className="absolute inset-0 paper-grain opacity-60" />
+          {/* subtle rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm grain */}
+          <div className="absolute inset-0 rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm-grain opacity-60" />
           {/* quad photo placeholder — masonry / collegiate */}
           <div className="absolute inset-6 rounded-[14px] overflow-hidden border border-surface-200 dark:border-night-600 shadow-e2 bg-white dark:bg-night-800">
             <img

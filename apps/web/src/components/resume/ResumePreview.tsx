@@ -1,9 +1,12 @@
 import { forwardRef } from 'react'
 import type { ResumeData, ResumeTemplateId } from '../../types/resume'
+import CustomTemplate from './CustomTemplate'
+import AsIsResumePreview from './AsIsResumePreview'
 
 type Props = {
   data: ResumeData
   template?: ResumeTemplateId
+  onChange?: (next: ResumeData) => void
 }
 
 const formatDate = (s: string) => {
@@ -916,7 +919,7 @@ function CompactTemplate({ data }: { data: ResumeData }) {
   )
 }
 
-const ResumePreview = forwardRef<HTMLDivElement, Props>(({ data, template }, ref) => {
+const ResumePreview = forwardRef<HTMLDivElement, Props>(({ data, template, onChange }, ref) => {
   const tpl: ResumeTemplateId = template || data.template || 'source-split'
   return (
     <div
@@ -925,6 +928,8 @@ const ResumePreview = forwardRef<HTMLDivElement, Props>(({ data, template }, ref
       className="resume-print-root bg-white rounded-xl overflow-hidden shadow-sm border border-surface-200 w-full max-w-[800px] mx-auto print:shadow-none print:border-0 print:rounded-none"
       style={{ colorScheme: 'light' }}
     >
+      {tpl === 'asis' && <AsIsResumePreview data={data} onChange={onChange} />}
+      {tpl === 'custom' && <CustomTemplate data={data} onChange={onChange} />}
       {tpl === 'source-split' && <SourceSplitTemplate data={data} />}
       {tpl === 'compact' && <CompactTemplate data={data} />}
       {tpl === 'classic' && <ClassicTemplate data={data} />}

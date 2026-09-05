@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { adminAPI, authAPI } from '../lib/api'
 import { motion } from 'framer-motion'
-import { GraduationCap, Loader2, CheckCircle, ArrowLeft } from 'lucide-react'
+import { GraduationCap, Loader2, CheckCircle, ArrowLeft, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function CollegeRegistrationPage() {
   const navigate = useNavigate()
@@ -60,6 +61,15 @@ export default function CollegeRegistrationPage() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-50 dark:bg-night-800">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Building2 size={18} />}
+        eyebrow="CampusFlow · Register"
+        title={<>Register College</>}
+        subtitle="Bring your campus to CampusFlow — tenancy in minutes."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
           className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-8 w-full max-w-md text-center">
           <div className="w-16 h-16 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">

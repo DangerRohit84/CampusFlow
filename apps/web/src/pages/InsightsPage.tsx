@@ -6,6 +6,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import { aiAPI } from '../lib/api'
 import { sanitizeMarkdown } from '../lib/sanitize'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function InsightsPage() {
   const [insights, setInsights] = useState<string>('')
@@ -32,6 +33,15 @@ export default function InsightsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-4xl">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<BarChart3 size={18} />}
+        eyebrow="Campus · Insights"
+        title={<>Insights</>}
+        subtitle="Trends and analytics — hackathons, placements and growth."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">AI Insights</h1>
         <p className="text-surface-500 dark:text-night-200 mt-1">AI-powered analysis of your academic performance</p>

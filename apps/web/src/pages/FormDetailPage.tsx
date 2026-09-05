@@ -3,12 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { formAPI, departmentAPI } from '../lib/api'
 import { motion } from 'framer-motion'
-import {
-  ArrowLeft, FileText, Users, Download, Loader2, CheckCircle, Send, Clock, Plus, GraduationCap, BookOpen
-} from 'lucide-react'
+import { ArrowLeft, FileText, Users, Download, Loader2, CheckCircle, Send, Clock, Plus, GraduationCap, BookOpen, ClipboardList } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import type { Department } from '../types/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function FormDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -200,7 +199,16 @@ export default function FormDetailPage() {
   if (!form) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<ClipboardList size={18} />}
+        eyebrow="Form · Detail"
+        title={<>Form Detail</>}
+        subtitle="Responses, analytics and submissions — everything in one bento."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/forms')} className="p-2 rounded-xl bg-surface-100 dark:bg-night-700 hover:bg-surface-200 transition-all">

@@ -53,6 +53,8 @@ export interface OpportunitiesJobResult {
 }
 
 export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
+  // BUILD MODE: Other Sources detached - cron fetches ONLY 5 fixed platforms via fetchFromAllSources (DEVFOLIO/DEVPOST/MLH/UNSTOP/INTERNSHALA).
+  // OTHER_HACKATHON / OTHER_INTERNSHIP are NOT fetched here; manual only via POST /fetch/other/* (detached per user request).
   console.log('[Cron] Fetching opportunities from external sources...')
 
   // Find an admin to own the staging records

@@ -22,6 +22,7 @@ import StatCard from '../components/shared/StatCard'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 type InternshipStatus = 'upcoming' | 'active' | 'ended'
 
@@ -237,9 +238,18 @@ export default function InternshipsPage() {
   }
 
   return (
-    <div className="space-y-6 section--internships">
+    <div className="space-y-6 section--internships max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<Briefcase size={18} />}
+        eyebrow="Discover · Internships"
+        title={<>Internships</>}
+        subtitle="Live openings — stipend, duration and mode, curated daily."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Notice Board Head — blue #2563EB 5% wash — one wash per section */}
-      <div className="paper overflow-hidden">
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
         <div className="h-[3px] bg-primary-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

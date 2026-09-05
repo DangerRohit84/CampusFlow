@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
 import { timetableAPI, assignmentAPI, taskAPI, codingContestAPI, hackathonAPI, formAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 type CalendarEvent = {
   id: string
@@ -253,8 +254,17 @@ export default function CalendarPage() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="space-y-6"
+      className="space-y-6 max-w-[1280px] mx-auto"
     >
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<CalendarDays size={18} />}
+        eyebrow="Campus · Calendar"
+        title={<>Calendar</>}
+        subtitle="Dates, events and deadlines — month, week and day views."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

@@ -12,6 +12,8 @@ import ResumeForm from '../components/resume/ResumeForm'
 import { resumeAPI } from '../lib/api'
 import { generateResumeLatex, downloadTexFile } from '../lib/resumeLatex'
 import { generateVectorPdfBlob } from '../lib/resumeVectorPdf'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function ResumeStudioPage() {
   const user = useAuthStore(s => s.user)

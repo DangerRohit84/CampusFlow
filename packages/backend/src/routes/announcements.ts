@@ -1,6 +1,8 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { broadcastAnnouncementMutation } from '../services/socket'
+import { getSuperAdminTargetCollegeId } from '../utils/roles'
 
 const router = Router()
 router.use(authenticate)
@@ -175,6 +177,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       },
     })
 
+    try { broadcastAnnouncementMutation({ announcementId: announcement.id, collegeId: announcement.collegeId, targetScope: (announcement as any).targetScope }) } catch {}
     res.status(201).json(announcement)
   } catch (error: any) {
     console.error('Announcement create error:', error?.message || error)
@@ -237,7 +240,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 10))
     const skip = (page - 1) * limit
 
-    const filterCollegeId = req.query.collegeId as string | undefined
+    const filterCollegeId = (getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined)
     const now = new Date()
     const where = buildAnnouncementWhere(user, filterCollegeId, now)
     const unreadWhere: any = { ...where, reads: { none: { userId: user.id } } }
@@ -302,7 +305,7 @@ router.post('/read-all', async (req: AuthRequest, res: Response) => {
       return
     }
     const isSuperAdmin = user.role === 'SUPER_ADMIN'
-    const filterCollegeId = (req.query.collegeId as string | undefined) || (req.body?.collegeId as string | undefined)
+    const filterCollegeId = (getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined) || (req.body?.collegeId as string | undefined)
     const now = new Date()
     const where = buildAnnouncementWhere(user, isSuperAdmin ? filterCollegeId : undefined, now)
     const unreadWhere: any = { ...where, reads: { none: { userId: user.id } } }
@@ -505,6 +508,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       })
     })
 
+    try { broadcastAnnouncementMutation({ announcementId, collegeId: announcement.collegeId }) } catch {}
     res.json(announcement)
   } catch (error: any) {
     console.error('Announcement update error:', error?.message || error)
@@ -534,6 +538,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     // Super admin can delete anything
     if (user.role === 'SUPER_ADMIN') {
       await prisma.announcement.delete({ where: { id: announcementId } })
+      try { broadcastAnnouncementMutation({ announcementId, collegeId: announcement.collegeId }) } catch {}
       res.json({ success: true })
       return
     }
@@ -553,6 +558,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.announcement.delete({ where: { id: announcementId } })
+    try { broadcastAnnouncementMutation({ announcementId, collegeId: announcement.collegeId }) } catch {}
     res.json({ success: true })
   } catch (error: any) {
     console.error('Announcement delete error:', error?.message || error)

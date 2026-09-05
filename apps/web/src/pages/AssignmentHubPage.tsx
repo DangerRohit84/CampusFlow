@@ -16,6 +16,7 @@ import Modal from '../components/ui/Modal'
 import Pagination from '../components/shared/Pagination'
 import EmptyState from '../components/shared/EmptyState'
 import toast from 'react-hot-toast'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 export default function AssignmentHubPage() {
   const user = useAuthStore(s=> s.user)
@@ -93,8 +94,17 @@ export default function AssignmentHubPage() {
   const handleDelete = async (hub:any)=> { if(!confirm('Delete assignment?')) return; await assignmentHubAPI.delete(hub.id); toast.success('Deleted'); queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] }); window.dispatchEvent(new Event('assignment:mutated')); load() }
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
-      <div className="paper overflow-hidden section--assignments">
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<FileText size={18} />}
+        eyebrow="Assignments · Manage"
+        title={<>Assignments</>}
+        subtitle="Manage and grade — bento views, scoped filters and bulk actions."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden section--assignments">
         <div className="h-[3px] bg-surface-200 dark:bg-zinc-700" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

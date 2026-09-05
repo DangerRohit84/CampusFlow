@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { Plus, Trash2, X, ChevronDown, Link as LinkIcon, GraduationCap, Briefcase, FolderKanban, User, Sparkles, Award } from 'lucide-react'
-import type { ResumeData, ResumeTemplateId } from '../../types/resume'
-import { RESUME_TEMPLATES } from '../../types/resume'
+import { Plus, Trash2, X, ChevronDown, Link as LinkIcon, GraduationCap, Briefcase, FolderKanban, User, Sparkles, Award, Palette, Type, Layout, Eye, EyeOff, Move, GripVertical } from 'lucide-react'
+import type { ResumeData, ResumeTemplateId, CustomSectionId } from '../../types/resume'
+import { RESUME_TEMPLATES, DEFAULT_CUSTOM_CONFIG, CUSTOM_ACCENT_COLORS, CUSTOM_FONTS } from '../../types/resume'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 type Props = {
   data: ResumeData
@@ -38,6 +41,56 @@ function Textarea({ label, value, onChange, placeholder, rows=3 }: { label:strin
       <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
         className="w-full px-3 py-2.5 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-sm text-surface-900 dark:text-night-50 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none" />
     </label>
+  )
+}
+
+function SortableSectionItem({ id, index, hidden, onToggleHide }: { id: CustomSectionId; index: number; hidden: boolean; onToggleHide: (id: CustomSectionId)=>void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${hidden ? 'bg-amber-50/60 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 opacity-70' : 'bg-surface-50 dark:bg-night-850 border-surface-200 dark:border-night-600'} ${isDragging ? 'shadow-lg ring-1 ring-primary-300' : ''}`}
+    >
+      <span className="w-6 h-6 rounded-lg bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center text-[10px] font-bold text-surface-500">{index+1}</span>
+      <button {...attributes} {...listeners} className="w-7 h-7 rounded-full bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center hover:bg-surface-100 cursor-grab active:cursor-grabbing" title="Drag to reorder" aria-label={`Drag ${id}`}>
+        <GripVertical size={14} className="text-surface-400" />
+      </button>
+      <span className={`flex-1 text-xs font-semibold capitalize ${hidden ? 'text-amber-700 dark:text-amber-300 line-through' : 'text-surface-800 dark:text-night-100'}`}>{id}</span>
+      <button onClick={()=>onToggleHide(id)} className={`w-7 h-7 rounded-full flex items-center justify-center border ${hidden ? 'bg-amber-500 text-white border-amber-600' : 'bg-white dark:bg-night-800 border-surface-200 dark:border-night-600 hover:bg-surface-50'}`} title={hidden ? 'Show' : 'Hide'}>
+        {hidden ? <EyeOff size={14}/> : <Eye size={14}/>}
+      </button>
+    </div>
+  )
+}
+
+function SortableSectionOrder({ cfg, onReorder, onToggleHide }: { cfg: any; onReorder: (order: CustomSectionId[])=>void; onToggleHide: (id: CustomSectionId)=>void }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = cfg.sectionOrder.indexOf(active.id as CustomSectionId)
+    const newIndex = cfg.sectionOrder.indexOf(over.id as CustomSectionId)
+    if (oldIndex === -1 || newIndex === -1) return
+    const newOrder = arrayMove(cfg.sectionOrder as CustomSectionId[], oldIndex, newIndex)
+    onReorder(newOrder)
+  }
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={cfg.sectionOrder as string[]} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1.5">
+          {cfg.sectionOrder.map((id: CustomSectionId, idx: number)=>(
+            <SortableSectionItem key={id} id={id} index={idx} hidden={cfg.hiddenSections.includes(id)} onToggleHide={onToggleHide} />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   )
 }
 
@@ -87,22 +140,137 @@ export default function ResumeForm({ data, onChange }: Props) {
   }
   const removeCert = (id:string) => update({ certifications: (data.certifications||[]).filter(c=>c.id!==id) })
 
+  const cfg = data.customConfig || DEFAULT_CUSTOM_CONFIG
+  const updateCustom = (patch: Partial<typeof cfg>) => update({ customConfig: { ...cfg, ...patch } })
+
+  const moveSection = (id: CustomSectionId, dir: -1 | 1) => {
+    const order = [...cfg.sectionOrder]
+    const idx = order.indexOf(id)
+    const j = idx + dir
+    if (idx < 0 || j < 0 || j >= order.length) return
+    ;[order[idx], order[j]] = [order[j], order[idx]]
+    updateCustom({ sectionOrder: order })
+  }
+  const toggleHide = (id: CustomSectionId) => {
+    const hidden = cfg.hiddenSections.includes(id)
+    updateCustom({ hiddenSections: hidden ? cfg.hiddenSections.filter(x => x !== id) : [...cfg.hiddenSections, id] })
+  }
+
   return (
     <div className="space-y-4">
       {/* Template Picker */}
       <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 p-4">
-        <p className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400 mb-2 flex items-center gap-2"><Sparkles size={12}/> Template</p>
+        <p className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400 mb-2 flex items-center gap-2"><Sparkles size={12}/> Template • 6 options</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {RESUME_TEMPLATES.map(t=>(
-            <button key={t.id} onClick={()=>update({ template: t.id as ResumeTemplateId })}
-              className={`p-3 rounded-xl border text-left transition-all ${data.template===t.id ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 ring-1 ring-primary-500' : 'border-surface-200 dark:border-night-600 hover:border-surface-300 bg-white dark:bg-night-850'}`}>
-              <p className={`text-xs font-bold ${data.template===t.id ? 'text-primary-700 dark:text-primary-300' : 'text-surface-900 dark:text-night-50'}`}>{t.label}</p>
+            <button key={t.id} onClick={()=>update({ template: t.id as ResumeTemplateId, customConfig: t.id==='custom' ? (data.customConfig || DEFAULT_CUSTOM_CONFIG) : data.customConfig })}
+              className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden ${data.template===t.id ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 ring-1 ring-primary-500' : t.id==='custom' ? 'border-violet-300 dark:border-violet-600 bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-500/10 dark:to-indigo-500/10 hover:border-violet-400' : 'border-surface-200 dark:border-night-600 hover:border-surface-300 bg-white dark:bg-night-850'}`}>
+              {t.id==='custom' && data.template!=='custom' && <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-violet-600 text-white text-[8px] font-bold tracking-widest uppercase">★ Recommended</span>}
+              {t.id==='custom' && data.template==='custom' && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+              <p className={`text-xs font-bold ${data.template===t.id ? 'text-primary-700 dark:text-primary-300' : t.id==='custom' ? 'text-violet-700 dark:text-violet-300' : 'text-surface-900 dark:text-night-50'}`}>{t.label}</p>
               <p className="text-[10px] text-surface-500 dark:text-night-300 mt-0.5 leading-tight">{t.desc}</p>
             </button>
           ))}
         </div>
-        <p className="text-[11px] text-surface-500 dark:text-night-400 mt-2">Tip: <b>Source Sans — Split</b> is pixel-match of Overleaf PDF (0.5in, hairlines 0.4pt, tabular skills). Use <code className="px-1 py-0.5 bg-surface-100 dark:bg-night-700 rounded">Languages: Python, JS</code> for categorized table.</p>
+        <p className="text-[11px] text-surface-500 dark:text-night-400 mt-2">Tip: <b>Custom ★</b> is fully editable — drag sections, change colors/fonts, hide/show, and <b>click any text in preview to edit inline</b>. Upload auto-switches to Custom. Use <code className="px-1 py-0.5 bg-surface-100 dark:bg-night-700 rounded">Languages: Python, JS</code> for categorized table.</p>
       </div>
+
+      {/* Custom Studio — only when custom template */}
+      {data.template === 'custom' && (
+        <div className="bg-gradient-to-br from-violet-600 via-indigo-600 to-primary-600 rounded-2xl p-[1px] shadow-e2">
+          <div className="bg-white dark:bg-night-800 rounded-[15px] p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold tracking-widest uppercase text-violet-700 dark:text-violet-300 flex items-center gap-2"><Palette size={12}/> Custom Studio — change anything</p>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-[10px] font-bold tracking-widest uppercase text-emerald-700 dark:text-emerald-300">Live • click text in preview to edit</span>
+            </div>
+
+            {/* Accent */}
+            <div>
+              <p className="text-xs font-semibold text-surface-700 dark:text-night-200 mb-1.5 flex items-center gap-1.5"><Palette size={12}/> Accent Color</p>
+              <div className="flex flex-wrap gap-2">
+                {CUSTOM_ACCENT_COLORS.map(c=>(
+                  <button key={c} onClick={()=>updateCustom({ accentColor: c })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${cfg.accentColor===c ? 'border-surface-900 dark:border-white scale-110 ring-2 ring-offset-2 ring-primary-500' : 'border-white dark:border-night-700 shadow-sm hover:scale-105'}`} style={{ background: c }} title={c}>
+                    {cfg.accentColor===c && <span className="w-2 h-2 rounded-full bg-white shadow" />}
+                  </button>
+                ))}
+                <input type="color" value={cfg.accentColor} onChange={e=>updateCustom({ accentColor: e.target.value })} className="w-8 h-8 rounded-full p-0 border-2 border-white dark:border-night-700 shadow-sm cursor-pointer" title="Custom color" />
+              </div>
+            </div>
+
+            {/* Fonts & Density */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs font-semibold text-surface-700 dark:text-night-200 mb-1.5 flex items-center gap-1.5"><Type size={12}/> Font</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {CUSTOM_FONTS.map(f=>(
+                    <button key={f.id} onClick={()=>updateCustom({ fontFamily: f.id })} className={`px-2.5 py-2 rounded-xl border text-xs font-semibold text-center ${cfg.fontFamily===f.id ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300' : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 hover:border-surface-300'}`}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-surface-700 dark:text-night-200 mb-1.5 flex items-center gap-1.5"><Layout size={12}/> Density</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['compact','comfortable','spacious'] as const).map(d=>(
+                    <button key={d} onClick={()=>updateCustom({ density: d })} className={`px-2 py-2 rounded-xl border text-xs font-semibold capitalize ${cfg.density===d ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 text-primary-700' : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850'}`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Background + Border + Heading */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <p className="text-xs font-medium text-surface-600 dark:text-night-300 mb-1">Background</p>
+                <div className="flex gap-1">
+                  {(['white','soft','gradient'] as const).map(b=>(
+                    <button key={b} onClick={()=>updateCustom({ background: b })} className={`flex-1 px-2 py-1.5 rounded-xl border text-[11px] font-medium capitalize ${cfg.background===b ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850'}`}>{b}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-surface-600 dark:text-night-300 mb-1">Border</p>
+                <div className="flex gap-1">
+                  {(['none','hairline','accent'] as const).map(b=>(
+                    <button key={b} onClick={()=>updateCustom({ borderStyle: b })} className={`flex-1 px-2 py-1.5 rounded-xl border text-[11px] font-medium capitalize ${cfg.borderStyle===b ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850'}`}>{b}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-surface-600 dark:text-night-300 mb-1">Headings</p>
+                <div className="flex gap-1">
+                  {(['uppercase','capitalize','normal'] as const).map(h=>(
+                    <button key={h} onClick={()=>updateCustom({ headingStyle: h })} className={`flex-1 px-1 py-1.5 rounded-xl border text-[10px] font-medium capitalize ${cfg.headingStyle===h ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850'}`}>{h.slice(0,4)}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Toggles */}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={()=>updateCustom({ showIcons: !cfg.showIcons })} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${cfg.showIcons ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-night-850 border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-300'}`}>
+                <Sparkles size={12}/> Icons {cfg.showIcons ? 'On' : 'Off'}
+              </button>
+              <button onClick={()=>updateCustom({ showDividers: !cfg.showDividers })} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${cfg.showDividers ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-night-850 border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-300'}`}>
+                <Layout size={12}/> Dividers {cfg.showDividers ? 'On' : 'Off'}
+              </button>
+            </div>
+
+            {/* Section Order — drag-drop via @dnd-kit */}
+            <div>
+              <p className="text-xs font-semibold text-surface-700 dark:text-night-200 mb-2 flex items-center gap-1.5"><Move size={12}/> Section Order — drag to reorder, hide with eye</p>
+              <SortableSectionOrder cfg={cfg} onReorder={(newOrder)=> updateCustom({ sectionOrder: newOrder })} onToggleHide={(id)=> toggleHide(id)} />
+              {cfg.hiddenSections.length>0 && (
+                <button onClick={()=>updateCustom({ hiddenSections: [] })} className="mt-2 text-xs font-medium text-primary-600 hover:text-primary-700">Show all hidden ({cfg.hiddenSections.length})</button>
+              )}
+              <p className="text-[11px] text-surface-500 dark:text-night-400 mt-2">Tip: Drag handle to reorder — order persists to saveResume & export. Hidden sections appear in restore bar at preview.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Section title="Personal Information" icon={<User size={16} />} defaultOpen>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

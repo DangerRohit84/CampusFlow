@@ -20,6 +20,7 @@ import FilterTabs from '../components/shared/FilterTabs'
 import EmptyState from '../components/shared/EmptyState'
 import PageHeader from '../components/shared/PageHeader'
 import { useFilteredItems } from '../hooks/useFilteredItems'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 type RoomType = 'department' | 'club' | 'study_group' | 'custom'
 
@@ -237,9 +238,18 @@ export default function RoomsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<DoorOpen size={18} />}
+        eyebrow="Campus · Rooms"
+        title={<>Study Rooms</>}
+        subtitle="Group channels, lockers and discovery — find your space."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Hallway head — emerald #059669 for rooms — one wash per section */}
-      <div className="paper overflow-hidden section--rooms">
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden section--rooms">
         <div className="h-[3px] bg-success-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -302,7 +312,7 @@ export default function RoomsPage() {
               <div
                 key={room.id}
                 onClick={() => navigate(`/rooms/${room.id}`)}
-                className="paper p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow group relative overflow-hidden card-accent--emerald"
+                className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow group relative overflow-hidden card-accent--emerald"
               >
                   {/* emerald live rail + dot */}
                   <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-500" />

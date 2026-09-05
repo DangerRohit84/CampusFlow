@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Plus, Sparkles, Trash2, Check, Clock, Calendar as CalIcon,
-  ChevronDown, Loader2, ListTodo, AlertCircle
-} from 'lucide-react'
+import { Plus, Sparkles, Trash2, Check, Clock, Calendar as CalIcon,
+  ChevronDown, Loader2, ListTodo, AlertCircle, CheckSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { taskAPI } from '../lib/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 type Task = {
   id: string
@@ -229,6 +228,15 @@ export default function TasksPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<CheckSquare size={18} />}
+        eyebrow="Study · Tasks"
+        title={<>Tasks</>}
+        subtitle="Track assignments and deadlines — personal, scoped and bento-organized."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

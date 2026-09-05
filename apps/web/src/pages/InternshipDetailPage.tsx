@@ -12,6 +12,8 @@ import {
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import type { Department } from '../types/api'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
 
 export default function InternshipDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -156,7 +158,8 @@ export default function InternshipDetailPage() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header — matching HackathonDetailPage style */}
       <div className="space-y-4">
         <button
@@ -263,7 +266,7 @@ export default function InternshipDetailPage() {
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Content */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="lg:col-span-2 space-y-6 max-w-[1280px] mx-auto">
               {/* About */}
               {internship.description && (
                 <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">

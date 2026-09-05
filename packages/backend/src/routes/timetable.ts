@@ -5,6 +5,7 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { config } from '../config'
 import multer from 'multer'
 import { getDayOfWeek } from '../utils/dateUtils'
+import { broadcastScheduleMutation } from '../services/socket'
 
 const router = Router()
 router.use(authenticate)
@@ -280,6 +281,7 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
       saved.push(schedule)
     }
 
+    try { broadcastScheduleMutation({ action: 'timetable:saved', userId: req.userId, count: saved.length }) } catch {}
     res.json({ saved: saved.length, schedules: saved })
   } catch (error) {
     console.error('Save timetable error:', error)
@@ -320,6 +322,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.delete('/clear', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.schedule.deleteMany({ where: { userId: req.userId } })
+    try { broadcastScheduleMutation({ action: 'timetable:cleared', userId: req.userId }) } catch {}
     res.json({ message: 'Timetable cleared' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to clear timetable' })

@@ -67,6 +67,7 @@ model User {
   createdAssignmentHubs AssignmentHub[]      @relation("AssignmentHubCreator")
   assignmentSubmissions AssignmentSubmission[]
   gradedSubmissions     AssignmentSubmission[] @relation("SubmissionGrader")
+  offlineVerifiedSubmissions AssignmentSubmission[] @relation("SubmissionOfflineVerifier")
 
   @@index([collegeId, role])
   @@index([collegeId])
@@ -314,6 +315,7 @@ model Department {
   users                User[]
   announcements        AnnouncementDepartment[]
   assignmentHubs AssignmentHub[]
+  rooms                Room[]
 
   @@unique([collegeId, name])
 }
@@ -431,6 +433,7 @@ model HackathonStaging {
   inviteOnly         Boolean   @default(false)
   status             String    @default("DRAFT")
   source             String?
+  trust              String    @default("MEDIUM")
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -442,6 +445,7 @@ model HackathonStaging {
   @@index([deadline])
   @@index([status])
   @@index([targetDepartments])
+  @@index([trust])
 }
 
 model InternshipStaging {
@@ -463,6 +467,7 @@ model InternshipStaging {
   eligibilityEnabled Boolean  @default(false)
   status             String   @default("ACTIVE")
   source             String?
+  trust              String   @default("MEDIUM")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -473,6 +478,7 @@ model InternshipStaging {
   @@index([creatorId])
   @@index([status])
   @@index([deadline])
+  @@index([trust])
 }
 
 model Internship {
@@ -615,16 +621,18 @@ model FormResponse {
 }
 
 model Room {
-  id          String   @id @default(uuid())
-  name        String
-  description String   @default("")
-  joinCode    String   @unique
-  teacherId   String
-  chatMode    String   @default("EVERYONE")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(uuid())
+  name         String
+  description  String    @default("")
+  joinCode     String    @unique
+  teacherId    String
+  departmentId String?
+  chatMode     String    @default("EVERYONE")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   teacher            User                    @relation(fields: [teacherId], references: [id])
+  department         Department?             @relation(fields: [departmentId], references: [id])
   members            RoomMember[]
   resources          Resource[]
   notifications      RoomNotification[]
@@ -632,10 +640,11 @@ model Room {
   messages           RoomMessage[]
   chatAllowedMembers RoomChatAllowedMember[]
   reads              RoomRead[]
-  assignmentHubs AssignmentHub[]
+  assignmentHubs     AssignmentHub[]
 
   @@index([teacherId])
   @@index([joinCode])
+  @@index([departmentId])
 }
 
 model RoomMember {
@@ -764,7 +773,7 @@ model PlatformSettings {
   id          String    @id @default(cuid())
   platform    String
   type        String
-  fetchLimit  Int       @default(0)
+  fetchLimit  Int       @default(10)
   lastFetchAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -940,18 +949,24 @@ model AssignmentSubmission {
   submittedAt  DateTime @default(now())
   gradedAt     DateTime?
   gradedBy     String?
+  // offline marking support — teacher can mark paper submissions via same UI
+  submissionChannel String          @default("ONLINE")
+  offlineNote       String?  @db.Text
+  offlineVerifiedBy String?
+  offlineVerifiedAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   assignment AssignmentHub @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   student    User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  grader     User?         @relation("SubmissionGrader", fields: [gradedBy], references: [id])
+  grader     User?         @relation("SubmissionGrader", fields: [gradedBy], references: [id], onDelete: SetNull)
+  offlineVerifier User?    @relation("SubmissionOfflineVerifier", fields: [offlineVerifiedBy], references: [id], onDelete: SetNull)
 
   @@unique([assignmentId, studentId])
   @@index([assignmentId])
   @@index([studentId])
-  @@index([assignmentId, studentId])
   @@index([status])
+  @@index([submissionChannel])
 }
 
 model AiProvider {

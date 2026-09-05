@@ -3,7 +3,7 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
-import { emitToUser } from '../services/socket'
+import { emitToUser, broadcastContestMutation, broadcastCodingProfileMutation } from '../services/socket'
 import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
 
 const router = Router()
@@ -17,6 +17,13 @@ const syncThrottle = new Map<string, number>()
 // Github throttle for calendar fetches — per IP or per user
 const githubThrottle = new Map<string, number>()
 const GITHUB_THROTTLE_MS = 15 * 1000 // 15s per user/IP
+
+// Periodic cleanup to prevent unbounded memory growth (every 10 min evict expired entries)
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of syncThrottle.entries()) if (now - v > SYNC_THROTTLE_MS) syncThrottle.delete(k)
+  for (const [k, v] of githubThrottle.entries()) if (now - v > GITHUB_THROTTLE_MS * 4) githubThrottle.delete(k)
+}, 10 * 60 * 1000).unref?.()
 
 // GET /coding-profile — get own profile
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
@@ -124,6 +131,20 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
     const handles: Record<string, string | null> = {}
     for (const [k, v] of Object.entries(raw)) handles[k] = typeof v === 'string' && v.trim() ? v.trim() : null
 
+    // Handle validation: length + allowed chars (matches platformFetchers sanitization)
+    const HANDLE_RE = /^[a-zA-Z0-9._-]+$/
+    for (const [k, v] of Object.entries(handles)) {
+      if (v === null) continue
+      if (v.length > 50) {
+        res.status(400).json({ error: `${k} handle too long (max 50 characters)` })
+        return
+      }
+      if (!HANDLE_RE.test(v)) {
+        res.status(400).json({ error: `${k} handle contains invalid characters (allowed: letters, numbers, ., _, -)` })
+        return
+      }
+    }
+
     const existing = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
     let cleanedStats: any[] | undefined
 
@@ -170,6 +191,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
         githubUsername,
       },
     })
+    try { broadcastCodingProfileMutation({ userId: req.userId, action: 'handles:updated' }) } catch {}
     res.json(profile)
   } catch (error) {
     console.error('Update coding profile error:', error)
@@ -235,6 +257,8 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
             platforms: result.platforms,
             completedAt: new Date().toISOString(),
           })
+          broadcastContestMutation({ userId, action: 'participations:synced', synced: result.synced })
+          broadcastCodingProfileMutation({ userId, action: 'sync:completed' })
         } catch { /* socket.io not initialized — push is best-effort */ }
       })
       .catch((err) => console.error(`Background coding-profile sync failed for ${userId}:`, err))
@@ -244,48 +268,76 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /coding-profile/participations — get own participation history
+// GET /coding-profile/participations — get own participation history (paginated)
 router.get('/participations', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || '100'), 10) || 100))
+    const platform = req.query.platform ? String(req.query.platform).toLowerCase() : null
+    const where: any = { userId: req.userId! }
+    if (platform) where.platform = platform
     const participations = await prisma.contestParticipation.findMany({
-      where: { userId: req.userId! },
-      orderBy: { participatedAt: 'desc' },
+      where,
+      orderBy: [{ participatedAt: 'desc' }, { syncedAt: 'desc' }],
+      skip: (page - 1) * limit,
+      take: limit,
     })
+    // Add pagination headers for clients that paginate
+    const total = await prisma.contestParticipation.count({ where })
+    res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
     res.json(participations)
+    // Note: total available via count if client needs; keeping response as array for backward compat
+    void total
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch participations' })
   }
 })
 
-// GET /coding-profile/leaderboard — overall leaderboard
+// GET /coding-profile/leaderboard — overall leaderboard (college-scoped, paginated)
 router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { platform, departmentId, year } = req.query
+    const { platform, departmentId, year } = req.query as Record<string, string | undefined>
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const limitParam = parseInt(String(req.query.limit || '50'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(1, limitParam)) : 50
+    const requester = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!requester) { res.status(404).json({ error: 'User not found' }); return }
 
+    // Build DB-level filters to avoid loading all rows into memory
     const where: any = {}
-    if (platform) where.platform = String(platform)
+    if (platform && platform !== 'all') where.platform = String(platform).toLowerCase()
+    // College scoping: only same college unless SUPER_ADMIN
+    const collegeFilter: any = {}
+    if (requester.role !== 'SUPER_ADMIN' && requester.collegeId) {
+      collegeFilter.collegeId = requester.collegeId
+    }
+    // Department / year filters are on user relation — push to DB via relation filter
+    const userFilter: any = { ...collegeFilter }
+    if (departmentId && departmentId !== 'all') userFilter.departmentId = departmentId
+    if (year && year !== 'all') {
+      const y = parseInt(year, 10)
+      if (Number.isFinite(y)) userFilter.incomingYear = y
+    }
+    if (Object.keys(userFilter).length) where.user = userFilter
 
-    const userWhere: any = {}
-    if (departmentId) userWhere.departmentId = departmentId as string
-    if (year) userWhere.incomingYear = parseInt(year as string)
-
+    // Only fetch needed fields — limit to last 90 days? but keep all for ranking accuracy
+    // Add pagination at DB level would require aggregation. For now fetch filtered set but with pagination after aggregation.
     const participations = await prisma.contestParticipation.findMany({
       where,
       include: { user: { include: { department: true } } },
+      orderBy: { participatedAt: 'desc' },
     })
 
     const userStats = new Map<string, {
       userId: string; name: string; department: string; avatar: string | null
-      totalContests: number; avgRank: number; bestRating: number
+      totalContests: number; ranks: number[]; bestRating: number
     }>()
 
     for (const p of participations) {
-      if (departmentId && p.user.departmentId !== departmentId) continue
-      if (year && p.user.incomingYear !== parseInt(year as string)) continue
-
       const existing = userStats.get(p.userId)
       if (existing) {
         existing.totalContests++
+        if (p.rank) existing.ranks.push(p.rank)
         if (p.rating && p.rating > existing.bestRating) existing.bestRating = p.rating
       } else {
         userStats.set(p.userId, {
@@ -294,17 +346,38 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
           department: p.user.department?.name || '',
           avatar: p.user.avatar,
           totalContests: 1,
-          avgRank: p.rank || 0,
+          ranks: p.rank ? [p.rank] : [],
           bestRating: p.rating || 0,
         })
       }
     }
 
-    const leaderboard = Array.from(userStats.values())
-      .sort((a, b) => b.totalContests - a.totalContests || b.bestRating - a.bestRating)
+    const leaderboardRaw = Array.from(userStats.values()).map(v => ({
+      userId: v.userId,
+      name: v.name,
+      department: v.department,
+      avatar: v.avatar,
+      totalContests: v.totalContests,
+      avgRank: v.ranks.length ? Math.round(v.ranks.reduce((a, b) => a + b, 0) / v.ranks.length) : 0,
+      bestRating: v.bestRating,
+    })).sort((a, b) => b.totalContests - a.totalContests || b.bestRating - a.bestRating)
 
-    res.json(leaderboard)
+    // Server-side pagination after aggregation
+    const total = leaderboardRaw.length
+    const pages = Math.ceil(total / limit)
+    const start = (page - 1) * limit
+    const paged = leaderboardRaw.slice(start, start + limit)
+
+    res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+    // Backward compat: if client didn't request pagination, return array directly; else return paginated object
+    const wantsPaged = req.query.page != null || req.query.limit != null
+    if (wantsPaged) {
+      res.json({ data: paged, pagination: { page, limit, total, pages } })
+    } else {
+      res.json(paged)
+    }
   } catch (error) {
+    console.error('Leaderboard error:', error)
     res.status(500).json({ error: 'Failed to fetch leaderboard' })
   }
 })
@@ -321,12 +394,18 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
       orderBy: { rank: 'asc' },
     })
 
-    // Fallback: if no results via contestId, try matching by platform + contestName or URL
+    // Fallback: if no results via contestId, try matching by platform + contestName or URL (college-scoped)
     if (participations.length === 0) {
       const contest = await prisma.codingContest.findUnique({ where: { id: contestId } })
       if (contest) {
+        const requester = await prisma.user.findUnique({ where: { id: req.userId } })
+        const platformWhere: any = { platform: contest.platform.toLowerCase() }
+        // College scoping for fallback
+        if (requester?.role !== 'SUPER_ADMIN' && requester?.collegeId) {
+          platformWhere.user = { collegeId: requester.collegeId }
+        }
         const allForPlatform = await prisma.contestParticipation.findMany({
-          where: { platform: contest.platform.toLowerCase() },
+          where: platformWhere,
           include: { user: { include: { department: true } } },
           orderBy: { rank: 'asc' },
         })
@@ -334,14 +413,15 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
         const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()
         const cTitle = normalize(contest.title)
         const cUrl = normUrl(contest.url)
-        participations = allForPlatform.filter((p) => {
-          // Match by title
+        // Rank exact matches first, then includes, to avoid false positives from substring
+        const exact: any[] = []
+        const fuzzy: any[] = []
+        for (const p of allForPlatform) {
           const pName = normalize(p.contestName)
-          if (pName === cTitle || pName.includes(cTitle) || cTitle.includes(pName)) return true
-          // Match by URL (most reliable)
-          if (p.contestUrl && normUrl(p.contestUrl) === cUrl) return true
-          return false
-        })
+          if (pName === cTitle || (p.contestUrl && normUrl(p.contestUrl) === cUrl)) exact.push(p)
+          else if (pName.includes(cTitle) || cTitle.includes(pName)) fuzzy.push(p)
+        }
+        participations = exact.length ? exact : fuzzy
       }
     }
 

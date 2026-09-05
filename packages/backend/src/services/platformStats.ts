@@ -22,9 +22,44 @@ export interface PlatformStat {
 }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+const FETCH_TIMEOUT_MS = 5000
+const CACHE_TTL_MS = 60_000
+const HANDLE_RE = /^[a-zA-Z0-9._-]+$/
+function sanitizeHandleStat(handle: string): string | null {
+  const s = String(handle || '').trim()
+  if (!s || s.length > 50) return null
+  if (!HANDLE_RE.test(s)) return null
+  if (/[\s<>]/.test(s)) return null
+  return s
+}
 
-async function leetcodeStats(handle: string): Promise<PlatformStat> {
+// Coalescing cache for stats — same handle within TTL reuses promise, avoids hammering APIs on bulk sync
+const statsCache = new Map<string, { promise: Promise<PlatformStat>; expiry: number }>()
+function statsCacheKey(platform: string, handle: string): string {
+  return `stat:${platform}:${String(handle || '').trim().toLowerCase()}`
+}
+function getStatsCached(platform: string, handle: string): Promise<PlatformStat> | null {
+  const k = statsCacheKey(platform, handle)
+  const e = statsCache.get(k)
+  if (e && Date.now() < e.expiry) return e.promise
+  if (e) statsCache.delete(k)
+  return null
+}
+function setStatsCached(platform: string, handle: string, promise: Promise<PlatformStat>): void {
+  const k = statsCacheKey(platform, handle)
+  statsCache.set(k, { promise, expiry: Date.now() + CACHE_TTL_MS })
+  promise.finally(() => {
+    setTimeout(() => {
+      const cur = statsCache.get(k)
+      if (cur && cur.promise === promise && Date.now() >= cur.expiry) statsCache.delete(k)
+    }, CACHE_TTL_MS).unref?.()
+  })
+}
+
+async function _leetcodeStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'leetcode', handle, valid: false }
+  const sanitized = sanitizeHandleStat(handle)
+  if (!sanitized || !HANDLE_RE.test(sanitized)) return stat
   try {
     const resp = await fetch('https://leetcode.com/graphql', {
       method: 'POST',
@@ -40,8 +75,9 @@ async function leetcodeStats(handle: string): Promise<PlatformStat> {
             }
           }
         }`,
-        variables: { username: handle },
+        variables: { username: sanitized },
       }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
     const data: any = await resp.json()
     const user = data?.data?.matchedUser
@@ -64,11 +100,22 @@ async function leetcodeStats(handle: string): Promise<PlatformStat> {
   }
   return stat
 }
+async function leetcodeStats(handle: string): Promise<PlatformStat> {
+  const cached = getStatsCached('leetcode', handle)
+  if (cached) return cached
+  const p = _leetcodeStats(handle)
+  setStatsCached('leetcode', handle, p)
+  return p
+}
 
-async function codeforcesStats(handle: string): Promise<PlatformStat> {
+async function _codeforcesStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'codeforces', handle, valid: false }
+  const sanitized = sanitizeHandleStat(handle)
+  if (!sanitized || !HANDLE_RE.test(sanitized)) return stat
   try {
-    const infoResp = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(handle)}&checkHistoricHandles=false&lang=en`)
+    const infoResp = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(sanitized)}&checkHistoricHandles=false&lang=en`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    // 404 or invalid handle -> not valid, don't throw
+    if (!infoResp.ok) return stat
     const infoData: any = await infoResp.json()
     if (infoData.status !== 'OK' || !infoData.result?.length) return stat
     const u = infoData.result[0]
@@ -80,31 +127,45 @@ async function codeforcesStats(handle: string): Promise<PlatformStat> {
     stat.maxRankTitle = u.maxRank ? String(u.maxRank).replace(/^\w/, (c: string) => c.toUpperCase()) : null
     stat.globalRank = u.rank != null && u.maxRating != null ? null : null
 
-    // Count unique solved problems via user.status
-    const statusResp = await fetch(`https://codeforces.com/api/user.status?handle=${encodeURIComponent(handle)}&from=1&count=10000`)
-    const statusData: any = await statusResp.json()
-    if (statusData.status === 'OK') {
-      const solved = new Set<string>()
-      let contests = new Set<number>()
-      for (const sub of statusData.result || []) {
-        if (sub.verdict === 'OK') {
-          solved.add(`${sub.problem.contestId}-${sub.problem.index}`)
-          if (sub.contestId) contests.add(sub.contestId)
+    // Count unique solved problems via user.status — isolated, timeout guarded
+    try {
+      const statusResp = await fetch(`https://codeforces.com/api/user.status?handle=${encodeURIComponent(sanitized)}&from=1&count=10000`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+      if (!statusResp.ok) return stat
+      const statusData: any = await statusResp.json()
+      if (statusData.status === 'OK') {
+        const solved = new Set<string>()
+        let contests = new Set<number>()
+        for (const sub of statusData.result || []) {
+          if (sub.verdict === 'OK') {
+            solved.add(`${sub.problem.contestId}-${sub.problem.index}`)
+            if (sub.contestId) contests.add(sub.contestId)
+          }
         }
+        stat.problemsSolved = solved.size
+        stat.contestCount = contests.size
       }
-      stat.problemsSolved = solved.size
-      stat.contestCount = contests.size
+    } catch {
+      // status fetch is best-effort; keep stat without solved count
     }
   } catch (err) {
     console.error('Codeforces stats error:', err)
   }
   return stat
 }
+async function codeforcesStats(handle: string): Promise<PlatformStat> {
+  const cached = getStatsCached('codeforces', handle)
+  if (cached) return cached
+  const p = _codeforcesStats(handle)
+  setStatsCached('codeforces', handle, p)
+  return p
+}
 
-async function codechefStats(handle: string): Promise<PlatformStat> {
+async function _codechefStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'codechef', handle, valid: false }
+  const sanitized = sanitizeHandleStat(handle)
+  if (!sanitized) return stat
   try {
-    const resp = await fetch(`https://www.codechef.com/users/${handle}`, { headers: { 'User-Agent': UA } })
+    const resp = await fetch(`https://www.codechef.com/users/${encodeURIComponent(sanitized)}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!resp.ok) return stat
     const html = await resp.text()
 
@@ -145,11 +206,20 @@ async function codechefStats(handle: string): Promise<PlatformStat> {
   }
   return stat
 }
+async function codechefStats(handle: string): Promise<PlatformStat> {
+  const cached = getStatsCached('codechef', handle)
+  if (cached) return cached
+  const p = _codechefStats(handle)
+  setStatsCached('codechef', handle, p)
+  return p
+}
 
-async function hackerrankStats(handle: string): Promise<PlatformStat> {
+async function _hackerrankStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'hackerrank', handle, valid: false }
+  const sanitized = sanitizeHandleStat(handle)
+  if (!sanitized) return stat
   try {
-    const resp = await fetch(`https://www.hackerrank.com/profile/${handle}`, { headers: { 'User-Agent': UA } })
+    const resp = await fetch(`https://www.hackerrank.com/profile/${encodeURIComponent(sanitized)}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!resp.ok) return stat
     const html = await resp.text()
 
@@ -181,11 +251,20 @@ async function hackerrankStats(handle: string): Promise<PlatformStat> {
   }
   return stat
 }
+async function hackerrankStats(handle: string): Promise<PlatformStat> {
+  const cached = getStatsCached('hackerrank', handle)
+  if (cached) return cached
+  const p = _hackerrankStats(handle)
+  setStatsCached('hackerrank', handle, p)
+  return p
+}
 
-async function gfgStats(handle: string): Promise<PlatformStat> {
+async function _gfgStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'gfg', handle, valid: false }
+  const sanitized = sanitizeHandleStat(handle)
+  if (!sanitized) return stat
   try {
-    const resp = await fetch(`https://www.geeksforgeeks.org/user/${handle}/`, { headers: { 'User-Agent': UA } })
+    const resp = await fetch(`https://www.geeksforgeeks.org/user/${encodeURIComponent(sanitized)}/`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!resp.ok) return stat
     const html = await resp.text()
 
@@ -208,6 +287,13 @@ async function gfgStats(handle: string): Promise<PlatformStat> {
     console.error('GFG stats error:', err)
   }
   return stat
+}
+async function gfgStats(handle: string): Promise<PlatformStat> {
+  const cached = getStatsCached('gfg', handle)
+  if (cached) return cached
+  const p = _gfgStats(handle)
+  setStatsCached('gfg', handle, p)
+  return p
 }
 
 export async function fetchAllPlatformStats(profile: {

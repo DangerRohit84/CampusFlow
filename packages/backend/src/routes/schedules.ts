@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { broadcastScheduleMutation } from '../services/socket'
 
 const router = Router()
 router.use(authenticate)
@@ -52,6 +53,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const schedule = await prisma.schedule.create({
       data: { ...body, userId: req.userId! },
     })
+    try { broadcastScheduleMutation({ action: 'created', scheduleId: schedule.id, userId: req.userId }) } catch {}
     res.status(201).json(schedule)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -70,6 +72,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: req.params.id as string, userId: req.userId },
       data: body,
     })
+    try { broadcastScheduleMutation({ action: 'updated', scheduleId: schedule.id, userId: req.userId }) } catch {}
     res.json(schedule)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -86,6 +89,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await prisma.schedule.delete({
       where: { id: req.params.id as string, userId: req.userId },
     })
+    try { broadcastScheduleMutation({ action: 'deleted', scheduleId: req.params.id as string, userId: req.userId }) } catch {}
     res.json({ message: 'Schedule deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete schedule' })

@@ -4,12 +4,13 @@ import { motion } from 'framer-motion'
 import {
   AtSign, MapPin, Calendar, Trophy, Briefcase, Code2, Flame,
   Award, BarChart3, ExternalLink, ArrowLeft, Copy, Check, Share2,
-  Loader2, Star, Target, Medal, GraduationCap, Building2, Users, TrendingUp, Layers, Github
+  Loader2, Star, Target, Medal, GraduationCap, Building2, Users, TrendingUp, Layers, Github, User
 } from 'lucide-react'
 import { publicProfileAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import { PlatformLogo } from '../components/PlatformLogos'
 import toast from 'react-hot-toast'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 const GREEN_LEVELS = [
   { bg: '#EBF5EC', darkBg: '#161B22' },
@@ -93,7 +94,7 @@ export default function PublicProfilePage() {
   if (err || !data) return (
     <div className="max-w-3xl mx-auto px-4 py-12">
       <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-surface-600 hover:text-surface-900 dark:text-night-50 mb-6"><ArrowLeft size={16}/> Back</button>
-      <div className="paper p-8 text-center">
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm p-8 text-center">
         <AtSign size={32} className="mx-auto text-surface-300" />
         <h2 className="mt-3 text-xl font-bold text-surface-900 dark:text-night-50">@{username} not found</h2>
         <p className="text-sm text-surface-500 dark:text-night-400 mt-1">{err || 'This profile does not exist.'}</p>
@@ -110,6 +111,15 @@ export default function PublicProfilePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      <PremiumHero
+        icon={<User size={18} />}
+        eyebrow="Campus · Profile"
+        title={<>Profile</>}
+        subtitle="Your public presence — handle, bio and achievements."
+      />
+      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* top bar */}
       <div className="flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-sm font-medium text-surface-700 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-night-700">
