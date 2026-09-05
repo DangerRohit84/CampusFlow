@@ -14,3 +14,10 @@ uploads/
 *.tsbuildinfo
 *.tmp
 coverage/
+
+# Temp verification scripts (cleanup 2026-09-05)
+packages/backend/test-sync*
+packages/backend/verify-*.js
+tools/run-resume*
+tools/qa-*.js
+
