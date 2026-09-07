@@ -21,7 +21,7 @@ import EmptyState from '../components/shared/EmptyState'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 type HackathonStatus = 'upcoming' | 'ongoing' | 'completed'
 
@@ -292,33 +292,20 @@ export default function HackathonsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading hackathons..." />
   }
 
   return (
     <div className="space-y-6 section--hackathons max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<Trophy size={18} />}
-        eyebrow="Discover · Hackathons"
-        title={<>Hackathons</>}
-        subtitle="Discover hacking events — upcoming, ongoing and team-ups."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Notice Board Head — brass #B5A268 5% wash + 1px #B5A268/15% — one wash per section */}
+      {/* Notice Board Head — hackathons */}
       <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden !border-brass-500/15 dark:!border-brass-500/20">
         <div className="h-[3px] bg-brass-500" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brass-500 flex items-center justify-center border border-brass-500/20"><Trophy size={18} className="text-slate-900" /></div>
+            <div className="w-10 h-10 rounded-xl bg-brass-500 flex items-center justify-center border border-brass-500/20"><Trophy size={18} className="text-slate-900 dark:text-white" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Notice Board — Hackathons</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Brass wash 5% · #B5A268 + 1px border 15% · slate #1E293B text</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Discover and join hackathons</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -329,7 +316,7 @@ export default function HackathonsPage() {
                 placeholder="Search notices…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15"
+                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 dark:text-zinc-500"
               />
             </div>
             {isTeacher && (
@@ -431,7 +418,7 @@ export default function HackathonsPage() {
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
                     <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
-                    <span className="w-8 h-8 rounded-full bg-amber-500 text-zinc-900 inline-flex items-center justify-center"><ChevronRight size={14} /></span>
+                    <span className="w-8 h-8 rounded-full bg-amber-500 text-zinc-900 inline-flex items-center justify-center dark:text-white"><ChevronRight size={14} /></span>
                   </div>
               </div>
             )

@@ -84,7 +84,7 @@ export default function EligibilityPopup({
                     <label key={room.id} className="flex items-center gap-3 p-2.5 rounded-xl border hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 cursor-pointer transition-all">
                       <input type="checkbox" checked={selectedRoomIds.includes(room.id)} onChange={() => toggleRoom(room.id)} className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500" />
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-surface-800">{room.name}</p>
+                        <p className="text-sm font-medium text-surface-800 dark:text-white">{room.name}</p>
                         <p className="text-xs text-surface-400 dark:text-night-400">{room._count?.members || room.memberCount || 0} members</p>
                       </div>
                     </label>

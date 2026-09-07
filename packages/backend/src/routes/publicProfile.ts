@@ -236,6 +236,7 @@ router.get('/:username', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        portfolioUrl: (user as any).portfolioUrl || null,
         college: (user as any).college || null,
         department: (user as any).department || null,
         collegeName: user.collegeName,

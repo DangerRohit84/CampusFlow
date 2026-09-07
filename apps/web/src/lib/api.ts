@@ -68,10 +68,10 @@ api.interceptors.request.use((config) => {
         ;(config.headers as any)['x-college-id'] = overrideId
       } catch {}
       // Exclude global super admin endpoints that must remain unscoped unless explicitly requested
-      const excludeExact = ['/admin/super/dashboard', '/admin/colleges', '/auth/', '/colleges/public', '/colleges/register']
+      const excludeExact = ['/admin/super/dashboard', '/admin/colleges', '/auth/', '/colleges/public', '/colleges/list', '/colleges/register']
       const isExcluded = excludeExact.some((p) => url.includes(p))
       // Whitelist tenant endpoints that support ?collegeId scoping
-      const allowList = ['/user/dashboard', '/rooms', '/assignments/hub', '/forms', '/hackathons', '/internships', '/contests', '/timetable', '/tasks', '/announcements', '/departments', '/admin/analytics', '/admin/users', '/admin/hackathons', '/admin/forms', '/schedules', '/grades', '/attendance', '/coding-profile']
+      const allowList = ['/user/dashboard', '/rooms', '/assignments/hub', '/forms', '/hackathons', '/internships', '/contests', '/timetable', '/tasks', '/announcements', '/departments', '/admin/analytics', '/admin/users', '/admin/hackathons', '/admin/forms', '/schedules', '/grades', '/attendance', '/coding-profile', '/reports']
       const isAllowed = allowList.some((p) => url.includes(p))
       if (!isExcluded && isAllowed) {
         // Only inject if not already present
@@ -154,6 +154,8 @@ export const authAPI = {
   register: (data: { email: string; name: string; password: string; username?: string; departmentId?: string; department?: string; role?: string; collegeId?: string; college?: string; empNumber?: string; studentId?: string; incomingYear?: number }) =>
     api.post('/auth/register', data).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    api.post('/auth/change-password', data).then((r) => r.data),
 }
 
 // Dashboard
@@ -301,13 +303,17 @@ function unwrapPaginated<T>(body: any): T[] {
   return []
 }
 export const hackathonAPI = {
-  getAll: (params?: { page?: number; limit?: number; search?: string; status?: string; signal?: AbortSignal }) =>
-    api.get('/hackathons', { params, signal: params?.signal }).then((r) => {
+  getAll: (params?: { page?: number; limit?: number; search?: string; status?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    // Dashboard/calendar need more than default 20 — ensure large limit when not paginating explicitly
+    const effective: any = { limit: 50, ...(query || {}) }
+    return api.get('/hackathons', { params: effective, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return b
       if (b?.data) return b.data
       return b
-    }),
+    })
+  },
   getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
     api.get('/hackathons', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
       const b = r.data
@@ -360,13 +366,16 @@ export const hackathonAPI = {
 
 // Internships
 export const internshipAPI = {
-  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
-    api.get('/internships', { params, signal: params?.signal }).then((r) => {
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    const effective: any = { limit: 50, ...(query || {}) }
+    return api.get('/internships', { params: effective, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return b
       if (b?.data) return b.data
       return b
-    }),
+    })
+  },
   getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
     api.get('/internships', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
       const b = r.data
@@ -438,13 +447,16 @@ export const codingContestAPI = {
 
 // Forms
 export const formAPI = {
-  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
-    api.get('/forms', { params, signal: params?.signal }).then((r) => {
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    const effective: any = { limit: 50, ...(query || {}) }
+    return api.get('/forms', { params: effective, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return b
       if (b?.data) return b.data
       return b
-    }),
+    })
+  },
   getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
     api.get('/forms', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
       const b = r.data
@@ -473,14 +485,17 @@ export const formAPI = {
 
 // Rooms
 export const roomAPI = {
-  // Room CRUD (supports abort + pagination)
-  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) =>
-    api.get('/rooms', { params, signal: params?.signal }).then((r) => {
+  // Room CRUD (supports abort + pagination) — default 50 for dashboards/sidebars that need full list
+  getAll: (params?: { page?: number; limit?: number; search?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    const effective: any = { limit: 50, ...(query || {}) }
+    return api.get('/rooms', { params: effective, signal }).then((r) => {
       const b = r.data
       if (Array.isArray(b)) return b
       if (b?.data) return b.data
       return b
-    }),
+    })
+  },
   getPaged: (page = 1, limit = 20, search?: string, signal?: AbortSignal) =>
     api.get('/rooms', { params: { page, limit, ...(search ? { search } : {}) }, signal }).then((r) => {
       const b = r.data
@@ -624,9 +639,17 @@ export const superAdminAPI = {
     api.get('/admin/super/dashboard', { params }).then((r) => r.data),
 }
 
-// College
+// College — public list (backend: GET /api/colleges/list, alias /public for backward compat)
 export const collegeAPI = {
-  getPublicList: () => axios.get(`${API_URL}/colleges/public`).then((r) => r.data),
+  getPublicList: () => axios.get(`${API_URL}/colleges/list`).then((r) => r.data).catch(async (e) => {
+    // Fallback to legacy /public alias if /list 404 (rolling deploy parity)
+    if (e?.response?.status === 404) {
+      const res = await axios.get(`${API_URL}/colleges/public`).then((r) => r.data)
+      return res
+    }
+    throw e
+  }),
+  getDepartmentsPublic: (collegeId: string) => axios.get(`${API_URL}/colleges/${collegeId}/departments`).then((r) => r.data) as Promise<Department[]>,
 }
 
 // User
@@ -868,6 +891,17 @@ export const resumeAPI = {
   convertTextToLatex: (rawText: string) =>
     api.post('/resume/convert-to-latex', { rawText }, { headers: { ...groqHeader() } as any, timeout: 90000 }).then((r) => r.data as { latex: string; rawText: string; data: any; usedAI: boolean; method: string; hasGroq?: boolean }),
   convertHealth: () => api.get('/resume/convert-to-latex/health', { headers: { ...groqHeader() } as any }).then((r) => r.data),
+}
+
+// Reports — college vs website scope, bug/design/etc categories
+export const reportAPI = {
+  create: (data: { scope: string; issueType: string; collegeId?: string | null; title: string; description: string; priority: string; attachmentUrl?: string | null }) =>
+    api.post('/reports', data).then(r => r.data),
+  list: (params?: { scope?: string; status?: string; issueType?: string; priority?: string; collegeId?: string; search?: string; page?: number; limit?: number }) =>
+    api.get('/reports', { params }).then(r => r.data),
+  getOne: (id: string) => api.get(`/reports/${id}`).then(r => r.data),
+  updateStatus: (id: string, status: string) => api.patch(`/reports/${id}/status`, { status }).then(r => r.data),
+  delete: (id: string) => api.delete(`/reports/${id}`).then(r => r.data),
 }
 
 export function waitForCodingSync(

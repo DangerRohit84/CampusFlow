@@ -74,3 +74,29 @@ export function buildPortyPublicUrl(slug: string): string {
   const clean = slug.replace(/^\/+/, '').replace(/^p\/+/, '').split('?')[0].split('#')[0].trim()
   return `${PORTY_BASE}/p/${clean}`
 }
+
+// ── Generic portfolio URL helpers — allow ANY website (https), not just Porty ──
+export function normalizePortfolioUrl(input: string): string | null {
+  const raw = String(input || '').trim()
+  if (!raw) return null
+  let candidate = raw
+  if (!/^https?:\/\//i.test(candidate)) candidate = 'https://' + candidate
+  try {
+    const u = new URL(candidate)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    if (!u.hostname.includes('.') && u.hostname !== 'localhost') return null
+    if (u.hostname.length < 3) return null
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+export function isValidPortfolioUrl(input: string): boolean {
+  return normalizePortfolioUrl(input) !== null
+}
+export function isPortyUrl(url: string): boolean {
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url)
+    return u.hostname.includes('porty-eight.vercel.app')
+  } catch { return url.includes('porty-eight.vercel.app') || url.includes('porty') }
+}

@@ -161,8 +161,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let where: any = buildHubListWhere(user as any, { search, scope, submissionMode, collegeId })
 
     if (user.role === 'STUDENT') {
-      const allHubs = await prisma.assignmentHub.findMany({ where, orderBy: { dueDate: 'asc' } })
-      const roomIds = (await prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } })).map(r => r.roomId)
+      // Optimized: fetch hubs + roomMembers in parallel, then batch submission queries to avoid N*2 connection burst (fixes P2024 pool timeout)
+      const [allHubs, roomMembers] = await Promise.all([
+        prisma.assignmentHub.findMany({ where, orderBy: { dueDate: 'asc' } }),
+        prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } }),
+      ])
+      const roomIds = roomMembers.map(r => r.roomId)
       const visible = allHubs.filter(h => {
         if (h.scope === 'ALL') return true
         if (h.scope === 'DEPARTMENT') return h.departmentId === user.departmentId
@@ -171,11 +175,30 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       })
       const total = visible.length
       const paged = visible.slice(skip, skip + limit)
-      const withCounts = await Promise.all(paged.map(async h => {
-        const submissions = await prisma.assignmentSubmission.count({ where: { assignmentId: h.id } })
-        const mySubmission = await prisma.assignmentSubmission.findUnique({ where: { assignmentId_studentId: { assignmentId: h.id, studentId: user.id } } })
-        return { ...h, submissionsCount: submissions, mySubmission: mySubmission ? filterForStudent(h, mySubmission) : null }
-      }))
+      if (paged.length === 0) {
+        res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30')
+        res.json({ data: [], pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+        return
+      }
+      // Batch: 2 queries instead of 2*N (e.g., 40 -> 2 for limit 20) to keep pool under connection_limit=20
+      const pagedIds = paged.map(h => h.id)
+      const [groupedCounts, mySubs] = await Promise.all([
+        prisma.assignmentSubmission.groupBy({
+          by: ['assignmentId'],
+          where: { assignmentId: { in: pagedIds } },
+          _count: { _all: true },
+        }).catch(() => [] as any[]),
+        prisma.assignmentSubmission.findMany({
+          where: { assignmentId: { in: pagedIds }, studentId: user.id },
+        }),
+      ])
+      const countMap = new Map<string, number>((groupedCounts as any[]).map((g: any) => [g.assignmentId, g._count?._all ?? 0]))
+      const myMap = new Map<string, any>(mySubs.map(s => [s.assignmentId, s]))
+      const withCounts = paged.map(h => {
+        const submissions = countMap.get(h.id) ?? 0
+        const raw = myMap.get(h.id) || null
+        return { ...h, submissionsCount: submissions, mySubmission: raw ? filterForStudent(h, raw) : null }
+      })
       res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30')
       res.json({ data: withCounts, pagination: { page, limit, total, pages: Math.ceil(total/limit) } })
       return

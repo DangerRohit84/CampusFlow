@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import type { Department } from '../types/api'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function FormDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -189,11 +190,7 @@ export default function FormDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading form..." />
   }
 
   if (!form) return null
@@ -205,7 +202,7 @@ export default function FormDetailPage() {
         icon={<ClipboardList size={18} />}
         eyebrow="Form · Detail"
         title={<>Form Detail</>}
-        subtitle="Responses, analytics and submissions — everything in one bento."
+        subtitle="Responses, analytics and submissions — everything in one place."
       />
       {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
       <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Plus, Search, FileText, Loader2 } from 'lucide-react'
+import { Plus, Search, FileText} from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { assignmentHubAPI } from '../lib/api'
@@ -16,9 +17,10 @@ import Modal from '../components/ui/Modal'
 import Pagination from '../components/shared/Pagination'
 import EmptyState from '../components/shared/EmptyState'
 import toast from 'react-hot-toast'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function AssignmentHubPage() {
+  const navigate = useNavigate()
   const user = useAuthStore(s=> s.user)
   const isTeacher = user?.role==='TEACHER' || user?.role==='COLLEGE_ADMIN' || user?.role==='SUPER_ADMIN'
   const [hubs, setHubs] = useState<any[]>([])
@@ -95,15 +97,6 @@ export default function AssignmentHubPage() {
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<FileText size={18} />}
-        eyebrow="Assignments · Manage"
-        title={<>Assignments</>}
-        subtitle="Manage and grade — bento views, scoped filters and bulk actions."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden section--assignments">
         <div className="h-[3px] bg-surface-200 dark:bg-zinc-700" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -111,7 +104,7 @@ export default function AssignmentHubPage() {
             <div className="w-10 h-10 rounded-xl bg-white border border-surface-200 dark:bg-zinc-900 dark:border-zinc-700 flex items-center justify-center"><FileText size={18} className="text-slate-700 dark:text-zinc-300" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Assignments</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400 mt-1">{isTeacher?'Manage and grade — neutral gray slips · slate #1E293B (rose only overdue)' :'Track and submit — gray slips · overdue turns rose'}</p>
+              <p className="text-xs text-surface-500 dark:text-night-400 mt-1">{isTeacher?'Manage and grade' :'Track and submit'}</p>
             </div>
           </div>
           {isTeacher && <Button size="sm" variant="secondary" onClick={()=>{setEditing(null); setModalOpen(true)}}><Plus size={16}/> New Assignment</Button>}
@@ -126,11 +119,9 @@ export default function AssignmentHubPage() {
 
       <div className="space-y-3">
         {loading ? (
-          <div className="flex items-center justify-center min-h-[45vh]">
-            <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-          </div>
+          <CenteredLoader />
         ) : filteredAssignments.length===0 ? <EmptyState icon={FileText} title="No assignments" description="No assignments match your filters" /> : filteredAssignments.map(h=> (
-          <AssignmentHubCard key={h.id} hub={h} onClick={()=> openDetail(h)} onEdit={isTeacher? (hub:any)=>{setEditing(hub); setModalOpen(true)}:undefined} onDelete={isTeacher? handleDelete:undefined} />
+          <AssignmentHubCard key={h.id} hub={h} onClick={()=> navigate(`/assignments/${h.id}`)} onEdit={isTeacher? (hub:any)=>{setEditing(hub); setModalOpen(true)}:undefined} onDelete={isTeacher? handleDelete:undefined} />
         ))}
       </div>
 
@@ -140,12 +131,10 @@ export default function AssignmentHubPage() {
 
       <Modal open={!!detail} onClose={()=> { setDetail(null); setDetailLoading(false) }} title={detail?.title||'Assignment'} size="lg">
         {detailLoading ? (
-          <div className="flex items-center justify-center min-h-[40vh]">
-            <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-          </div>
+          <CenteredLoader minHeight="min-h-[40vh]" />
         ) : detail ? (
           <div className="space-y-6">
-            <div><p className="text-sm text-surface-500 dark:text-night-400">{detail.courseId}</p><p className="text-sm mt-2 whitespace-pre-wrap">{detail.description}</p><p className="text-xs text-surface-400 mt-2">Due {new Date(detail.dueDate).toLocaleString()} • {detail.submissionMode} • {detail.scope}{detail.department?.name?` • ${detail.department.name}`:''}{detail.room?.name?` • ${detail.room.name}`:''}</p></div>
+            <div><p className="text-sm text-surface-500 dark:text-night-400">{detail.courseId}</p><p className="text-sm mt-2 whitespace-pre-wrap">{detail.description}</p><p className="text-xs text-surface-400 mt-2 dark:text-zinc-500">Due {new Date(detail.dueDate).toLocaleString()} • {detail.submissionMode} • {detail.scope}{detail.department?.name?` • ${detail.department.name}`:''}{detail.room?.name?` • ${detail.room.name}`:''}</p></div>
             {isTeacher ? (
               <>
                 <StatsPanel stats={stats} hub={detail} isTeacher={isTeacher} />

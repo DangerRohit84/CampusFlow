@@ -47,6 +47,8 @@ import AssignmentDetailPage from './pages/AssignmentDetailPage'
 import SuperAdminDashboardPage from './pages/SuperAdminDashboardPage'
 import SuperAdminCollegesPage from './pages/SuperAdminCollegesPage'
 import SuperAdminCollegeView from './pages/SuperAdminCollegeView'
+import ReportsPage from './pages/ReportsPage'
+import SuperAdminReportsPage from './pages/SuperAdminReportsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -133,16 +135,18 @@ export default function App() {
             <Route path="forms/:id" element={<FormDetailPage />} />
             <Route path="rooms" element={<RoomsRoute />} />
             <Route path="rooms/:id" element={<RoomDetailRoute />} />
+            <Route path="reports" element={<ReportsPage />} />
             <Route path="admin" element={<AdminPage />} />
             <Route path="superadmin" element={<SuperAdminGuard><SuperAdminDashboardPage /></SuperAdminGuard>} />
             <Route path="superadmin/colleges" element={<SuperAdminGuard><SuperAdminCollegesPage /></SuperAdminGuard>} />
             <Route path="superadmin/colleges/:collegeId" element={<SuperAdminGuard><SuperAdminCollegeView /></SuperAdminGuard>} />
+            <Route path="superadmin/reports" element={<SuperAdminGuard><SuperAdminReportsPage /></SuperAdminGuard>} />
             <Route path="admin/dashboard" element={<Navigate to="/superadmin" replace />} />
             <Route path="admin/register-college" element={<CollegeRegistrationPage />} />
             <Route path="admin/add-teachers" element={<AddTeacherPage />} />
             <Route path="admin/add-students" element={<AddStudentPage />} />
-            <Route path="admin/fetch" element={<FetchPage />} />
-            <Route path="admin/ai-manager" element={<AiManagerPage />} />
+            <Route path="admin/fetch" element={<SuperAdminGuard><FetchPage /></SuperAdminGuard>} />
+            <Route path="admin/ai-manager" element={<SuperAdminGuard><AiManagerPage /></SuperAdminGuard>} />
             <Route path="announcements" element={<AnnouncementsPage />} />
           </Route>
         </Routes>

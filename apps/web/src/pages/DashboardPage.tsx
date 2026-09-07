@@ -12,6 +12,7 @@ import { getSocket } from '../lib/socket'
 import { queryClient } from '../lib/queryClient'
 import { motion } from 'framer-motion'
 import { PremiumHero, GlassPanel, BentoGrid, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -88,41 +89,41 @@ export default function DashboardPage() {
     <div className="space-y-6 max-w-[1280px] mx-auto">
       <PremiumHero
         eyebrow={`Campus Flow · ${todayLabel}`}
-        icon={<Sparkles size={16} className="text-black" />}
+        icon={<Sparkles size={16} className="text-black dark:text-black" />}
         title={<>Good morning, <span className="text-primary-500">{firstName}</span></>}
-        subtitle="Here's your day on the board — periods, notices and opportunities in one bento."
+        subtitle="Here's your day on the board — periods, notices and opportunities in one place."
         actions={
           <>
-            <button onClick={()=>navigate('/announcements')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white text-black text-[13px] font-black hover:bg-zinc-100 transition-colors shadow-lg">
-              <Megaphone size={14} className="text-primary-600"/> Announcements
-              {unreadCount>0 && <span className="ml-1 min-w-[20px] h-5 px-1.5 bg-[#ff4b5c] text-white rounded-full text-xs font-black inline-flex items-center justify-center">{unreadCount>99?'99+':unreadCount}</span>}
+            <button onClick={()=>navigate('/announcements')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white dark:bg-white text-black dark:text-black text-[13px] font-black hover:bg-zinc-100 dark:hover:bg-zinc-100 transition-colors shadow-lg">
+              <Megaphone size={14} className="text-primary-600 dark:text-primary-600"/> Announcements
+              {unreadCount>0 && <span className="ml-1 min-w-[20px] h-5 px-1.5 bg-[#ff4b5c] dark:bg-[#ff4b5c] text-white dark:text-white rounded-full text-xs font-black inline-flex items-center justify-center">{unreadCount>99?'99+':unreadCount}</span>}
             </button>
-            <button onClick={()=>navigate('/schedule')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-[13px] font-bold hover:bg-white/15 transition-colors">
+            <button onClick={()=>navigate('/schedule')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white/10 dark:bg-white/10 backdrop-blur-md border border-white/15 dark:border-white/15 text-white dark:text-white text-[13px] font-bold hover:bg-white/15 dark:hover:bg-white/15 transition-colors">
               <Calendar size={14}/> View timetable <ChevronRight size={14} className="opacity-60"/>
             </button>
-            <span className="hidden sm:inline-flex items-center gap-2 px-4 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-[13px] font-semibold">
+            <span className="hidden sm:inline-flex items-center gap-2 px-4 h-11 rounded-full bg-white/10 dark:bg-white/10 backdrop-blur-md border border-white/15 dark:border-white/15 text-white dark:text-white text-[13px] font-semibold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/> {todayClasses.length} periods today
             </span>
           </>
         }
         stats={
           <GlassPanel className="p-4">
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/60">Today · {todayLabel.split(',')[0]}</p>
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/80 dark:text-white/80">Today · {todayLabel.split(',')[0]}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-white p-3">
-                <p className="text-[10px] font-black tracking-widest uppercase text-black/50">Periods</p>
-                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black">{todayClasses.length}</p>
-                <p className="mt-1 text-[11px] font-semibold text-black/60">{todayClasses.length? 'Scheduled' : 'Open day'}</p>
+              <div className="rounded-2xl bg-white dark:bg-white p-3 border border-white/20 dark:border-white/20">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60 dark:text-black/60">Periods</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black dark:text-black">{todayClasses.length}</p>
+                <p className="mt-1 text-[11px] font-semibold text-black/70 dark:text-black/70">{todayClasses.length? 'Scheduled' : 'Open day'}</p>
               </div>
-              <div className="rounded-2xl bg-primary-500 p-3 text-black">
-                <p className="text-[10px] font-black tracking-widest uppercase text-black/60">Notices</p>
-                <p className="mt-1 font-display text-[22px] font-[800] leading-none">{announcements.length}</p>
-                <p className="mt-1 text-[11px] font-bold text-black/70">{unreadCount} unread</p>
+              <div className="rounded-2xl bg-primary-500 dark:bg-primary-500 p-3 text-black dark:text-black border border-primary-500/20 dark:border-primary-500/20">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60 dark:text-black/60">Notices</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black dark:text-black">{announcements.length}</p>
+                <p className="mt-1 text-[11px] font-bold text-black/70 dark:text-black/70">{unreadCount} unread</p>
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-white/60">
-              <Clock size={12} className="text-primary-400"/> Updated just now
-              <span className="w-1 h-1 rounded-full bg-white/20"/> <Zap size={12} className="text-primary-400"/> Live
+            <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-white/75 dark:text-white/75">
+              <Clock size={12} className="text-primary-400 dark:text-primary-400"/> Updated just now
+              <span className="w-1 h-1 rounded-full bg-white/30 dark:bg-white/30"/> <Zap size={12} className="text-primary-400 dark:text-primary-400"/> Live
             </div>
           </GlassPanel>
         }
@@ -152,12 +153,10 @@ export default function DashboardPage() {
         title="My Day — Today"
         subtitle={`${todayLabel} · ${todayClasses.length} periods`}
         icon={<Clock size={16}/>}
-        action={<span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-black text-[11px] font-black tracking-widest uppercase"><span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"/> Live</span>}
+        action={<span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-black dark:text-black text-[11px] font-black tracking-widest uppercase"><span className="w-1.5 h-1.5 rounded-full bg-black dark:bg-black animate-pulse"/> Live</span>}
       >
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {Array.from({length:4}).map((_,i)=><div key={i} className="h-28 rounded-[20px] bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] animate-pulse" />)}
-          </div>
+          <CenteredLoader text="Loading today's schedule..." minHeight="min-h-[160px]" />
         ) : todayClasses.length===0 ? (
           <div className="rounded-[20px] border border-dashed border-surface-300 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a]/50 p-8 text-center">
             <div className="w-12 h-12 rounded-xl bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] flex items-center justify-center mx-auto">
@@ -190,7 +189,7 @@ export default function DashboardPage() {
         <div className="col-span-12 lg:col-span-7">
           <SectionCard
             title="Pinned Notices"
-            subtitle="Brass • #1ed760 curated"
+            subtitle="Curated notices"
             icon={<Megaphone size={16}/>}
             action={<button onClick={()=>navigate('/announcements')} className="text-sm font-bold text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">View all <ChevronRight size={14}/></button>}
           >
@@ -229,7 +228,7 @@ export default function DashboardPage() {
                     <p className="font-semibold text-[#0a0a0a] dark:text-white text-sm truncate">{h.title}</p>
                     <p className="text-xs text-surface-500 dark:text-night-400 mt-0.5">{new Date(h.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
                   </div>
-                  <span className="text-xs font-black text-black bg-primary-500 px-2.5 py-1 rounded-full">{Math.max(0, Math.ceil((new Date(h.startDate).getTime()-Date.now())/86400000))}d</span>
+                  <span className="text-xs font-black text-black bg-primary-500 px-2.5 py-1 rounded-full dark:text-white">{Math.max(0, Math.ceil((new Date(h.startDate).getTime()-Date.now())/86400000))}d</span>
                 </div>
               ))}
             </div>

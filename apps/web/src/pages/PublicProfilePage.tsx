@@ -3,14 +3,14 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   AtSign, MapPin, Calendar, Trophy, Briefcase, Code2, Flame,
-  Award, BarChart3, ExternalLink, ArrowLeft, Copy, Check, Share2,
-  Loader2, Star, Target, Medal, GraduationCap, Building2, Users, TrendingUp, Layers, Github, User
+  Award, BarChart3, ExternalLink, ArrowLeft, Copy, Check, Share2, Star, Target, Medal, GraduationCap, Building2, Users, TrendingUp, Layers, Github, Globe
 } from 'lucide-react'
 import { publicProfileAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import { PlatformLogo } from '../components/PlatformLogos'
 import toast from 'react-hot-toast'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
+
 
 const GREEN_LEVELS = [
   { bg: '#EBF5EC', darkBg: '#161B22' },
@@ -54,10 +54,16 @@ export default function PublicProfilePage() {
   }, [username])
 
   const isOwn = viewer && data?.user && (viewer.id === data.user.id || (viewer.username && viewer.username.toLowerCase() === String(username).toLowerCase()))
+  const portfolioUrl: string | null = (data?.user as any)?.portfolioUrl || null
+  const isPortyPortfolio = portfolioUrl ? portfolioUrl.includes('porty-eight.vercel.app') : false
 
   const handleCopy = async () => {
     const link = `${window.location.origin}/u/${username}`
     try { await navigator.clipboard.writeText(link); setCopied(true); toast.success('Link copied'); setTimeout(()=>setCopied(false),1800)} catch {}
+  }
+  const handleCopyPortfolio = async () => {
+    if (!portfolioUrl) return
+    try { await navigator.clipboard.writeText(portfolioUrl); toast.success('Portfolio link copied')} catch {}
   }
 
   const calendar = data?.calendar as { date: string; count: number; level: number }[] | undefined
@@ -86,10 +92,7 @@ export default function PublicProfilePage() {
   for (const s of platformStats) statsMap[s.platform] = s
 
   if (loading) return (
-    <div className="max-w-6xl mx-auto px-4 py-16 flex flex-col items-center">
-      <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      <p className="mt-3 text-sm text-surface-500 dark:text-night-400">Loading @{username}...</p>
-    </div>
+    <CenteredLoader fullScreen text={`Loading @${username}...`} />
   )
   if (err || !data) return (
     <div className="max-w-3xl mx-auto px-4 py-12">
@@ -111,15 +114,6 @@ export default function PublicProfilePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<User size={18} />}
-        eyebrow="Campus · Profile"
-        title={<>Profile</>}
-        subtitle="Your public presence — handle, bio and achievements."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* top bar */}
       <div className="flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-sm font-medium text-surface-700 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-night-700">
@@ -161,6 +155,11 @@ export default function PublicProfilePage() {
                   {u.department?.name || u.departmentName ? <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-surface-50 dark:bg-night-700 border border-surface-200 dark:border-night-600"><GraduationCap size={12}/> {u.department?.name || u.departmentName}</span> : null}
                   {u.incomingYear ? <span className="inline-flex items-center gap-1"><Calendar size={12}/> Class of {u.outgoingYear || (u.incomingYear+4)}</span> : null}
                   {u.createdAt ? <span className="inline-flex items-center gap-1"><Calendar size={12}/> Joined {new Date(u.createdAt).toLocaleDateString('en-US',{month:'short', year:'numeric'})}</span> : null}
+                  {portfolioUrl ? (
+                    <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/15 font-medium">
+                      <Globe size={12}/> Portfolio <ExternalLink size={10}/>
+                    </a>
+                  ) : null}
                   {data?.codingProfile?.githubUsername ? (
                     <a href={`https://github.com/${data.codingProfile.githubUsername}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-surface-900 dark:text-night-50 border border-transparent hover:opacity-90">
                       <Github size={12}/> {data.codingProfile.githubUsername}
@@ -194,6 +193,43 @@ export default function PublicProfilePage() {
           </div>
         </div>
       </motion.div>
+
+      {/* Portfolio showcase — any website, not just Porty */}
+      {portfolioUrl ? (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`rounded-[18px] border p-5 shadow-sm ${isPortyPortfolio ? 'bg-white dark:bg-night-800 border-surface-200 dark:border-night-650' : 'bg-sky-50/70 dark:bg-sky-500/[0.06] border-sky-200 dark:border-sky-500/20'}`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 ${isPortyPortfolio ? 'bg-emerald-600' : 'bg-sky-600'}`}>
+                <Globe size={18}/>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2">Portfolio <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-bold tracking-wide ${isPortyPortfolio ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20' : 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-500/20'}`}>{isPortyPortfolio ? 'Porty' : 'External'}</span></p>
+                <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary-600 dark:text-success-300 hover:underline break-all inline-flex items-center gap-1">
+                  <span className="break-all">{portfolioUrl}</span> <ExternalLink size={12} className="shrink-0"/>
+                </a>
+                <p className="text-xs text-surface-500 dark:text-night-300 mt-1">Showcased on this public profile — visible to everyone.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={handleCopyPortfolio} className="px-3 py-2 rounded-xl bg-surface-900 dark:bg-white text-white dark:text-surface-900 text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90">
+                <Copy size={12}/> Copy
+              </button>
+              <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-xl bg-white dark:bg-night-700 border border-surface-200 dark:border-night-600 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-surface-50">
+                <ExternalLink size={12}/> Open
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      ) : isOwn ? (
+        <div className="rounded-[18px] border border-dashed border-surface-200 dark:border-night-600 bg-surface-50 dark:bg-night-800/50 p-5 text-center">
+          <Globe size={20} className="mx-auto text-surface-400" />
+          <p className="mt-2 text-sm font-semibold text-surface-900 dark:text-night-50">No portfolio linked yet</p>
+          <p className="text-xs text-surface-500 dark:text-night-300 mt-1">Link any site — <span className="font-mono">https://your-portfolio.com</span>, <span className="font-mono">https://rohit.dev</span> — and it’ll appear here for recruiters.</p>
+          <Link to="/portfolio-studio" className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-semibold">
+            <Globe size={12}/> Add portfolio link
+          </Link>
+        </div>
+      ) : null}
 
       {/* main grid */}
       <div className="grid grid-cols-12 gap-6">

@@ -4,9 +4,9 @@ import { useAppStore } from '../../store/appStore'
 import {
   LayoutDashboard, Bell, Settings, LogOut, Menu, X, GraduationCap,
   Sparkles, Search, Award, Target, Clock, Trophy,
-  ClipboardList, Shield, DoorOpen, Briefcase, CheckSquare,
+  ClipboardList, Shield, DoorOpen, Briefcase,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
-  Medal, UserCheck, Code2, FileText, Globe, Building2, ArrowLeft
+  Medal, UserCheck, Code2, FileText, Globe, Building2, ArrowLeft, Flag, AlertTriangle
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
@@ -14,6 +14,7 @@ import CommandPalette from '../CommandPalette'
 import ThemeToggle from '../ThemeToggle'
 import AvatarDropdown from './AvatarDropdown'
 import UsernameSetupModal from '../UsernameSetupModal'
+import ReportModal from '../ReportModal'
 import toast from 'react-hot-toast'
 import { timetableAPI, hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI, authAPI } from '../../lib/api'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
@@ -92,12 +93,13 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
       { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
-    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
+    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }, { path: '/reports', label: 'Reports', icon: Flag }] },
   ],
   SUPER_ADMIN: [
     { label: '', items: [
       { path: '/superadmin', label: 'Superadmin Overview', icon: BarChart2 },
       { path: '/superadmin/colleges', label: 'Colleges', icon: Building2 },
+      { path: '/superadmin/reports', label: 'Reports', icon: Flag },
       { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
       { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
     ]},
@@ -125,7 +127,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
       { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
-    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
+    { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }, { path: '/reports', label: 'Reports', icon: Flag }] },
   ],
 }
 
@@ -143,9 +145,9 @@ export default function Layout() {
   const effectiveCollegeId = urlScopedId || selectedCollegeId || searchCollegeId
   const effectiveCollegeName = selectedCollegeName || (urlScopedId ? urlScopedId : null)
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
-  const tenantRoutePrefixes = ['/dashboard','/assignments','/tasks','/schedule','/calendar','/hackathons','/internships','/contests','/forms','/rooms','/admin','/resume-studio','/portfolio-studio','/announcements','/notifications','/settings','/search','/chat','/superadmin/colleges/']
+  const tenantRoutePrefixes = ['/dashboard','/assignments','/tasks','/schedule','/calendar','/hackathons','/internships','/contests','/forms','/rooms','/admin','/resume-studio','/portfolio-studio','/announcements','/notifications','/settings','/search','/chat','/superadmin/colleges/','/reports','/superadmin/reports']
   const isOnTenantRoute = tenantRoutePrefixes.some(p => location.pathname === p || location.pathname.startsWith(p + '/'))
-  const isSuperScoped = isSuperAdmin && ( !!urlScopedId || (!!effectiveCollegeId && isOnTenantRoute && !['/superadmin','/superadmin/colleges','/admin/fetch','/admin/ai-manager'].includes(location.pathname)) )
+  const isSuperScoped = isSuperAdmin && ( !!urlScopedId || (!!effectiveCollegeId && isOnTenantRoute && !['/superadmin','/superadmin/colleges','/superadmin/reports','/admin/fetch','/admin/ai-manager'].includes(location.pathname)) )
   // Keep legacy localStorage keys in sync for api interceptor when scoped via URL or query
   useEffect(() => {
     if (isSuperAdmin && urlScopedId && urlScopedId !== selectedCollegeId) {
@@ -162,6 +164,7 @@ export default function Layout() {
   // Assignments urgent badge: overdue + due within 3 days (for students: only if not yet submitted)
   const [assignmentUrgent, setAssignmentUrgent] = useState({ count: 0, hasOverdue: false })
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [roomUnreadCount, setRoomUnreadCount] = useState(0)
 
@@ -427,7 +430,7 @@ export default function Layout() {
           </div>
           <button
             onClick={() => { clearSuperCollege(); try{ localStorage.removeItem('superadmin_selectedCollegeId'); localStorage.removeItem('superadmin_selectedCollegeName'); localStorage.removeItem('campusflow-superadmin-college'); }catch{}; navigate('/superadmin/colleges') }}
-            className="shrink-0 w-7 h-7 rounded-lg bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center text-surface-500 hover:text-primary-600 hover:border-primary-300 transition-colors"
+            className="shrink-0 w-7 h-7 rounded-lg bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 flex items-center justify-center text-surface-500 hover:text-primary-600 hover:border-primary-300 transition-colors dark:text-zinc-400"
             title="Exit college view"
           >
             <ArrowLeft size={14} />
@@ -455,7 +458,7 @@ export default function Layout() {
                  {section.label}
                </p>
              )}
-             {!sidebarOpen && section.label && <div className="h-px bg-surface-200 mx-2 mb-2" />}
+             {!sidebarOpen && section.label && <div className="h-px bg-surface-200 mx-2 mb-2 dark:bg-[#282828]" />}
              <div className="space-y-0.5">
               {section.items.map((item)=>{
                 const isActive = location.pathname===item.path
@@ -532,12 +535,12 @@ export default function Layout() {
           {sidebarOpen && (
             <>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-surface-900 dark:text-night-50 truncate">{user?.name || 'Student'}</p>
-                  <CheckSquare size={12} className="text-primary-600 shrink-0" />
-                </div>
+                <p className="text-sm font-semibold text-surface-900 dark:text-night-50 truncate">{user?.name || 'Student'}</p>
                 <p className="text-[11px] text-surface-400 dark:text-night-400 truncate">{user?.email || 'student@campus.edu'}</p>
               </div>
+              <button onClick={()=>setReportOpen(true)} className="w-11 h-11 inline-flex items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/20 transition-colors" title="Report issue">
+                <AlertTriangle size={16} />
+              </button>
               <button onClick={()=>{logout(); navigate('/login')}} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 dark:text-night-400 hover:text-danger-600 hover:bg-danger-50 transition-colors" title="Sign out">
                 <LogOut size={16} />
               </button>
@@ -565,7 +568,7 @@ export default function Layout() {
           <div className="flex items-center gap-3">
             <button
               onClick={()=> window.innerWidth>=1024 ? setSidebarOpen(!sidebarOpen) : setMobileOpenLocal(true)}
-              className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors shrink-0"
+              className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors shrink-0 dark:bg-[#1e1e1e]"
               aria-label="Toggle navigation"
             >
               {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
@@ -584,7 +587,7 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <button className="relative w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors" onClick={()=>navigate('/notifications')} aria-label="Notifications">
+            <button className="relative w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors dark:bg-[#1e1e1e]" onClick={()=>navigate('/notifications')} aria-label="Notifications">
               <Bell size={18} />
               {unreadCount>0 && <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-danger-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border-2 border-white dark:border-night-800">{unreadCount>99?'99+':unreadCount}</span>}
             </button>
@@ -614,12 +617,13 @@ export default function Layout() {
         <>
           <div className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm" onClick={()=>setMobileOpenLocal(false)} />
           <aside className="fixed inset-y-0 left-0 w-[280px] bg-surface-50 dark:bg-night-850 z-50 lg:hidden shadow-e3 animate-slideUp locker-rail overflow-hidden flex flex-col">
-            <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700"><X size={20} /></button>
+            <button onClick={()=>setMobileOpenLocal(false)} className="absolute top-3 right-3 w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-500 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-700 dark:bg-[#1e1e1e]"><X size={20} /></button>
             <SidebarContent />
           </aside>
         </>
       )}
 
+      <ReportModal open={reportOpen} onClose={()=>setReportOpen(false)} />
       <CommandPalette open={showCommandPalette} onClose={()=>setShowCommandPalette(false)} />
       <UsernameSetupModal
         open={showUsernameModal}

@@ -35,6 +35,18 @@ function suggestBase(name: string, email: string): string {
   if (s.length < 3) s = (s + 'user').slice(0, 20)
   return s
 }
+function normalizePortfolioUrlForAuth(input: string): string | null {
+  const raw = String(input || '').trim()
+  if (!raw) return null
+  let candidate = raw
+  if (!/^https?:\/\//i.test(candidate)) candidate = 'https://' + candidate
+  try {
+    const u = new URL(candidate)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    if (!u.hostname.includes('.') && u.hostname !== 'localhost') return null
+    return u.toString()
+  } catch { return null }
+}
 async function generateUniqueUsername(name: string, email: string): Promise<string> {
   let base = suggestBase(name, email)
   let candidate = base
@@ -72,16 +84,37 @@ router.post('/register', async (req: Request, res: Response) => {
       res.status(403).json({ error: 'Super admin accounts can only be created by existing super admins' })
       return
     }
+    // COLLEGE_ADMIN via public /register-college flow: allow if college exists and email matches adminEmail (PENDING college) or college is APPROVED (promotion via super admin is separate)
+    // This unblocks the two-step college registration: POST /api/colleges/register (creates PENDING college) -> POST /api/auth/register {role:COLLEGE_ADMIN, collegeId}
+    let isCollegeAdminViaPublicFlow = false
     if (requestedRole === 'COLLEGE_ADMIN') {
-      // Allow only if COLLEGE_ADMIN is created through admin flows, not self-registration.
-      // Block public self-registration as college admin — use /register-college instead.
-      res.status(403).json({ error: 'College admin registration must go through /register-college or admin panel' })
-      return
+      if (!body.collegeId) {
+        res.status(400).json({ error: 'College ID is required for college admin registration' })
+        return
+      }
+      const c = await prisma.college.findUnique({ where: { id: body.collegeId } })
+      if (!c) {
+        res.status(400).json({ error: 'Invalid college' })
+        return
+      }
+      // Allow if: (a) PENDING and email matches adminEmail (self-registration flow), or (b) APPROVED and email matches adminEmail (edge), else block
+      const status = (c as any).status
+      const adminEmail = (c as any).adminEmail?.toLowerCase?.()
+      const reqEmail = String(body.email || '').toLowerCase()
+      if (status === 'PENDING' && adminEmail && adminEmail === reqEmail) {
+        isCollegeAdminViaPublicFlow = true
+      } else if (status === 'APPROVED' && adminEmail && adminEmail === reqEmail) {
+        // Allow APPROVED too for the immediate post-creation step before super admin explicitly approves (some deploys auto-approve)
+        isCollegeAdminViaPublicFlow = true
+      } else {
+        res.status(403).json({ error: 'College admin registration must go through /register-college or admin panel' })
+        return
+      }
     }
-    const safeRole = requestedRole === 'TEACHER' ? 'TEACHER' : 'STUDENT'
+    const safeRole = isCollegeAdminViaPublicFlow ? 'COLLEGE_ADMIN' : (requestedRole === 'TEACHER' ? 'TEACHER' : 'STUDENT')
 
-    // MEDIUM IDOR fix: validate collegeId on public registration — must exist and be APPROVED
-    if (body.collegeId) {
+    // MEDIUM IDOR fix: validate collegeId on public registration — must exist and be APPROVED, except COLLEGE_ADMIN via pending flow (where PENDING is allowed)
+    if (body.collegeId && !isCollegeAdminViaPublicFlow) {
       const college = await prisma.college.findUnique({ where: { id: body.collegeId } })
       if (!college || (college as any).status !== 'APPROVED') {
         res.status(400).json({ error: 'Invalid college' })
@@ -166,6 +199,7 @@ router.post('/register', async (req: Request, res: Response) => {
         outgoingYear: user.outgoingYear,
         collegeId: user.collegeId,
         collegeName: user.collegeName,
+        portfolioUrl: (user as any).portfolioUrl || null,
       },
       token,
     })
@@ -228,6 +262,7 @@ router.post('/login', async (req: Request, res: Response) => {
         empNumber: user.empNumber,
         college: userWithCollege?.college,
         collegeId: user.collegeId,
+        portfolioUrl: (user as any).portfolioUrl || null,
       },
       token,
     })
@@ -238,6 +273,47 @@ router.post('/login', async (req: Request, res: Response) => {
     }
     console.error('Login error:', error)
     res.status(500).json({ error: 'Login failed' })
+  }
+})
+
+// Change password — authenticated
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+})
+
+router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const body = changePasswordSchema.parse(req.body)
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    const valid = await bcrypt.compare(body.currentPassword, user.passwordHash)
+    if (!valid) {
+      res.status(401).json({ error: 'Current password is incorrect' })
+      return
+    }
+
+    if (body.currentPassword === body.newPassword) {
+      res.status(400).json({ error: 'New password must be different from current password' })
+      return
+    }
+
+    const newHash = await bcrypt.hash(body.newPassword, 10)
+    await prisma.user.update({ where: { id: req.userId }, data: { passwordHash: newHash } as any })
+
+    res.json({ message: 'Password updated successfully' })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation error', details: error.errors })
+      return
+    }
+    console.error('Change password error:', error)
+    res.status(500).json({ error: 'Failed to change password' })
   }
 })
 
@@ -264,6 +340,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       incomingYear: user.incomingYear,
       outgoingYear: user.outgoingYear,
       avatar: user.avatar,
+      portfolioUrl: (user as any).portfolioUrl || null,
       studentId: user.studentId,
       empNumber: user.empNumber,
       college: user.college,

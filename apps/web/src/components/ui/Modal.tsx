@@ -41,7 +41,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
       >
         <div className="flex items-center justify-between p-5 pb-4 border-b border-surface-200 dark:border-night-600">
           <h2 className="text-base font-bold text-surface-900 dark:text-night-50 font-display">{title}</h2>
-          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-surface-600 dark:text-night-300 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors">
+          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-xl text-surface-400 hover:text-surface-600 dark:text-night-300 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors dark:bg-[#1e1e1e]">
             <X size={18} />
           </button>
         </div>

@@ -2,6 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Premium Hackathon tokens — --background #F5F3FF light / #0a0a0a dark ── */
+:root {
+  --background: #F5F3FF;
+  --foreground: #18181b;
+  --muted: #71717a;
+  --muted-foreground: #71717a;
+  --card: rgba(255, 255, 255, 0.70);
+  --card-border: rgba(255, 255, 255, 0.55);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --cta: #6366F1;
+  --cta-hover: #4F46E5;
+  --cta-foreground: #ffffff;
+}
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --muted: #a1a1aa;
+  --muted-foreground: #a1a1aa;
+  --card: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --glass: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --cta: #6366F1;
+  --cta-hover: #4F46E5;
+  --cta-foreground: #ffffff;
+}
+.hackathon-premium {
+  --background: #F5F3FF;
+  --foreground: #18181b;
+}
+.dark .hackathon-premium {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+}
+
+/* scrollbars hide for PillTabs */
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
 /* Base — Spotify surfaces · Light #ffffff / Dark #121212/#000 · Green #1ed760 */
 @layer base {
   * { @apply border-surface-200; }
@@ -65,6 +105,20 @@
 .dark .stat-card--rose::before { opacity:0.9; }
 .dark .stat-card--neutral::before { opacity:0.7; }
 .dark .bg-white, .dark [class*="bg-white/"], .dark .bg-surface-50 { background-color:#121212 !important; }
+/* Restore intentional dark:bg-white inversions (e.g., Selected stat card, black→white flip outside hero) — must be after generic override */
+.dark .dark\:bg-white { background-color:#ffffff !important; }
+.dark .dark\:bg-white\/5 { background-color:rgba(255,255,255,0.05) !important; }
+.dark .dark\:bg-white\/10 { background-color:rgba(255,255,255,0.10) !important; }
+.dark .dark\:bg-white\/\[0\.02\] { background-color:rgba(255,255,255,0.02) !important; }
+.dark .dark\:bg-white\/\[0\.03\] { background-color:rgba(255,255,255,0.03) !important; }
+.dark .dark\:bg-white\/\[0\.04\] { background-color:rgba(255,255,255,0.04) !important; }
+.dark .dark\:bg-white\/\[0\.06\] { background-color:rgba(255,255,255,0.06) !important; }
+.dark .dark\:bg-white\/70 { background-color:rgba(255,255,255,0.70) !important; }
+.dark .dark\:bg-white\/80 { background-color:rgba(255,255,255,0.80) !important; }
+.dark .dark\:text-black { color:#000000 !important; }
+.dark .dark\:text-white { color:#ffffff !important; }
+.dark .dark\:border-white\/10 { border-color:rgba(255,255,255,0.10) !important; }
+.dark .dark\:border-white { border-color:#ffffff !important; }
 .dark .bg-surface-100 { background-color:#181818 !important; }
 .dark .bg-surface-200, .dark .bg-surface-300 { background-color:#282828 !important; }
 .dark aside { background-color:#000000 !important; }
@@ -76,10 +130,10 @@
 .dark .bg-success-50 { background-color: rgba(29,185,84,0.12) !important; }
 .dark .text-surface-900, .dark .text-surface-800, .dark .text-slate-800 { color:#ffffff !important; }
 .dark .text-surface-700, .dark .text-surface-600, .dark .text-surface-500 { color:#a7a7a7 !important; }
-.dark .text-surface-400 { color:#6a6a6a !important; }
+.dark .text-surface-400 { color:#a1a1aa !important; }
 .dark .text-primary-600, .dark .text-primary-700 { color:#1ed760 !important; }
 .dark input:not([type="hidden"]), .dark textarea, .dark select { background-color:#000000 !important; color:#ffffff !important; border-color:#282828 !important; }
-.dark ::placeholder { color:#6a6a6a !important; }
+.dark ::placeholder { color:#a1a1aa !important; }
 
 /* ── Resume Live Preview — isolate from dark mode (PDF fidelity: keep paper white/ink slate) ── */
 .dark #resume-print-area,
@@ -489,4 +543,122 @@
   .rounded-2xl, .rounded-xl { border-radius: 0 !important; }
 
   @page { size: A4; margin: 10mm; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Premium hero isolation — banner must stay legible in dark mode
+   Global .dark .bg-white / .dark [class*="bg-white/"] and .dark * border
+   overrides would otherwise wash out hero's intentional white-on-dark
+   design (white buttons → #121212 + black text = invisible). These
+   higher-specificity !important rules restore the hero's intended
+   translucent-white surfaces and white borders/text inside .premium-hero.
+   Order: generic white first, dark-specific later so dark variants win.
+   ─────────────────────────────────────────────────────────────── */
+.dark .premium-hero { background-color: #0a0a0a !important; border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero .bg-white { background-color: #ffffff !important; }
+.dark .premium-hero [class~="bg-white"] { background-color: #ffffff !important; }
+.dark .premium-hero [class*="bg-white/10"] { background-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="bg-white/15"] { background-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero [class*="bg-white/70"] { background-color: rgba(255,255,255,0.70) !important; }
+.dark .premium-hero [class*="bg-white/[0.010]"] { background-color: rgba(255,255,255,0.010) !important; }
+.dark .premium-hero [class*="bg-white/[0.015]"] { background-color: rgba(255,255,255,0.015) !important; }
+.dark .premium-hero [class*="bg-white/[0.025]"] { background-color: rgba(255,255,255,0.025) !important; }
+.dark .premium-hero [class*="bg-white/[0.028]"] { background-color: rgba(255,255,255,0.028) !important; }
+.dark .premium-hero [class*="bg-white/[0.032]"] { background-color: rgba(255,255,255,0.032) !important; }
+.dark .premium-hero [class*="bg-white/[0.035]"] { background-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="bg-white/[0.03]"] { background-color: rgba(255,255,255,0.03) !important; }
+.dark .premium-hero [class*="bg-white/[0.04]"] { background-color: rgba(255,255,255,0.04) !important; }
+.dark .premium-hero [class*="bg-white/[0.06]"] { background-color: rgba(255,255,255,0.06) !important; }
+.dark .premium-hero [class*="bg-white/[0.02]"] { background-color: rgba(255,255,255,0.02) !important; }
+.dark .premium-hero [class*="bg-white/5"] { background-color: rgba(255,255,255,0.05) !important; }
+/* dark variants that intentionally stay translucent/dark — must appear after generics */
+.dark .premium-hero [class*="dark:bg-white/[0.010]"] { background-color: rgba(255,255,255,0.010) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.025]"] { background-color: rgba(255,255,255,0.025) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.028]"] { background-color: rgba(255,255,255,0.028) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.035]"] { background-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.06]"] { background-color: rgba(255,255,255,0.06) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.03]"] { background-color: rgba(255,255,255,0.03) !important; }
+.dark .premium-hero [class*="dark:bg-white/10"] { background-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="dark:bg-[#121212]"] { background-color: #121212 !important; }
+.dark .premium-hero [class*="dark:bg-[#0a0a0a]"] { background-color: #0a0a0a !important; }
+.dark .premium-hero [class*="border-white/[0.035]"] { border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="border-white/10"] { border-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="border-white/15"] { border-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero [class*="border-white/20"] { border-color: rgba(255,255,255,0.20) !important; }
+.dark .premium-hero [class*="border-white/5"] { border-color: rgba(255,255,255,0.05) !important; }
+.dark .premium-hero .border-white\/10 { border-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero .border-white\/15 { border-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero .border-white\/\[0\.035\] { border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero .text-white { color: #ffffff !important; }
+.dark .premium-hero .text-black { color: #000000 !important; }
+.dark .premium-hero [class*="text-white/60"] { color: rgba(255,255,255,0.60) !important; }
+.dark .premium-hero [class*="text-white/70"] { color: rgba(255,255,255,0.70) !important; }
+.dark .premium-hero [class*="text-white/65"] { color: rgba(255,255,255,0.65) !important; }
+.dark .premium-hero [class*="text-black/50"] { color: rgba(0,0,0,0.50) !important; }
+.dark .premium-hero [class*="text-black/60"] { color: rgba(0,0,0,0.60) !important; }
+.dark .premium-hero [class*="text-black/70"] { color: rgba(0,0,0,0.70) !important; }
+/* keep green primary cards' text black in dark (white on green fails contrast) */
+.dark .premium-hero .bg-primary-500.text-black,
+.dark .premium-hero .bg-primary-500 .text-black { color: #000000 !important; }
+.dark .premium-hero [class*="bg-primary-500"] [class*="text-black"] { color: #000000 !important; }
+
+/* ───────────────────────────────────────────────────────────────
+   Fix: PremiumHero select/drag whitener — banner text selection
+   was washed to opaque white (global ::selection dark:bg-white)
+   causing a "whitener" flash when selecting/dragging title
+   (e.g., CodeSprint) and glass stats. Premium high-end fix:
+   scope hero's ::selection to translucent brand green #1ed760
+   (30% opacity) with white text — preserves dark #0a0a0a luxe,
+   mesh + backdrop-blur depth, no white wash during drag.
+   Covers ::selection + ::-moz-selection for all descendants,
+   light + .dark, with !important to beat global dark overrides.
+   Drag ghost: keep hero text selectable, but buttons/links are
+   user-select none + -webkit-user-drag none to avoid white
+   drag-image when dragging across banner chrome.
+   ─────────────────────────────────────────────────────────────── */
+.premium-hero,
+.premium-hero * {
+  -webkit-tap-highlight-color: transparent;
+}
+.premium-hero::selection,
+.premium-hero *::selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.premium-hero::-moz-selection,
+.premium-hero *::-moz-selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+}
+.dark .premium-hero::selection,
+.dark .premium-hero *::selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.dark .premium-hero::-moz-selection,
+.dark .premium-hero *::-moz-selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+}
+/* drag whitener — text stays selectable, chrome elements don't create white ghost */
+.premium-hero {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.premium-hero button,
+.premium-hero a,
+.premium-hero [role="button"] {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-user-drag: none !important;
+}
+.premium-hero img {
+  -webkit-user-drag: none !important;
+  user-select: none !important;
 }

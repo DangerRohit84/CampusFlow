@@ -4,8 +4,8 @@ import { useAuthStore } from '../store/authStore'
 import { formAPI, departmentAPI, roomAPI } from '../lib/api'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, FileText, Users, Trash2, Loader2, ChevronRight, Pencil, Calendar,
-  Filter, Clock, CheckCircle2, FileEdit, ClipboardList } from 'lucide-react'
+import { Plus, FileText, Users, Trash2, ChevronRight, Pencil, Calendar,
+  Filter, Clock, CheckCircle2, FileEdit } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import Badge from '../components/ui/Badge'
@@ -17,7 +17,7 @@ import EligibilityPopup from '../components/shared/EligibilityPopup'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department, Room } from '../types/api'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 type FormStatus = 'active' | 'expiring' | 'expired'
 
@@ -249,29 +249,16 @@ export default function FormsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading forms..." />
   }
 
   return (
     <div className="space-y-6 section--forms max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<ClipboardList size={18} />}
-        eyebrow="Campus · Forms"
-        title={<>Forms</>}
-        subtitle="Collect responses — forms, deadlines and real-time insights."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Header — neutral gray for forms (rose reserved for errors only, one wash per section) */}
+      {/* Header — forms */}
       <PageHeader
         accent="neutral"
         title="Forms"
-        subtitle="Create and manage custom forms — gray #F8F9FA slips · slate #1E293B (rose only expired)"
+        subtitle="Create and manage custom forms"
         icon={<FileText size={18} />}
         action={
           canCreate && (

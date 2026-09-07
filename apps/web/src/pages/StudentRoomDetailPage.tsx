@@ -14,6 +14,7 @@ import RoomResourcesPanel from '../components/room/RoomResourcesPanel'
 import RoomMembersPanel from '../components/room/RoomMembersPanel'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function StudentRoomDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -158,11 +159,7 @@ export default function StudentRoomDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading room..." />
   }
 
   if (!room) return null

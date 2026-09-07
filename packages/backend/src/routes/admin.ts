@@ -386,7 +386,7 @@ router.get('/hackathons', async (req: AuthRequest, res: Response) => {
       const collegeId = getSuperAdminTargetCollegeId(req) as string | undefined
       if (collegeId) where = { collegeId }
     } else {
-      where = { collegeId: user.collegeId }
+      where = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
     }
     const hackathons = await prisma.hackathon.findMany({
       where,
@@ -412,7 +412,7 @@ router.get('/forms', async (req: AuthRequest, res: Response) => {
       const collegeId = getSuperAdminTargetCollegeId(req) as string | undefined
       if (collegeId) where = { collegeId }
     } else {
-      where = { collegeId: user.collegeId }
+      where = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
     }
     const forms = await prisma.form.findMany({
       where,

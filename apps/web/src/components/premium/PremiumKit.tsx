@@ -42,51 +42,51 @@ export function PremiumHero({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as any }}
       className={clsx(
-        'relative overflow-hidden rounded-[32px] bg-[#0a0a0a] border border-white/[0.08] shadow-[0_32px_80px_-16px_rgba(0,0,0,0.5)]',
+        'premium-hero select-text relative overflow-hidden rounded-[24px] bg-[#0a0a0a] dark:bg-[#0a0a0a] border border-white/[0.035] dark:border-white/[0.035] shadow-[0_24px_60px_-16px_rgba(0,0,0,0.5)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-white/[0.035] before:content-[""] selection:bg-[rgba(30,215,96,0.32)] selection:text-white dark:selection:bg-[rgba(30,215,96,0.32)] dark:selection:text-white',
         className
       )}
     >
       <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-500/[0.12] via-transparent to-transparent" />
-        <div className="absolute -top-28 -right-28 w-[560px] h-[560px] rounded-full bg-gradient-to-br from-primary-500/25 to-emerald-500/20 blur-[70px]" />
-        <div className="absolute -bottom-32 -left-32 w-[520px] h-[520px] rounded-full bg-gradient-to-tr from-primary-600/15 to-transparent blur-[70px]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-500/[0.035] via-white/[0.008] to-transparent" />
+        <div className="absolute -top-20 -right-20 w-[460px] h-[460px] rounded-full bg-gradient-to-br from-primary-500/[0.07] to-emerald-500/[0.04] blur-[72px]" />
+        <div className="absolute -bottom-24 -left-24 w-[460px] h-[460px] rounded-full bg-gradient-to-tr from-primary-600/[0.035] to-transparent blur-[72px]" />
         <div
-          className="absolute inset-0 opacity-[0.06]"
+          className="absolute inset-0 opacity-[0.018]"
           style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)`,
-            backgroundSize: '32px 32px',
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)`,
+            backgroundSize: '28px 28px',
           }}
         />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/40 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/30 to-transparent" />
       </div>
 
-      <div className="relative z-10 p-6 sm:p-8 lg:p-10">
-        {(eyebrow || icon) && (
-          <div className="flex items-center gap-2.5 mb-4">
+      <div className="relative z-10 p-5 sm:p-6 lg:p-6">
+          {(eyebrow || icon) && (
+          <div className="flex items-center gap-2 mb-3">
             {icon && (
-              <span className="w-9 h-9 rounded-xl bg-white text-black flex items-center justify-center shadow-lg shrink-0">
+              <span className="w-8 h-8 rounded-xl bg-white dark:bg-white text-black dark:text-black flex items-center justify-center shadow-lg shrink-0">
                 {icon}
               </span>
             )}
             {eyebrow && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-[11px] font-bold tracking-widest uppercase">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.035] dark:bg-white/[0.035] backdrop-blur-[12px] border border-white/[0.06] dark:border-white/[0.06] text-white dark:text-white text-[10px] font-bold tracking-widest uppercase select-none">
                 {eyebrow}
               </span>
             )}
           </div>
         )}
 
-        <div className="grid grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-12 gap-5 items-start">
           <div className="col-span-12 lg:col-span-8">
-            <h1 className="font-display text-[28px] sm:text-[36px] lg:text-[44px] font-[800] tracking-[-0.035em] leading-[0.9] text-white text-balance">
+            <h1 className="font-display text-[22px] sm:text-[28px] lg:text-[32px] font-[800] tracking-[-0.03em] leading-[0.95] text-white dark:text-white text-balance select-text selection:bg-[rgba(30,215,96,0.32)] selection:text-white dark:selection:bg-[rgba(30,215,96,0.32)] dark:selection:text-white">
               {title}
             </h1>
             {subtitle && (
-              <p className="mt-3 text-[14px] sm:text-[15px] leading-relaxed font-medium text-white/70 max-w-[640px]">
+              <p className="mt-2 text-[13px] sm:text-[13px] leading-relaxed font-medium text-white/65 dark:text-white/65 max-w-[600px] select-text selection:bg-[rgba(30,215,96,0.32)] selection:text-white dark:selection:bg-[rgba(30,215,96,0.32)] dark:selection:text-white">
                 {subtitle}
               </p>
             )}
-            {actions && <div className="mt-6 flex flex-wrap gap-3">{actions}</div>}
+            {actions && <div className="mt-4 flex flex-wrap gap-2.5">{actions}</div>}
             {children}
           </div>
 
@@ -102,10 +102,71 @@ export function PremiumHero({
   )
 }
 
-// ─── Glass panel — backdrop-blur-xl bg-white/[0.03] border-white/10 ───
+// ─── Light Hero — light variant of PremiumHero: rounded-[24px] bg-white dark:bg-[#121212], h-1.5 gradient, no dark blur orbs ───
+export function LightHero({
+  icon,
+  eyebrow,
+  title,
+  subtitle,
+  actions,
+  stats,
+  children,
+  gradient = 'from-primary-500 via-primary-600 to-emerald-500',
+  className,
+}: {
+  icon?: React.ReactNode
+  eyebrow?: string
+  title: React.ReactNode
+  subtitle?: React.ReactNode
+  actions?: React.ReactNode
+  stats?: React.ReactNode
+  children?: React.ReactNode
+  gradient?: string
+  className?: string
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] as any }}
+      className={clsx('relative overflow-hidden rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm', className)}
+    >
+      <div className={clsx('h-1.5 bg-gradient-to-r', gradient)} />
+      <div className="p-6 sm:p-7">
+        {(eyebrow || icon) && (
+          <div className="flex items-center gap-2.5 mb-3">
+            {icon && (
+              <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shadow-sm shrink-0">
+                {icon}
+              </span>
+            )}
+            {eyebrow && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-300 text-[11px] font-bold tracking-widest uppercase">
+                {eyebrow}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-12 gap-6 items-start">
+          <div className="col-span-12 lg:col-span-8">
+            <h1 className="font-display text-[28px] sm:text-[32px] font-[800] tracking-[-0.03em] leading-none text-[#0a0a0a] dark:text-white text-balance">
+              {title}
+            </h1>
+            {subtitle && <p className="mt-2 text-[14px] font-medium text-surface-500 dark:text-night-400 max-w-[640px]">{subtitle}</p>}
+            {actions && <div className="mt-5 flex flex-wrap gap-3">{actions}</div>}
+            {children}
+          </div>
+          {stats && <div className="col-span-12 lg:col-span-4">{stats}</div>}
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── Glass panel — backdrop-blur-[18px] bg-white/[0.010] border-white/[0.035] shadow inset + 0 8px 32px ───
 export function GlassPanel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={clsx('rounded-[20px] backdrop-blur-xl bg-white/[0.03] border border-white/10', className)}>
+    <div className={clsx('rounded-[20px] backdrop-blur-[18px] bg-white/[0.010] dark:bg-white/[0.010] border border-white/[0.035] dark:border-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_8px_32px_rgba(0,0,0,0.24)]', className)}>
       {children}
     </div>
   )

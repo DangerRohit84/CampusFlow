@@ -20,7 +20,7 @@ import FilterTabs from '../components/shared/FilterTabs'
 import EmptyState from '../components/shared/EmptyState'
 import PageHeader from '../components/shared/PageHeader'
 import { useFilteredItems } from '../hooks/useFilteredItems'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 type RoomType = 'department' | 'club' | 'study_group' | 'custom'
 
@@ -230,25 +230,12 @@ export default function RoomsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading rooms..." />
   }
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<DoorOpen size={18} />}
-        eyebrow="Campus · Rooms"
-        title={<>Study Rooms</>}
-        subtitle="Group channels, lockers and discovery — find your space."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Hallway head — emerald #059669 for rooms — one wash per section */}
+      {/* Hallway head — rooms */}
       <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden section--rooms">
         <div className="h-[3px] bg-success-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -263,12 +250,12 @@ export default function RoomsPage() {
                   <span className="live-dot live-dot--on" /> Live
                 </span>
               </h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Lockers, clubs, and study halls. Emerald wash 4% • #059669</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Lockers, clubs, and study halls</p>
             </div>
           </div>
           <button
             onClick={() => { resetForm(); setShowCreate(true) }}
-            className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-slate-800 text-white rounded-xl hover:bg-slate-700 text-sm font-semibold"
+            className="inline-flex items-center gap-2 min-h-[44px] px-4 bg-slate-800 text-white rounded-xl hover:bg-slate-700 text-sm font-semibold dark:bg-white dark:text-black dark:hover:bg-zinc-100"
           >
             <Plus size={16} /> New Locker
           </button>
@@ -333,7 +320,7 @@ export default function RoomsPage() {
                   </div>
                   <div className="mt-3 p-2.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl flex items-center gap-2">
                     <KeyRound size={13} className="text-primary-600 shrink-0" />
-                    <span className="font-mono font-bold text-surface-800 text-xs tracking-wider">{room.joinCode}</span>
+                    <span className="font-mono font-bold text-surface-800 text-xs tracking-wider dark:text-white">{room.joinCode}</span>
                     <div className="flex gap-1 ml-auto">
                       <button onClick={(e) => copyJoinCode(room.joinCode, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-white dark:hover:bg-night-700 dark:bg-night-800 border border-transparent hover:border-surface-200 dark:border-night-600" title="Copy code"><Copy size={12} /></button>
                       <button onClick={(e) => shareJoinCode(room, e)} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-white dark:hover:bg-night-700 dark:bg-night-800 border border-transparent hover:border-surface-200 dark:border-night-600" title="Copy join link"><Share2 size={12} /></button>

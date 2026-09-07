@@ -62,7 +62,7 @@ export default function AssignPopup({ show, onClose, teachers, onAssign, onUnass
                 )}
               </div>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-400 dark:text-night-400 transition-colors">
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-400 dark:text-night-400 transition-colors dark:bg-[#1e1e1e]">
               <X size={16} />
             </button>
           </div>

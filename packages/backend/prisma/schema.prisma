@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL") // Neon pooled: -pooler host + pgbouncer=true&connection_limit=10&pool_timeout=30&channel_binding=prefer&connect_timeout=30 (keeps Render+Neon warm via /api/health)
+  url       = env("DATABASE_URL") // Neon pooled: -pooler host + pgbouncer=true&connection_limit=20&pool_timeout=30&channel_binding=prefer&connect_timeout=30 (keeps Render+Neon warm via /api/health)
   directUrl = env("DIRECT_URL") // Neon direct (no pooler, no pgbouncer) for migrations, channel_binding=prefer&connect_timeout=30
 }
 
@@ -24,9 +24,11 @@ model User {
   incomingYear   Int?
   outgoingYear   Int?
   avatar         String?
+  portfolioUrl   String?
   preferences    String?  @default("{}")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  reports        Report[]
 
   schedules     Schedule[]
   notifications Notification[]
@@ -303,6 +305,7 @@ model College {
   announcements      Announcement[]
   announcementColleges AnnouncementCollege[]
   assignmentHubs AssignmentHub[]
+  reports            Report[]
 }
 
 model Department {
@@ -432,9 +435,7 @@ model HackathonStaging {
   participantsCount  Int       @default(0)
   inviteOnly         Boolean   @default(false)
   status             String    @default("DRAFT")
-  source             String?
-  trust              String    @default("MEDIUM")
-  createdAt          DateTime  @default(now())
+  source             String?  createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   creator User     @relation("HackathonStagingCreator", fields: [creatorId], references: [id])
@@ -444,9 +445,7 @@ model HackathonStaging {
   @@index([creatorId])
   @@index([deadline])
   @@index([status])
-  @@index([targetDepartments])
-  @@index([trust])
-}
+  @@index([targetDepartments])}
 
 model InternshipStaging {
   id                 String   @id @default(uuid())
@@ -466,9 +465,7 @@ model InternshipStaging {
   targetYears        String   @default("[]")
   eligibilityEnabled Boolean  @default(false)
   status             String   @default("ACTIVE")
-  source             String?
-  trust              String   @default("MEDIUM")
-  createdAt          DateTime @default(now())
+  source             String?  createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   creator User     @relation("InternshipStagingCreator", fields: [creatorId], references: [id])
@@ -477,9 +474,7 @@ model InternshipStaging {
   @@index([collegeId, status, createdAt])
   @@index([creatorId])
   @@index([status])
-  @@index([deadline])
-  @@index([trust])
-}
+  @@index([deadline])}
 
 model Internship {
   id                 String                   @id @default(uuid())
@@ -774,6 +769,7 @@ model PlatformSettings {
   platform    String
   type        String
   fetchLimit  Int       @default(10)
+  enabled     Boolean   @default(true)
   lastFetchAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -998,4 +994,32 @@ model AiRouting {
   createdAt     DateTime   @default(now())
 
   @@unique([feature, fallbackOrder, collegeId])
+}
+
+model Report {
+  id            String   @id @default(uuid())
+  userId        String
+  collegeId     String?
+  scope         String   @default("WEBSITE") // COLLEGE | WEBSITE
+  issueType     String   // DESIGN | BUG | CRASH | PERFORMANCE | SECURITY | FEATURE_REQUEST | OTHER
+  title         String   @db.VarChar(200)
+  description   String   @db.Text
+  priority      String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status        String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED | CLOSED
+  attachmentUrl String?
+  // denormalized display helpers
+  collegeName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId, status])
+  @@index([userId])
+  @@index([scope])
+  @@index([status])
+  @@index([createdAt])
+  @@index([issueType])
+  @@index([priority])
 }

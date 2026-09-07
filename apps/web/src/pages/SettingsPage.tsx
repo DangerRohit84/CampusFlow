@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor, Settings2 } from 'lucide-react'
-import Card from '../components/ui/Card'
+import { User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor, Settings2, Shield, Eye, EyeOff, Sparkles, KeyRound, Zap } from 'lucide-react'
 import Button from '../components/ui/Button'
-import Input from '../components/ui/Input'
-import Badge from '../components/ui/Badge'
 import { useAuthStore } from '../store/authStore'
-import { userAPI, codingProfileAPI, waitForCodingSync, publicProfileAPI, authAPI } from '../lib/api'
+import { userAPI, codingProfileAPI, waitForCodingSync, authAPI } from '../lib/api'
 import toast from 'react-hot-toast'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { PremiumHero, GlassPanel, BentoGrid, SectionCard } from '../components/premium/PremiumKit'
+import clsx from 'clsx'
 
 const codingPlatforms = [
   { key: 'leetcodeHandle', label: 'LeetCode', color: 'bg-yellow-500', url: 'https://leetcode.com/' },
@@ -39,15 +37,26 @@ export default function SettingsPage() {
   const [syncing, setSyncing] = useState(false)
   const [participations, setParticipations] = useState<any[]>([])
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
+  const [portfolioUrl, setPortfolioUrl] = useState('')
+  const [portfolioSaving, setPortfolioSaving] = useState(false)
+  const [portfolioError, setPortfolioError] = useState<string | null>(null)
   const [notifications, setNotifications] = useState({
     email: true,
     push: true,
     sms: false,
   })
+  // Change password state — premium security
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [changeSaving, setChangeSaving] = useState(false)
 
   useEffect(() => { 
-    userAPI.getProfile().then((p)=>{ setProfile(p); if(p?.username) setUsername(p.username) }).catch(console.error)
-    authAPI.me().then(me=>{ if(me?.username) setUsername(me.username)}).catch(()=>{})
+    userAPI.getProfile().then((p)=>{ setProfile(p); if(p?.username) setUsername(p.username); if(p?.portfolioUrl) setPortfolioUrl(p.portfolioUrl) }).catch(console.error)
+    authAPI.me().then(me=>{ if(me?.username) setUsername(me.username); if((me as any)?.portfolioUrl) setPortfolioUrl((me as any).portfolioUrl)}).catch(()=>{})
   }, [])
 
   useEffect(() => {
@@ -82,8 +91,6 @@ export default function SettingsPage() {
       const result = await codingProfileAPI.sync()
       if (result?.skipped) {
         if (result.reason === 'no-handles') {
-          // Server refused to start a job because no handles are configured —
-          // inform instead of polling until timeout.
           toast(result.message || 'Add at least one coding platform handle first', { icon: 'ℹ️' })
         } else {
           toast.success('Stats are already up to date')
@@ -112,6 +119,32 @@ export default function SettingsPage() {
     try { await userAPI.updateProfile(profile); toast.success('Profile saved!') } catch { toast.error('Failed to save') }
     setSaving(false)
   }
+  const normalizePortfolio = (input: string): string | null => {
+    const raw = String(input||'').trim()
+    if (!raw) return null
+    let c = raw
+    if (!/^https?:\/\//i.test(c)) c = 'https://' + c
+    try { const u = new URL(c); if (u.protocol!=='http:' && u.protocol!=='https:') return null; if (!u.hostname.includes('.') && u.hostname!=='localhost') return null; return u.toString() } catch { return null }
+  }
+  const handleSavePortfolio = async () => {
+    setPortfolioError(null)
+    const raw = portfolioUrl.trim()
+    if (!raw) {
+      setPortfolioSaving(true)
+      try { const res = await userAPI.updateProfile({ portfolioUrl: '' }); updateUser({ portfolioUrl: null } as any); toast.success('Portfolio link removed'); } catch (e:any) { toast.error(e?.response?.data?.error || 'Failed to remove') } finally { setPortfolioSaving(false) }
+      return
+    }
+    const normalized = normalizePortfolio(raw)
+    if (!normalized) { setPortfolioError('Enter a valid URL — e.g., https://your-portfolio.com'); return }
+    setPortfolioSaving(true)
+    try {
+      const res = await userAPI.updateProfile({ portfolioUrl: normalized })
+      setPortfolioUrl(res?.portfolioUrl || normalized)
+      updateUser({ portfolioUrl: res?.portfolioUrl || normalized } as any)
+      toast.success('Portfolio link saved — visible on your public profile!')
+    } catch (e:any) { toast.error(e?.response?.data?.error || 'Failed to save portfolio'); setPortfolioError(e?.response?.data?.error || 'Failed to save') }
+    finally { setPortfolioSaving(false) }
+  }
 
   const sanitize = (v:string)=> v.toLowerCase().replace(/[^a-z0-9_.-]/g,'').slice(0,20)
   const checkUsername = async (val:string) => {
@@ -138,390 +171,406 @@ export default function SettingsPage() {
     setUsernameSaving(false)
   }
 
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) { toast.error('Fill all password fields'); return }
+    if (newPassword.length < 6) { toast.error('New password must be at least 6 characters'); return }
+    if (newPassword.length > 128) { toast.error('New password too long (max 128)'); return }
+    if (newPassword !== confirmPassword) { toast.error('New passwords do not match'); return }
+    if (currentPassword === newPassword) { toast.error('New password must be different from current'); return }
+    setChangeSaving(true)
+    try {
+      await authAPI.changePassword({ currentPassword, newPassword })
+      toast.success('Password changed successfully')
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+    } catch (e:any) { toast.error(e.response?.data?.error || 'Failed to change password') }
+    finally { setChangeSaving(false) }
+  }
+
   const toggleNotification = (key: keyof typeof notifications) => {
     setNotifications(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      className="space-y-6 max-w-4xl"
-    >
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Page Header */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="font-display text-xl font-extrabold text-surface-900 dark:text-night-50 leading-none">Settings</h1>
-        <p className="text-surface-500 dark:text-night-400 mt-1">Manage your account preferences and configurations</p>
-      </motion.div>
-
-      {/* Profile Section */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: 0.05 }}
-      >
-        <Card hover>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Profile</h2>
-            <Badge variant="primary">{user?.role || 'Student'}</Badge>
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-8">
-            {/* Avatar Section */}
-            <div className="flex flex-col items-center md:items-start gap-4">
-              <div className="relative group">
-                <div className="w-32 h-32 rounded-full bg-primary-600 flex items-center justify-center text-white text-4xl font-bold shadow-lg ring-4 ring-white">
-                  {user?.name?.charAt(0) || 'A'}
-                </div>
-                <button className="absolute inset-0 w-full h-full rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                  <Camera size={24} className="text-white" />
-                </button>
+    <div className="space-y-6 max-w-[840px] mx-auto">
+      {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
+      <PremiumHero
+        icon={<Settings2 size={18} />}
+        eyebrow="Account · Settings"
+        title={<>Settings</>}
+        subtitle="Manage your account preferences, security and integrations — everything in one premium bento."
+        actions={
+          <>
+            <span className="inline-flex items-center gap-2 px-4 h-11 rounded-full bg-white text-black text-[13px] font-black shadow-lg">
+              <Sparkles size={14} className="text-primary-600"/> {user?.role || 'Student'}
+            </span>
+            <span className="hidden sm:inline-flex items-center gap-2 px-4 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-[13px] font-bold">
+              <User size={14}/> {user?.name?.split(' ')[0] || 'Account'}
+            </span>
+            <span className="hidden sm:inline-flex items-center gap-2 px-4 h-11 rounded-full bg-primary-500 text-black text-[13px] font-black">
+              <Shield size={14}/> Secure
+            </span>
+          </>
+        }
+        stats={
+          <GlassPanel className="p-4">
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/60">Account Pulse</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-white p-3 dark:bg-[#121212] border border-white/10">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/50 dark:text-white/60">Profile</p>
+                <p className="mt-1 font-display text-[13px] font-[800] leading-none text-black dark:text-white truncate">{user?.name || '—'}</p>
+                <p className="mt-1 text-[11px] font-semibold text-black/60 dark:text-white/60 truncate">@{username || (user as any)?.username || 'username'}</p>
               </div>
-              <button className="px-4 py-2 text-sm font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-colors">
-                Change Avatar
-              </button>
+              <div className="rounded-2xl bg-primary-500 p-3 text-black">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60">Portfolio</p>
+                <p className="mt-1 text-[11px] font-black leading-tight truncate">{portfolioUrl ? 'Linked ✓' : 'Not linked'}</p>
+                <p className="mt-1 text-[11px] font-bold text-black/70 truncate">{portfolioUrl ? new URL(portfolioUrl.startsWith('http')?portfolioUrl:'https://'+portfolioUrl).hostname : 'Add your site'}</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/10 p-3 col-span-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-white/70 flex items-center gap-1"><Code size={11}/> Coding</span>
+                  <span className="text-xs font-black text-white">{filledCount}/5 linked</span>
+                </div>
+                <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden flex">
+                  <div className="bg-primary-500 transition-all" style={{ width: `${(filledCount/5)*100}%` }} />
+                </div>
+                <p className="mt-1 text-[11px] font-medium text-white/50">{codingProfile?.lastSyncedAt ? `Synced ${new Date(codingProfile.lastSyncedAt).toLocaleDateString()}` : 'Sync to update'}</p>
+              </div>
             </div>
+          </GlassPanel>
+        }
+      />
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
 
-            {/* Form Fields */}
-            <div className="flex-1 space-y-5">
-              <div className="grid md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">First Name</label>
-                  <input
-                    type="text"
-                    defaultValue={user?.name?.split(' ')[0] || 'Alex'}
-                    onChange={(e) => setProfile((p: any) => ({ ...p, firstName: e.target.value }))}
-                    className="w-full px-4 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-colors"
-                  />
+      {/* ─── Single-column premium bento — stagger ─── */}
+      <motion.div initial="hidden" animate="show" variants={{ hidden:{}, show:{ transition:{ staggerChildren:0.07, delayChildren:0.1 } } }} className="space-y-6">
+        {/* Profile — SectionCard premium */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <SectionCard title="Profile" subtitle={`${user?.role || 'Student'} · Public & private info`} icon={<User size={16}/>} gradient="from-primary-500 via-primary-500 to-emerald-500" action={<span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-500 text-black text-[11px] font-black tracking-widest uppercase"><span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"/> Live</span>}>
+            <div className="flex flex-col md:flex-row gap-8">
+              {/* Avatar */}
+              <div className="flex flex-col items-center md:items-start gap-4 shrink-0">
+                <div className="relative group">
+                  <div className="w-28 h-28 rounded-[24px] bg-[#0a0a0a] dark:bg-white flex items-center justify-center text-white dark:text-black text-3xl font-black shadow-lg border border-surface-200 dark:border-[#282828]">
+                    {user?.name?.charAt(0)?.toUpperCase() || 'A'}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center border-2 border-white dark:border-[#121212]"><Camera size={14} className="text-black"/></div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">Last Name</label>
-                  <input
-                    type="text"
-                    defaultValue={user?.name?.split(' ').slice(1).join(' ') || 'Johnson'}
-                    onChange={(e) => setProfile((p: any) => ({ ...p, lastName: e.target.value }))}
-                    className="w-full px-4 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-colors"
-                  />
-                </div>
+                <p className="text-xs font-bold text-surface-500 dark:text-night-400 text-center md:text-left">Avatar · {user?.name?.split(' ')[0] || 'You'}</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">Username — your public profile link</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400 font-mono text-sm">@</span>
+              {/* Fields */}
+              <div className="flex-1 space-y-5 min-w-0">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">First Name</label>
                     <input
                       type="text"
-                      value={username}
-                      onChange={(e)=>{ const v=sanitize(e.target.value); setUsername(v); checkUsername(v) }}
-                      placeholder={user?.name?.toLowerCase().replace(/\s+/g,'_') || 'username'}
-                      className="w-full pl-8 pr-10 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                      defaultValue={user?.name?.split(' ')[0] || 'Alex'}
+                      onChange={(e) => setProfile((p: any) => ({ ...p, firstName: e.target.value }))}
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {usernameChecking ? <Loader2 size={14} className="animate-spin text-surface-400 dark:text-night-400"/> : usernameAvailable===true ? <CheckCircle size={14} className="text-emerald-500"/> : usernameAvailable===false ? <span className="text-danger-500 text-xs">✕</span> : null}
-                    </span>
                   </div>
-                  <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !username || usernameAvailable===false}
-                    className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-1">
-                    {usernameSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Last Name</label>
+                    <input
+                      type="text"
+                      defaultValue={user?.name?.split(' ').slice(1).join(' ') || 'Johnson'}
+                      onChange={(e) => setProfile((p: any) => ({ ...p, lastName: e.target.value }))}
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Username — your public profile link</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 font-mono text-sm">@</span>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e)=>{ const v=sanitize(e.target.value); setUsername(v); checkUsername(v) }}
+                        placeholder={user?.name?.toLowerCase().replace(/\s+/g,'_') || 'username'}
+                        className="w-full pl-8 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {usernameChecking ? <Loader2 size={14} className="animate-spin text-surface-400"/> : usernameAvailable===true ? <CheckCircle size={14} className="text-primary-500"/> : usernameAvailable===false ? <span className="text-[#ff4b5c] text-xs font-black">✕</span> : null}
+                      </span>
+                    </div>
+                    <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !username || usernameAvailable===false}
+                      className="px-4 h-[44px] bg-primary-500 hover:bg-[#1ed760] text-black rounded-full text-sm font-black disabled:opacity-50 flex items-center gap-1.5 shadow-[0_8px_24px_rgba(30,215,96,0.25)] shrink-0">
+                      {usernameSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
+                    </button>
+                  </div>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Profile at <span className="font-mono font-bold text-primary-600">/u/{username || 'username'}</span> · 3-20 chars</p>
+                  {usernameAvailable===true && <p className="text-xs font-black text-primary-600">Available!</p>}
+                  {usernameAvailable===false && <p className="text-xs font-black text-[#ff4b5c]">Not available</p>}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Portfolio — showcase on your public profile</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"><ExternalLink size={14}/></span>
+                      <input
+                        type="url"
+                        value={portfolioUrl}
+                        onChange={(e)=>{ setPortfolioUrl(e.target.value); if(portfolioError) setPortfolioError(null) }}
+                        onKeyDown={(e)=>{ if(e.key==='Enter') handleSavePortfolio() }}
+                        placeholder="https://your-portfolio.com"
+                        className={`w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-colors bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder-surface-400 ${portfolioError ? 'border-[#ff4b5c] focus:border-[#ff4b5c] focus:ring-[#ff4b5c]/20' : 'border-surface-200 dark:border-[#282828] focus:border-primary-500 focus:ring-primary-500/20'}`}
+                      />
+                    </div>
+                    <button onClick={handleSavePortfolio} disabled={portfolioSaving}
+                      className="px-4 h-[44px] bg-[#0a0a0a] dark:bg-white text-white dark:text-black rounded-full text-sm font-black disabled:opacity-50 flex items-center gap-1.5 shrink-0 hover:bg-black dark:hover:bg-zinc-100 transition-colors">
+                      {portfolioSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
+                    </button>
+                  </div>
+                  {portfolioError && <p className="text-xs font-bold text-[#ff4b5c] mt-1">{portfolioError}</p>}
+                  <p className="text-xs font-medium text-surface-500 mt-1">Shown at <span className="font-mono font-bold text-primary-600">/u/{username || (user as any)?.username || 'username'}</span> for recruiters.</p>
+                  {portfolioUrl && normalizePortfolio(portfolioUrl) && (
+                    <a href={normalizePortfolio(portfolioUrl)!} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:underline break-all"><ExternalLink size={12}/> {normalizePortfolio(portfolioUrl)}</a>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Email</label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      defaultValue={user?.email || 'alex@university.edu'}
+                      disabled
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] text-surface-500 bg-surface-50 dark:bg-[#0a0a0a] dark:text-night-400 cursor-not-allowed text-sm pr-10"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400"><Lock size={16} /></span>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Phone</label>
+                    <input
+                      type="tel"
+                      defaultValue={(user as any)?.phone || ''}
+                      placeholder="Enter phone number"
+                      onChange={(e) => setProfile((p: any) => ({ ...p, phone: e.target.value }))}
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder-surface-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Student ID</label>
+                    <input
+                      type="text"
+                      defaultValue={user?.studentId || user?.empNumber || ''}
+                      disabled
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] text-surface-500 bg-surface-50 dark:bg-[#0a0a0a] dark:text-night-400 cursor-not-allowed text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button onClick={handleSaveProfile} disabled={saving} className="inline-flex items-center gap-2 px-6 h-11 rounded-full bg-primary-500 text-black text-sm font-black hover:bg-[#1ed760] disabled:opacity-50 shadow-[0_8px_24px_rgba(30,215,96,0.25)]">
+                    {saving ? <Loader2 size={16} className="animate-spin"/> : <Save size={16} />} Save Changes
                   </button>
                 </div>
-                <p className="text-xs text-surface-500 dark:text-night-400 mt-1">Profile at <span className="font-mono text-primary-600">/u/{username || 'username'}</span> · 3-20 chars, letters/numbers/_.-</p>
-                {(user as any)?.username && username && `u/${username}` !== `u/${(user as any).username}` && usernameAvailable===true && <p className="text-xs text-emerald-600">Available!</p>}
-                {usernameAvailable===false && <p className="text-xs text-danger-600">Not available</p>}
               </div>
+            </div>
+          </SectionCard>
+        </motion.div>
 
+        {/* Security — Change Password — premium */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <SectionCard title="Security · Change Password" subtitle="Update your password — 6–128 chars" icon={<Shield size={16}/>} gradient="from-primary-500 via-primary-500 to-emerald-500" action={<span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-[11px] font-black tracking-widest uppercase"><Lock size={11}/> Secure</span>}>
+            <div className="grid gap-4">
               <div>
-                <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">Email</label>
+                <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Current Password</label>
                 <div className="relative">
-                  <input
-                    type="email"
-                    defaultValue={user?.email || 'alex@university.edu'}
-                    disabled
-                    className="w-full px-4 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-500 dark:text-night-400 bg-surface-50 dark:bg-night-800 cursor-not-allowed"
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400">
-                    <Lock size={16} />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"><Lock size={16}/></span>
+                  <input type={showCurrent ? 'text' : 'password'} value={currentPassword} onChange={e=> setCurrentPassword(e.target.value)} placeholder="Enter current password" className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
+                  <button onClick={()=> setShowCurrent(v=>!v)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] flex items-center justify-center text-surface-500 hover:text-primary-600 transition-colors">
+                    {showCurrent ? <EyeOff size={14}/> : <Eye size={14}/>}
+                  </button>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">New Password</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"><KeyRound size={16}/></span>
+                    <input type={showNew ? 'text' : 'password'} value={newPassword} onChange={e=> setNewPassword(e.target.value)} placeholder="New password" className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
+                    <button onClick={()=> setShowNew(v=>!v)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] flex items-center justify-center text-surface-500 hover:text-primary-600">
+                      {showNew ? <EyeOff size={14}/> : <Eye size={14}/>}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">Confirm New Password</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"><Shield size={16}/></span>
+                    <input type={showConfirm ? 'text' : 'password'} value={confirmPassword} onChange={e=> setConfirmPassword(e.target.value)} placeholder="Confirm new password" className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
+                    <button onClick={()=> setShowConfirm(v=>!v)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] flex items-center justify-center text-surface-500 hover:text-primary-600">
+                      {showConfirm ? <EyeOff size={14}/> : <Eye size={14}/>}
+                    </button>
                   </div>
                 </div>
               </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">Phone</label>
-                  <input
-                    type="tel"
-                    defaultValue={(user as any)?.phone || ''}
-                    placeholder="Enter phone number"
-                    onChange={(e) => setProfile((p: any) => ({ ...p, phone: e.target.value }))}
-                    className="w-full px-4 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1.5">Student ID</label>
-                  <input
-                    type="text"
-                    defaultValue={user?.studentId || user?.empNumber || ''}
-                    disabled
-                    className="w-full px-4 py-2.5 border border-surface-300 dark:border-night-600 rounded-lg text-surface-500 dark:text-night-400 bg-surface-50 dark:bg-night-800 cursor-not-allowed"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <Button onClick={handleSaveProfile} loading={saving}>
-                  <Save size={16} /> Save Changes
-                </Button>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </motion.div>
-
-      {/* Notification Preferences */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: 0.1 }}
-      >
-        <Card hover>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-              <Bell className="w-5 h-5 text-primary-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Notification Preferences</h2>
-              <p className="text-xs text-surface-500 dark:text-night-400">Choose how you want to be notified</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {/* Email Notifications */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors">
-              <div>
-                <p className="text-sm font-medium text-surface-700 dark:text-night-200">Email Notifications</p>
-                <p className="text-xs text-surface-500 dark:text-night-400">Receive updates and alerts via email</p>
-              </div>
-              <button
-                onClick={() => toggleNotification('email')}
-                className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-                  notifications.email ? 'bg-primary-500' : 'bg-surface-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    notifications.email ? 'translate-x-6' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Push Notifications */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors">
-              <div>
-                <p className="text-sm font-medium text-surface-700 dark:text-night-200">Push Notifications</p>
-                <p className="text-xs text-surface-500 dark:text-night-400">Get real-time notifications in your browser</p>
-              </div>
-              <button
-                onClick={() => toggleNotification('push')}
-                className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-                  notifications.push ? 'bg-primary-500' : 'bg-surface-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    notifications.push ? 'translate-x-6' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* SMS Notifications */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors">
-              <div>
-                <p className="text-sm font-medium text-surface-700 dark:text-night-200">SMS Notifications</p>
-                <p className="text-xs text-surface-500 dark:text-night-400">Receive important alerts via text message</p>
-              </div>
-              <button
-                onClick={() => toggleNotification('sms')}
-                className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-                  notifications.sms ? 'bg-primary-500' : 'bg-surface-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    notifications.sms ? 'translate-x-6' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-        </Card>
-      </motion.div>
-
-      {/* Appearance */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: 0.15 }}
-      >
-        <Card hover>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-              <Sun className="w-5 h-5 text-primary-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Appearance</h2>
-              <p className="text-xs text-surface-500 dark:text-night-400">Customize how CampusFlow looks on your device</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            {themeOptions.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => setTheme(value as typeof theme)}
-                className={`flex flex-col items-center gap-3 p-5 rounded-xl border-2 transition-all ${
-                  theme === value
-                    ? 'border-primary-500 bg-primary-50 shadow-sm'
-                    : 'border-surface-200 dark:border-night-600 hover:border-surface-300 bg-white dark:bg-night-800'
-                }`}
-              >
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  theme === value ? 'bg-primary-100 text-primary-600' : 'bg-surface-100 text-surface-500'
-                }`}>
-                  <Icon size={24} />
-                </div>
-                <span className={`text-sm font-medium ${
-                  theme === value ? 'text-primary-600' : 'text-surface-700'
-                }`}>
-                  {label}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Card>
-      </motion.div>
-
-      {/* Coding Profiles */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: 0.2 }}
-      >
-        <Card hover>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
-              <Code className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Coding Profiles</h2>
-              <p className="text-xs text-surface-500 dark:text-night-400">Link your coding platform accounts to track contest participation</p>
-            </div>
-          </div>
-
-          {codingLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="animate-spin text-primary-500" size={24} />
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3">
-                {codingPlatforms.map((p) => (
-                  <div key={p.key} className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${p.color}`} />
-                    <label className="w-32 text-sm font-medium text-surface-700 dark:text-night-200">{p.label}</label>
-                    <input
-                      type="text"
-                      value={codingHandles[p.key] || ''}
-                      onChange={(e) => setCodingHandles({ ...codingHandles, [p.key]: e.target.value })}
-                      placeholder={`Your ${p.label} handle`}
-                      className="flex-1 px-3 py-2 border border-surface-300 dark:border-night-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
-                    />
-                    {codingHandles[p.key] && (
-                      <a href={`${p.url}${codingHandles[p.key]}`} target="_blank" rel="noopener noreferrer"
-                        className="p-2 text-surface-400 dark:text-night-400 hover:text-primary-500 transition-colors">
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-3 mt-5">
-                <Button onClick={handleSaveCoding} loading={codingSaving} size="sm">
-                  <CheckCircle size={14} /> Save Profiles
-                </Button>
-                <button 
-                  onClick={handleSyncCoding} 
-                  disabled={syncing || filledCount === 0}
-                  className="px-4 py-2 bg-surface-100 dark:bg-night-700 text-surface-700 dark:text-night-200 rounded-lg text-sm font-medium hover:bg-surface-200 disabled:opacity-50 flex items-center gap-2 transition-colors"
-                >
-                  {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                  Sync Now
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <p className="text-xs font-medium text-surface-500 dark:text-night-400">Use 6+ characters, mix letters & numbers for strength.</p>
+                <button onClick={handleChangePassword} disabled={changeSaving || !currentPassword || !newPassword || !confirmPassword} className="inline-flex items-center gap-2 px-6 h-11 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-sm font-black hover:bg-black dark:hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed shadow">
+                  {changeSaving ? <Loader2 size={16} className="animate-spin"/> : <Lock size={16}/>} Update Password
                 </button>
               </div>
-
-              {codingProfile?.lastSyncedAt && (
-                <p className="text-xs text-surface-400 dark:text-night-400 mt-3">
-                  Last synced: {new Date(codingProfile.lastSyncedAt).toLocaleString()}
-                </p>
-              )}
-
-              {participations.length > 0 && (
-                <div className="mt-5 pt-5 border-t border-surface-200 dark:border-night-600">
-                  <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 mb-3">Contest History ({participations.length})</h3>
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                    {participations.slice(0, 10).map((p) => (
-                      <div key={p.id} className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-800 rounded-xl">
-                        <div>
-                          <p className="text-sm font-medium text-surface-900 dark:text-night-50">{p.contestName}</p>
-                          <p className="text-xs text-surface-500 dark:text-night-400">{p.platform} {p.participatedAt ? `• ${new Date(p.participatedAt).toLocaleDateString()}` : ''}</p>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          {p.rank && <span className="text-surface-600 dark:text-night-300">#{p.rank}</span>}
-                          {p.rating && <span className="font-medium text-primary-600">{p.rating}</span>}
-                          {p.ratingChange && (
-                            <span className={p.ratingChange > 0 ? 'text-primary-600' : 'text-danger-600'}>
-                              {p.ratingChange > 0 ? '+' : ''}{p.ratingChange}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </Card>
-      </motion.div>
-
-      {/* Sign Out */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: 0.25 }}
-      >
-        <Card hover className="border-danger-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-danger-100 flex items-center justify-center">
-                <LogOut className="w-5 h-5 text-danger-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-surface-900 dark:text-night-50">Sign Out</h3>
-                <p className="text-xs text-surface-500 dark:text-night-400">Sign out from all devices</p>
-              </div>
             </div>
-            <Button variant="danger" size="sm" onClick={logout}>Sign Out</Button>
+          </SectionCard>
+        </motion.div>
+
+        {/* Notifications — premium */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <SectionCard title="Notification Preferences" subtitle="Choose how you want to be notified" icon={<Bell size={16}/>} gradient="from-primary-500 to-emerald-500">
+            <div className="space-y-3">
+              {[
+                { key:'email', label:'Email Notifications', sub:'Receive updates and alerts via email' },
+                { key:'push', label:'Push Notifications', sub:'Get real-time notifications in your browser' },
+                { key:'sms', label:'SMS Notifications', sub:'Receive important alerts via text message' },
+              ].map(item=> (
+                <div key={item.key} className="flex items-center justify-between p-4 rounded-2xl bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] hover:border-primary-500/20 transition-colors">
+                  <div>
+                    <p className="text-sm font-black text-[#0a0a0a] dark:text-white">{item.label}</p>
+                    <p className="text-xs font-medium text-surface-500 dark:text-night-400">{item.sub}</p>
+                  </div>
+                  <button
+                    onClick={() => toggleNotification(item.key as any)}
+                    className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${notifications[item.key as keyof typeof notifications] ? 'bg-primary-500' : 'bg-surface-300 dark:bg-[#282828]'}`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${notifications[item.key as keyof typeof notifications] ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        </motion.div>
+
+        {/* Appearance — premium */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <SectionCard title="Appearance" subtitle="Customize how CampusFlow looks" icon={<Sun size={16}/>} gradient="from-primary-500 to-emerald-500">
+            <div className="grid grid-cols-3 gap-3">
+              {themeOptions.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setTheme(value as typeof theme)}
+                  className={`flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all ${theme === value ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10 shadow-sm' : 'border-surface-200 dark:border-[#282828] hover:border-surface-300 bg-white dark:bg-[#0a0a0a]'}`}
+                >
+                  <span className={`w-12 h-12 rounded-xl flex items-center justify-center ${theme === value ? 'bg-primary-500 text-black' : 'bg-surface-100 dark:bg-[#1a1a1a] text-surface-500 dark:text-night-400'}`}>
+                    <Icon size={22} />
+                  </span>
+                  <span className={`text-sm font-black ${theme === value ? 'text-primary-600' : 'text-surface-700 dark:text-night-300'}`}>
+                    {label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </SectionCard>
+        </motion.div>
+
+        {/* Coding Profiles — premium */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <SectionCard title="Coding Profiles" subtitle="Link your coding platform accounts" icon={<Code size={16}/>} gradient="from-primary-500 to-emerald-500" action={<span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-500 text-black text-xs font-black"><Zap size={11}/> {filledCount}/5</span>}>
+            {codingLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="animate-spin text-primary-500" size={24} />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {codingPlatforms.map((p) => (
+                    <div key={p.key} className="flex items-center gap-3 p-3 rounded-2xl bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] hover:border-primary-500/20 transition-colors">
+                      <span className={`w-3 h-3 rounded-full ${p.color} shrink-0`} />
+                      <label className="w-28 text-sm font-black text-[#0a0a0a] dark:text-white hidden sm:block">{p.label}</label>
+                      <input
+                        type="text"
+                        value={codingHandles[p.key] || ''}
+                        onChange={(e) => setCodingHandles({ ...codingHandles, [p.key]: e.target.value })}
+                        placeholder={`Your ${p.label} handle`}
+                        className="flex-1 px-3 py-2 rounded-xl border border-surface-200 dark:border-[#282828] bg-white dark:bg-[#121212] text-sm text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                      />
+                      {codingHandles[p.key] && (
+                        <a href={`${p.url}${codingHandles[p.key]}`} target="_blank" rel="noopener noreferrer"
+                          className="p-2 rounded-xl bg-white dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-surface-500 hover:text-primary-600 hover:border-primary-500/20 transition-colors">
+                          <ExternalLink size={14} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3 mt-5">
+                  <button onClick={handleSaveCoding} disabled={codingSaving} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-primary-500 text-black text-sm font-black hover:bg-[#1ed760] disabled:opacity-50 shadow-[0_8px_24px_rgba(30,215,96,0.25)]">
+                    {codingSaving ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle size={14} />} Save Profiles
+                  </button>
+                  <button 
+                    onClick={handleSyncCoding} 
+                    disabled={syncing || filledCount === 0}
+                    className="px-5 h-11 bg-[#0a0a0a] dark:bg-white text-white dark:text-black rounded-full text-sm font-black hover:bg-black dark:hover:bg-zinc-100 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                  >
+                    {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    Sync Now
+                  </button>
+                </div>
+
+                {codingProfile?.lastSyncedAt && (
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-3">
+                    Last synced: {new Date(codingProfile.lastSyncedAt).toLocaleString()}
+                  </p>
+                )}
+
+                {participations.length > 0 && (
+                  <div className="mt-5 pt-5 border-t border-surface-200 dark:border-[#282828]">
+                    <h3 className="text-sm font-black text-[#0a0a0a] dark:text-white mb-3">Contest History ({participations.length})</h3>
+                    <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                      {participations.slice(0, 10).map((p) => (
+                        <div key={p.id} className="flex items-center justify-between p-3 bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] rounded-2xl">
+                          <div>
+                            <p className="text-sm font-black text-[#0a0a0a] dark:text-white">{p.contestName}</p>
+                            <p className="text-xs font-medium text-surface-500">{p.platform} {p.participatedAt ? `• ${new Date(p.participatedAt).toLocaleDateString()}` : ''}</p>
+                          </div>
+                          <div className="flex items-center gap-3 text-sm">
+                            {p.rank && <span className="text-xs font-bold px-2 py-1 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black">#{p.rank}</span>}
+                            {p.rating && <span className="font-black text-primary-600">{p.rating}</span>}
+                            {p.ratingChange && (
+                              <span className={clsx('text-xs font-black px-1.5 py-0.5 rounded-full', p.ratingChange > 0 ? 'bg-primary-500 text-black' : 'bg-[#ff4b5c] text-white')}>
+                                {p.ratingChange > 0 ? '+' : ''}{p.ratingChange}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </SectionCard>
+        </motion.div>
+
+        {/* Sign Out — premium danger but Spotify style */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-[#ff4b5c] to-[#ff4b5c]" />
+            <div className="p-6 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-[#ff4b5c]/10 border border-[#ff4b5c]/20 flex items-center justify-center">
+                  <LogOut className="w-5 h-5 text-[#ff4b5c]" />
+                </span>
+                <div>
+                  <h3 className="font-black text-[#0a0a0a] dark:text-white">Sign Out</h3>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400">Sign out from all devices</p>
+                </div>
+              </div>
+              <button onClick={logout} className="px-6 h-11 rounded-full bg-[#ff4b5c] text-white text-sm font-black hover:bg-[#e53e4c] shadow-[0_8px_24px_rgba(255,75,92,0.3)]">Sign Out</button>
+            </div>
           </div>
-        </Card>
+        </motion.div>
       </motion.div>
-    </motion.div>
+    </div>
   )
 }

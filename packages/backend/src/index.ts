@@ -37,6 +37,7 @@ import assignmentHubRouter from './routes/assignmentHub'
 import assignmentSubmissionsRouter from './routes/assignmentSubmissions'
 import resumeRoutes from './routes/resume'
 import publicProfileRoutes from './routes/publicProfile'
+import reportRoutes from './routes/reports'
 import internalCronRoutes, { runContestsJob, runProfileSyncJob, runOpportunitiesJob, runCleanupJob } from './routes/internalCron'
 
 import prisma from './config/db'
@@ -186,6 +187,21 @@ app.get('/api/colleges/list', async (_req, res) => {
   }
 })
 
+// Alias for legacy frontend: /api/colleges/public -> same as /api/colleges/list (backward compat for rolling deploys)
+app.get('/api/colleges/public', async (_req, res) => {
+  try {
+    const colleges = await prisma.college.findMany({
+      where: { status: 'APPROVED' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(colleges)
+  } catch (error) {
+    console.error('Public college list (alias) error:', error)
+    res.status(500).json({ error: 'Failed to fetch colleges' })
+  }
+})
+
 // Public: Get departments for a college (no auth required)
 app.get('/api/colleges/:id/departments', async (req, res) => {
   try {
@@ -233,6 +249,7 @@ app.use('/api/attendance', generalLimiter, attendanceRoutes)
 app.use('/api/grades', generalLimiter, gradesRoutes)
 app.use('/api/announcements', generalLimiter, announcementsRoutes)
 app.use('/api/resume', resumeRoutes)
+app.use('/api/reports', generalLimiter, reportRoutes)
 app.use('/api/u', publicProfileRoutes)
 // alias for /api/users/u etc if needed
 app.use('/api/users/u', publicProfileRoutes)

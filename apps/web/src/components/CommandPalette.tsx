@@ -72,7 +72,7 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
               <div className="py-3 px-3">
                 <p className="text-xs font-semibold text-surface-400 dark:text-night-400 uppercase tracking-wider mb-2 px-2">Quick Navigation</p>
                 {filteredPages.map((p) => (
-                  <button key={p.path} onClick={() => handleSelect(p.path)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left">
+                  <button key={p.path} onClick={() => handleSelect(p.path)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left dark:bg-[#1e1e1e]">
                     <span className="text-base">{p.icon}</span>{p.label}
                   </button>
                 ))}
@@ -83,7 +83,7 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-surface-400 dark:text-night-400 uppercase tracking-wider mb-1 px-3">Pages</p>
                     {filteredPages.map((p) => (
-                      <button key={p.path} onClick={() => handleSelect(p.path)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left">
+                      <button key={p.path} onClick={() => handleSelect(p.path)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left dark:bg-[#1e1e1e]">
                         <span className="text-base">{p.icon}</span>{p.label}
                       </button>
                     ))}
@@ -93,7 +93,7 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
                   <div>
                     <p className="text-xs font-semibold text-surface-400 dark:text-night-400 uppercase tracking-wider mb-1 px-3">Search Results</p>
                     {results.slice(0, 5).map((r: any) => (
-                      <button key={`${r.type}-${r.id}`} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left">
+                      <button key={`${r.type}-${r.id}`} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-700 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors text-left dark:bg-[#1e1e1e]">
                         <span className="text-base">{r.type === 'schedule' ? '📅' : r.type === 'assignment' ? '📝' : '🔔'}</span>
                         <div className="min-w-0"><p className="font-medium truncate">{r.title}</p><p className="text-xs text-surface-400 dark:text-night-400 truncate">{r.subtitle}</p></div>
                       </button>

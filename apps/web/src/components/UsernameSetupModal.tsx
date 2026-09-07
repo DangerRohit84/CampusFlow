@@ -171,7 +171,7 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
                 <button
                   onClick={handleSkip}
                   aria-label="Skip username setup"
-                  className="absolute top-4 right-4 w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-night-300 dark:hover:text-night-100 dark:hover:bg-night-700 transition-colors"
+                  className="absolute top-4 right-4 w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-night-300 dark:hover:text-night-100 dark:hover:bg-night-700 transition-colors dark:bg-[#1e1e1e]"
                 >
                   <X size={16} />
                 </button>

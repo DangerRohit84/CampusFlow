@@ -5,8 +5,9 @@ import { useAuthStore } from '../store/authStore'
 import AnnouncementCard from '../components/AnnouncementCard'
 import CreateAnnouncementModal from '../components/CreateAnnouncementModal'
 import toast from 'react-hot-toast'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { BentoCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function AnnouncementsPage() {
   const { user } = useAuthStore()
@@ -76,32 +77,45 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
-      <PremiumHero
-        icon={<Megaphone size={18} />}
-        eyebrow={`Campus · Announcements · ${announcements.length} notices`}
-        title={<>Announcements</>}
-        subtitle="Stay updated with campus news — pinned, filtered and real-time. Glass, bento and motion for a premium 2025 feel."
-        actions={
-          canCreate ? (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-2 px-6 h-11 rounded-full bg-primary-500 text-black text-[13px] font-black hover:bg-[#1ed760] shadow-[0_8px_20px_rgba(30,215,96,0.3)] transition-colors"
-            >
-              <Plus size={16} /> New Announcement
-            </button>
-          ) : undefined
-        }
-        stats={
-          <GlassPanel className="p-4">
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/60">Notices</p>
-            <p className="mt-1 font-display text-[26px] font-[800] leading-none text-white">{announcements.length}</p>
-            <p className="mt-1 text-[11px] font-semibold text-white/60">{canCreate ? 'You can post' : 'Read-only'}</p>
-            <div className="mt-3 h-px bg-white/10" />
-            <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-white/60"><Filter size={12} className="text-primary-400"/> {isSuperAdmin ? 'Super admin view' : 'Campus scoped'}</div>
-          </GlassPanel>
-        }
-      />
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+      {/* ─── Light Premium Header — rounded-[24px] bg-white dark:bg-[#121212], h-1.5 gradient, BentoCard stats, no dark blur orbs ─── */}
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
+        <div className="h-1.5 bg-gradient-to-r from-primary-500 via-primary-600 to-emerald-500" />
+        <div className="p-6 sm:p-7">
+          <div className="grid grid-cols-12 gap-6 items-start">
+            <div className="col-span-12 lg:col-span-8">
+              <div className="flex items-center gap-2.5 mb-3">
+                <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shadow-sm shrink-0">
+                  <Megaphone size={16} />
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-600 dark:text-night-300 text-[11px] font-bold tracking-widest uppercase">
+                  Campus · Announcements · {announcements.length} notices
+                </span>
+              </div>
+              <h1 className="font-display text-[28px] sm:text-[32px] font-[800] tracking-[-0.03em] leading-none text-[#0a0a0a] dark:text-white">Announcements</h1>
+              <p className="mt-2 text-[14px] font-medium text-surface-500 dark:text-night-400 max-w-[640px]">Stay updated with campus news — pinned, filtered and real-time.</p>
+              {canCreate && (
+                <div className="mt-5">
+                  <button
+                    onClick={() => setShowCreate(true)}
+                    className="inline-flex items-center gap-2 px-5 h-11 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-[13px] font-bold hover:bg-black dark:hover:bg-zinc-100 transition-colors shadow-sm"
+                  >
+                    <Plus size={16} /> New Announcement
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="col-span-12 lg:col-span-4">
+              <BentoCard span="col-span-12" className="!col-span-12" hover={false} padding={true}>
+                <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Notices</p>
+                <p className="mt-1 font-display text-[26px] font-[800] leading-none text-[#0a0a0a] dark:text-white">{announcements.length}</p>
+                <p className="mt-1 text-[11px] font-semibold text-surface-500 dark:text-night-400">{canCreate ? 'You can post' : 'Read-only'}</p>
+                <div className="mt-3 h-px bg-surface-100 dark:bg-night-700" />
+                <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-surface-500 dark:text-night-400"><Filter size={12} className="text-primary-500"/> {isSuperAdmin ? 'Super admin view' : 'Campus scoped'}</div>
+              </BentoCard>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Super Admin College Filter */}
       {isSuperAdmin && (
@@ -128,26 +142,7 @@ export default function AnnouncementsPage() {
         </div>
       )}
 
-      {/* Loading skeletons */}
-      {loading && !data && (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-white dark:bg-night-800 rounded-xl border border-gray-200 dark:border-night-600 p-5 animate-pulse">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-surface-200 dark:bg-night-700" />
-                <div className="flex-1">
-                  <div className="h-4 bg-surface-200 dark:bg-night-700 rounded w-1/3 mb-2" />
-                  <div className="h-3 bg-surface-200 dark:bg-night-700 rounded w-1/4" />
-                </div>
-              </div>
-              <div className="mt-3 space-y-2">
-                <div className="h-3 bg-surface-200 dark:bg-night-700 rounded w-full" />
-                <div className="h-3 bg-surface-200 dark:bg-night-700 rounded w-3/4" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {loading && !data && <CenteredLoader text="Loading announcements..." />}
 
       {/* Announcements list */}
       {!loading && announcements.length === 0 && (

@@ -59,7 +59,7 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
             <FileIcon size={14} /> {names[i] || `File ${i+1}`}
           </a>
         ))}
-        {submission.fileType==='multi' && <span className="text-xs text-surface-500">{urls.length} pages/files</span>}
+        {submission.fileType==='multi' && <span className="text-xs text-surface-500 dark:text-zinc-400">{urls.length} pages/files</span>}
       </div>
     )
   }
@@ -87,7 +87,7 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
           {(hub.submissionMode==='ONLINE' || hub.submissionMode==='HYBRID') && (
             <div className="space-y-2">
               <label className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed border-surface-200 dark:border-night-700 rounded-xl bg-surface-50 dark:bg-night-800 hover:bg-white dark:hover:bg-night-800 cursor-pointer transition group">
-                <span className="w-8 h-8 rounded-full bg-white dark:bg-night-700 border border-surface-200 dark:border-night-700 flex items-center justify-center group-hover:border-primary-300 transition"><UploadCloud size={16} className="text-surface-500 group-hover:text-primary-600"/></span>
+                <span className="w-8 h-8 rounded-full bg-white dark:bg-night-700 border border-surface-200 dark:border-night-700 flex items-center justify-center group-hover:border-primary-300 transition"><UploadCloud size={16} className="text-surface-500 group-hover:text-primary-600 dark:text-zinc-400"/></span>
                 <span className="text-sm font-medium text-surface-700 dark:text-night-50">Click to upload pages/files</span>
                 <span className="text-xs text-surface-500 dark:text-night-400">PDF, images, docs — up to 5 files, 10MB each. For multi-page assignments upload each page.</span>
                 <input type="file" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.zip" onChange={e=> setFiles(Array.from(e.target.files||[]).slice(0,5))} disabled={submitting} className="hidden" />
@@ -99,9 +99,9 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
                       <span className="w-7 h-7 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center shrink-0"><FileIcon size={13} className="text-primary-600"/></span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{f.name}</div>
-                        <div className="text-xs text-surface-500">{(f.size/1024).toFixed(1)} KB</div>
+                        <div className="text-xs text-surface-500 dark:text-zinc-400">{(f.size/1024).toFixed(1)} KB</div>
                       </div>
-                      <button onClick={()=> removeFile(i)} disabled={submitting} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-danger-600 transition"><X size={14}/></button>
+                      <button onClick={()=> removeFile(i)} disabled={submitting} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-danger-600 transition dark:text-zinc-400 dark:bg-[#1e1e1e]"><X size={14}/></button>
                     </div>
                   ))}
                   <p className="text-xs text-surface-500 dark:text-night-400">{files.length}/5 files selected — each page counts, you can remove before submit.</p>

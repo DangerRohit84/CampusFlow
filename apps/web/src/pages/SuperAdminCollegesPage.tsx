@@ -4,11 +4,12 @@ import { useQuery } from '@tanstack/react-query'
 import { adminAPI } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { useSuperAdminCollegeStore, syncLegacyStorage } from '../store/superAdminCollegeStore'
-import { Building2, Users, Trophy, Search, Loader2, Shield, Filter, ArrowRight, Trash2 } from 'lucide-react'
+import { Building2, Users, Trophy, Search, Shield, Filter, ArrowRight, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function SuperAdminCollegesPage() {
   const navigate = useNavigate()
@@ -69,11 +70,7 @@ export default function SuperAdminCollegesPage() {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading colleges..." />
   }
 
   const counts = {
@@ -111,7 +108,7 @@ export default function SuperAdminCollegesPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
           <input
             type="text"
             value={search}
@@ -121,7 +118,7 @@ export default function SuperAdminCollegesPage() {
           />
         </div>
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-surface-50 dark:bg-night-900 border border-surface-200 dark:border-night-600 shrink-0">
-          <Filter size={14} className="text-surface-400 ml-1" />
+          <Filter size={14} className="text-surface-400 ml-1 dark:text-zinc-500" />
           {(['ALL', 'APPROVED', 'PENDING', 'REJECTED'] as const).map((s) => (
             <button
               key={s}
@@ -178,7 +175,7 @@ export default function SuperAdminCollegesPage() {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDeleteCollege(c.id) }}
-                  className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1.5 rounded-lg text-surface-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 opacity-0 group-hover:opacity-100 transition-all dark:text-zinc-500"
                   title="Delete college"
                 >
                   <Trash2 size={14} />
@@ -193,7 +190,7 @@ export default function SuperAdminCollegesPage() {
                 )}>
                   {c.status}
                 </span>
-                <span className="ml-auto text-xs text-surface-400 font-medium">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ''}</span>
+                <span className="ml-auto text-xs text-surface-400 font-medium dark:text-zinc-500">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ''}</span>
               </div>
               <div className="flex items-center gap-4 text-xs text-surface-500 dark:text-night-400">
                 <span className="inline-flex items-center gap-1"><Users size={12} /> {c._count?.users ?? 0} users</span>
@@ -204,7 +201,7 @@ export default function SuperAdminCollegesPage() {
                   Open workspace <ArrowRight size={14} />
                 </div>
               ) : (
-                <p className="text-xs text-surface-400">{c.status === 'PENDING' ? 'Awaiting approval — open disabled' : 'Rejected — contact support'}</p>
+                <p className="text-xs text-surface-400 dark:text-zinc-500">{c.status === 'PENDING' ? 'Awaiting approval — open disabled' : 'Rejected — contact support'}</p>
               )}
             </div>
           ))}

@@ -167,13 +167,8 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
     const status = req.query.status as string | undefined
     const skip = (page - 1) * limit
 
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const where: any = {
-      OR: [
-        { deadline: null },
-        { deadline: { gte: todayStr } },
-      ],
-    }
+    // No deadline filter for admin staging — show all pending including expired (visually marked Expired)
+    let where: any = {}
     if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
       // Items can be DRAFT (fetched), PENDING (admin-created), or ACTIVE (fetched external)
       if (status === 'PENDING') {
@@ -185,6 +180,12 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
     // When listing for review, only show enriched items (have departments)
     if (status === 'PENDING' || !status) {
       where.targetDepartments = { not: '[]' }
+    }
+    // College filter: college_admin/teacher sees own college + global (collegeId null) so Cognition appears; superadmin keeps where {}
+    if (user.role !== 'SUPER_ADMIN') {
+      where = Object.keys(where).length
+        ? { AND: [where, { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }] }
+        : { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
     }
 
     const [internships, total] = await Promise.all([
@@ -218,15 +219,15 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 // GET /staging/counts - Get staging counts (independent of pagination)
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // No deadline filter — counts must reflect all pending including expired
+    let countsWhere: any = {}
+    if (user && user.role !== 'SUPER_ADMIN') {
+      countsWhere = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
+    }
     const all = await prisma.internshipStaging.findMany({
       select: { targetDepartments: true, status: true },
-      where: {
-        OR: [
-          { deadline: null },
-          { deadline: { gte: todayStr } },
-        ],
-      },
+      where: countsWhere,
     })
     let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
     for (const item of all) {
@@ -273,7 +274,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const internship = await prisma.internship.findUnique({
       where: { id: req.params.id as string },
       include: {
-        registrations: { include: { user: { select: { id: true, name: true, email: true, studentId: true } } } },
+        registrations: { include: { user: { select: { id: true, name: true, email: true, studentId: true, department: true, departmentId: true, incomingYear: true, departmentName: true } } } },
         creator: { select: { id: true, name: true, email: true } },
       },
     })
@@ -449,7 +450,7 @@ router.get('/:id/registrations', async (req: AuthRequest, res: Response) => {
 
     const registrations = await prisma.internshipRegistration.findMany({
       where: { internshipId: req.params.id as string },
-      include: { user: { select: { id: true, name: true, email: true, studentId: true, departmentId: true } } },
+      include: { user: { select: { id: true, name: true, email: true, studentId: true, department: true, departmentId: true, incomingYear: true } } },
     })
 
     res.json(registrations)

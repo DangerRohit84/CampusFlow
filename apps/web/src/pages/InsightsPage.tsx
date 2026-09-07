@@ -7,6 +7,7 @@ import Button from '../components/ui/Button'
 import { aiAPI } from '../lib/api'
 import { sanitizeMarkdown } from '../lib/sanitize'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function InsightsPage() {
   const [insights, setInsights] = useState<string>('')
@@ -56,10 +57,7 @@ export default function InsightsPage() {
             <Badge variant="accent"><Sparkles size={10} /> AI Generated</Badge>
           </div>
           {loading ? (
-            <div className="flex items-center gap-3 py-8 justify-center">
-              <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-surface-500 dark:text-night-200">Analyzing your performance...</span>
-            </div>
+            <CenteredLoader text="Analyzing your performance..." minHeight="min-h-[160px]" />
           ) : (
             <div className="prose prose-sm max-w-none text-surface-700 dark:text-night-200 whitespace-pre-wrap leading-relaxed"
               dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(insights) }}

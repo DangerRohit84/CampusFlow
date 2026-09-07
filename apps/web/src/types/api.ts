@@ -15,6 +15,7 @@ export interface User {
   studentId?: string
   avatarUrl?: string
   avatar?: string | null
+  portfolioUrl?: string | null
 }
 
 export interface Department {

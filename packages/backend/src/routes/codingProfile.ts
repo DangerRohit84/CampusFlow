@@ -329,7 +329,7 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
     })
 
     const userStats = new Map<string, {
-      userId: string; name: string; department: string; avatar: string | null
+      userId: string; name: string; department: string; departmentId: string | null; incomingYear: number | null; avatar: string | null
       totalContests: number; ranks: number[]; bestRating: number
     }>()
 
@@ -344,6 +344,8 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
           userId: p.userId,
           name: p.user.name,
           department: p.user.department?.name || '',
+          departmentId: (p.user as any).departmentId || null,
+          incomingYear: (p.user as any).incomingYear ?? null,
           avatar: p.user.avatar,
           totalContests: 1,
           ranks: p.rank ? [p.rank] : [],
@@ -356,6 +358,8 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
       userId: v.userId,
       name: v.name,
       department: v.department,
+      departmentId: v.departmentId,
+      incomingYear: v.incomingYear,
       avatar: v.avatar,
       totalContests: v.totalContests,
       avgRank: v.ranks.length ? Math.round(v.ranks.reduce((a, b) => a + b, 0) / v.ranks.length) : 0,

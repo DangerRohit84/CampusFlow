@@ -70,7 +70,7 @@ export default function RoomHeader({
               onClick={onEditSettings}
               title="Edit room settings (name, description, time)"
               aria-label="Edit room settings"
-              className="p-1.5 rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 hover:bg-surface-50 text-surface-500 hover:text-primary-600 transition-colors"
+              className="p-1.5 rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 hover:bg-surface-50 text-surface-500 hover:text-primary-600 transition-colors dark:text-zinc-400 dark:hover:bg-[#1a1a1a]"
             >
               <Settings size={14} />
             </button>
@@ -99,7 +99,7 @@ export default function RoomHeader({
           <button
             onClick={onExport}
             title="Export members & resources (CSV)"
-            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 text-surface-700 dark:text-night-200 rounded-xl hover:bg-surface-50 text-sm font-medium dark:hover:bg-[#1a1a1a]"
           >
             <Download size={14} /> Export
           </button>

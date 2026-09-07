@@ -3,14 +3,14 @@ import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, internshipAPI } from '../lib/api'
 import { motion } from 'framer-motion'
 import { Trophy, Briefcase, CheckCircle2, XCircle, Clock,
-  ExternalLink, Calendar, Building2, IndianRupee, Filter,
-  Loader2, AlertCircle, BookOpen } from 'lucide-react'
+  ExternalLink, Calendar, Building2, IndianRupee, Filter, AlertCircle, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import PageHeader from '../components/shared/PageHeader'
 import EmptyState from '../components/shared/EmptyState'
 import { parseJsonArray, parseJsonNumberArray } from '../lib/parseJson'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function TeacherAssignedPage() {
   const { user } = useAuthStore()
@@ -92,9 +92,7 @@ export default function TeacherAssignedPage() {
       />
       {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
       <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-        <div className="flex items-center justify-center min-h-[45vh]">
-          <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-        </div>
+        <CenteredLoader />
       </div>
     )
   }

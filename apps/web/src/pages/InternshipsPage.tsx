@@ -22,7 +22,7 @@ import StatCard from '../components/shared/StatCard'
 import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 type InternshipStatus = 'upcoming' | 'active' | 'ended'
 
@@ -230,25 +230,12 @@ export default function InternshipsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading internships..." />
   }
 
   return (
     <div className="space-y-6 section--internships max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<Briefcase size={18} />}
-        eyebrow="Discover · Internships"
-        title={<>Internships</>}
-        subtitle="Live openings — stipend, duration and mode, curated daily."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Notice Board Head — blue #2563EB 5% wash — one wash per section */}
+      {/* Notice Board Head — internships */}
       <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
         <div className="h-[3px] bg-primary-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -256,13 +243,13 @@ export default function InternshipsPage() {
             <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><Briefcase size={18} className="text-white" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Notice Board — Internships</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Blue wash 5% · #2563EB · slate #1E293B text</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Curated internships and openings</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
               <input type="text" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15" />
+                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 dark:text-zinc-500" />
             </div>
             {isTeacher && (
               <button

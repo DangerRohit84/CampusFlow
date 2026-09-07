@@ -232,13 +232,13 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Course <span className="text-surface-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-semibold text-surface-700 dark:text-night-300 mb-1.5">Course <span className="text-surface-400 font-normal dark:text-zinc-500">(optional)</span></label>
             <input
               value={form.courseId}
               onChange={e=> setForm(p=>({...p, courseId:e.target.value}))}
               disabled={saving}
               placeholder="e.g. CS301 — Data Structures"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Links this assignment to a course code. Leave blank for general assignments.</p>
           </div>
@@ -251,7 +251,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
               disabled={saving}
               rows={4}
               placeholder="Add instructions, requirements, grading criteria, or links. Example: &#10;• Implement singly linked list with insert/delete&#10;• Submit .java file or PDF&#10;• See attached rubric"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Supports plain text and links. {form.description.length} / 2000</p>
           </div>
@@ -333,7 +333,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-surface-100 dark:bg-night-800 flex items-center justify-center"><Paperclip size={16} className="text-surface-700 dark:text-night-300"/></span>
             <div>
-              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Attachments <span className="font-normal text-surface-500">(optional)</span></h3>
+              <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 dark:text-night-50">Attachments <span className="font-normal text-surface-500 dark:text-zinc-400">(optional)</span></h3>
               <p className="text-xs text-surface-500 dark:text-night-400">Add question PDF, rubric, or reference files — up to 5 files</p>
             </div>
           </div>

@@ -214,7 +214,7 @@ export default function OtherSourcesCard({ type, platform, onRefresh }: Props) {
                 </option>
               ))}
             </select>
-            {savingLimit && <Loader2 className="w-3 h-3 animate-spin text-surface-400" />}
+            {savingLimit && <Loader2 className="w-3 h-3 animate-spin text-surface-400 dark:text-zinc-500" />}
           </div>
           {stats.fetched > 0 && (
             <span

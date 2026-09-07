@@ -148,13 +148,13 @@ export default function AddStudentPage() {
       <div className="flex gap-2 border-b border-surface-100 dark:border-night-600 pb-2">
         <button onClick={() => setActiveTab('form')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
-            activeTab === 'form' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'form' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}>
           <UserPlus size={16} className="inline mr-2" /> Add Manually
         </button>
         <button onClick={() => setActiveTab('csv')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
-            activeTab === 'csv' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'csv' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}>
           <Upload size={16} className="inline mr-2" /> Upload CSV
         </button>

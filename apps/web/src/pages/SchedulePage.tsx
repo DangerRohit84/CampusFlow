@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Clock, Sparkles, Trash2, Edit3, Check, ChevronLeft, ChevronRight,
-  CalendarDays, Calendar, Upload, FileText, Zap, Image, X, AlertCircle
+  CalendarDays, Upload, FileText, Zap, Image, X, AlertCircle
 } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
+import CenteredLoader from '../components/ui/CenteredLoader'
 import { timetableAPI, taskAPI } from '../lib/api'
 
 function getActiveProvider() {
@@ -20,7 +21,7 @@ function getActiveProvider() {
   } catch { return undefined }
 }
 import toast from 'react-hot-toast'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -114,16 +115,7 @@ export default function SchedulePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<Calendar size={18} />}
-        eyebrow="Campus · Schedule"
-        title={<>Schedule</>}
-        subtitle="Your weekly period matrix — clean, fast and always in sync."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      {/* Header — blue #2563EB for timetable — one wash per section */}
+      {/* Header — timetable */}
       <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
         <div className="h-[3px] bg-primary-600" />
         <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -131,7 +123,7 @@ export default function SchedulePage() {
             <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><CalendarDays size={18} className="text-white" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Timetable — Period Grid</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Blue wash 5% · #2563EB · slate #1E293B text</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Your weekly period grid</p>
             </div>
           </div>
           <Button size="sm" variant="accent" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
@@ -170,7 +162,7 @@ export default function SchedulePage() {
 
             <div className="p-5">
               {loading ? (
-                <div className="text-center py-16 text-surface-400 dark:text-night-400">Loading...</div>
+                <CenteredLoader text="Loading timetable..." minHeight="min-h-[180px]" />
               ) : timeline.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="w-16 h-16 bg-surface-100 dark:bg-night-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -193,7 +185,7 @@ export default function SchedulePage() {
                           <span className="text-xs font-medium text-surface-400 dark:text-night-400">{formatTime(`${hourStr}:00`)}</span>
                         </div>
                         <div className="flex-1 border-l-2 border-surface-100 dark:border-night-600 pl-4 relative">
-                          <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-surface-200 group-hover:bg-primary-400 transition-colors" />
+                          <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-surface-200 group-hover:bg-primary-400 transition-colors dark:bg-[#282828]" />
                           {itemsAtHour.map((item) => (
                             <motion.div key={item.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                               className={`mb-2 p-3 rounded-xl border-l-4 bg-surface-50 dark:bg-night-800 hover:bg-surface-100 dark:hover:bg-night-700 transition-all group/item cursor-pointer ${item._colorClass ? item._colorClass : item.color ? '' : 'border-l-primary-500 dark:border-l-primary-400'}`}
@@ -248,7 +240,7 @@ export default function SchedulePage() {
             </div>
           </Card>
 
-          {/* Stats — triadic: blue #2563EB / brass #B5A268 / emerald #059669 / neutral #F8F9FA (rose only errors) — slate #1E293B text */}
+          {/* Stats */}
           <Card hover>
             <h3 className="font-bold text-slate-800 dark:text-night-50 mb-4">Stats</h3>
             <div className="grid grid-cols-2 gap-3">

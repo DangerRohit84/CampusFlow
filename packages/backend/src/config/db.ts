@@ -54,8 +54,12 @@ function sanitizeUrl(key: 'DATABASE_URL' | 'DIRECT_URL') {
         url.searchParams.set('pgbouncer', 'true')
         mutated = true
       }
-      if (!url.searchParams.has('connection_limit')) {
-        url.searchParams.set('connection_limit', '10')
+      const cl = url.searchParams.get('connection_limit')
+      if (!cl || parseInt(cl, 10) < 20) {
+        if (cl && parseInt(cl, 10) < 20) {
+          console.warn(`[db] ${key} connection_limit=${cl} -> 20 (fixes P2024 pool timeout under burst)`)
+        }
+        url.searchParams.set('connection_limit', '20')
         mutated = true
       }
       // ensure sslmode

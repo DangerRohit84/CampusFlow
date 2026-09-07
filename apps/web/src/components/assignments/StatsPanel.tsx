@@ -16,7 +16,7 @@ export default function StatsPanel({ stats, hub, isTeacher }: any) {
       ].map(s => (
         <Card key={s.label} className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center`}><s.icon size={18} className={s.color}/></div>
-          <div><div className="text-lg font-bold text-surface-900 dark:text-night-50 dark:text-night-50">{s.value}</div><div className="text-xs text-surface-500">{s.label}</div></div>
+          <div><div className="text-lg font-bold text-surface-900 dark:text-night-50 dark:text-night-50">{s.value}</div><div className="text-xs text-surface-500 dark:text-zinc-400">{s.label}</div></div>
         </Card>
       ))}
     </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
 import { timetableAPI, assignmentAPI, taskAPI, codingContestAPI, hackathonAPI, formAPI } from '../lib/api'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 type CalendarEvent = {
   id: string
@@ -256,15 +256,6 @@ export default function CalendarPage() {
       transition={{ duration: 0.4 }}
       className="space-y-6 max-w-[1280px] mx-auto"
     >
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<CalendarDays size={18} />}
-        eyebrow="Campus · Calendar"
-        title={<>Calendar</>}
-        subtitle="Dates, events and deadlines — month, week and day views."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -288,7 +279,7 @@ export default function CalendarPage() {
       <div className="flex items-center justify-between">
         <button
           onClick={goToPrevMonth}
-          className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-600 dark:text-night-200 transition-colors"
+          className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-600 dark:text-night-200 transition-colors dark:bg-[#1e1e1e]"
         >
           <ChevronLeft size={20} />
         </button>
@@ -297,7 +288,7 @@ export default function CalendarPage() {
         </h2>
         <button
           onClick={goToNextMonth}
-          className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-600 dark:text-night-200 transition-colors"
+          className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-600 dark:text-night-200 transition-colors dark:bg-[#1e1e1e]"
         >
           <ChevronRight size={20} />
         </button>
@@ -408,9 +399,7 @@ export default function CalendarPage() {
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-              </div>
+              <CenteredLoader text="Loading calendar..." minHeight="min-h-[140px]" />
             ) : selectedEvents.length === 0 ? (
               <div className="text-center py-8">
                 <CalendarDays className="w-12 h-12 text-surface-300 dark:text-night-700 mx-auto mb-3" />

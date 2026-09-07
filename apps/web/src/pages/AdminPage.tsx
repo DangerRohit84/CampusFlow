@@ -3,14 +3,14 @@ import { useAuthStore } from '../store/authStore'
 import { adminAPI, departmentAPI } from '../lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Users, GraduationCap, Trophy, FileText, Trash2,
-  Loader2, BarChart3, Shield, CheckCircle, XCircle,
+  Users, GraduationCap, Trophy, FileText, Trash2, BarChart3, Shield, CheckCircle, XCircle,
   UserPlus, FolderPlus, ArrowLeft, Building2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { useNavigate } from 'react-router-dom'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function AdminPage() {
   const { user } = useAuthStore()
@@ -266,11 +266,7 @@ export default function AdminPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading dashboard..." />
   }
 
   // ==================== SUPER ADMIN: COLLEGE LIST ====================
@@ -396,7 +392,7 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           {isSuperAdmin && (
             <button onClick={handleBackToColleges}
-              className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 dark:text-night-400 transition-all">
+              className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 dark:text-night-400 transition-all dark:bg-[#1e1e1e]">
               <ArrowLeft size={20} />
             </button>
           )}
@@ -414,7 +410,7 @@ export default function AdminPage() {
         <button
           onClick={() => setActiveTab('analytics')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
-            activeTab === 'analytics' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'analytics' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
         >
           <BarChart3 size={16} className="inline mr-2" /> Analytics
@@ -422,7 +418,7 @@ export default function AdminPage() {
         <button
           onClick={() => setActiveTab('users')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
-            activeTab === 'users' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'users' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
         >
           <Users size={16} className="inline mr-2" /> Users
@@ -430,7 +426,7 @@ export default function AdminPage() {
         <button
           onClick={() => setActiveTab('departments')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
-            activeTab === 'departments' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'departments' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
         >
           <FolderPlus size={16} className="inline mr-2" /> Departments
@@ -438,7 +434,7 @@ export default function AdminPage() {
         <button
           onClick={() => setActiveTab('content')}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
-            activeTab === 'content' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+            activeTab === 'content' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
         >
           <FileText size={16} className="inline mr-2" /> Content
@@ -526,7 +522,7 @@ export default function AdminPage() {
                       <button onClick={() => handleRenameDept(d.id)}
                         className="px-2 py-1 bg-primary-500 text-white rounded-lg text-xs font-medium">Save</button>
                       <button onClick={() => setRenamingDept(null)}
-                        className="px-2 py-1 bg-surface-200 text-surface-600 dark:text-night-300 rounded-lg text-xs font-medium">Cancel</button>
+                        className="px-2 py-1 bg-surface-200 text-surface-600 dark:text-night-300 rounded-lg text-xs font-medium dark:bg-[#282828]">Cancel</button>
                     </div>
                   ) : (
                     <>
@@ -583,7 +579,7 @@ export default function AdminPage() {
             <button
               onClick={() => setUserSubTab('students')}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
-                userSubTab === 'students' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+                userSubTab === 'students' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
             >
               Students ({users.filter(u => u.role === 'STUDENT').length})
@@ -591,7 +587,7 @@ export default function AdminPage() {
             <button
               onClick={() => setUserSubTab('teachers')}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
-                userSubTab === 'teachers' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+                userSubTab === 'teachers' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
             >
               Teachers ({users.filter(u => u.role === 'TEACHER').length})
@@ -599,7 +595,7 @@ export default function AdminPage() {
             <button
               onClick={() => setUserSubTab('college_admins')}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
-                userSubTab === 'college_admins' ? 'bg-primary-50 text-primary-700' : 'text-surface-500 hover:bg-surface-100'
+                userSubTab === 'college_admins' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
             >
               College Admins ({users.filter(u => u.role === 'COLLEGE_ADMIN').length})

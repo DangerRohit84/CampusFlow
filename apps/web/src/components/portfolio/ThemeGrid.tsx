@@ -48,7 +48,7 @@ export default function ThemeGrid({ selectedId, onSelect }: Props) {
             <div className={`h-24 bg-gradient-to-br ${grad} relative flex items-center justify-center`}>
               <span className="text-white font-bold text-lg drop-shadow">{t.name.replace('Theme ', '')}</span>
               {selected && (
-                <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-primary-600 flex items-center justify-center shadow">
+                <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-primary-600 flex items-center justify-center shadow dark:bg-[#121212]">
                   <Check size={14} />
                 </span>
               )}

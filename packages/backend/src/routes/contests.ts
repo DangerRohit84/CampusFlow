@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fetchAndStoreContests } from '../services/contestFetcher'
@@ -23,13 +23,14 @@ if ((_contestsCacheSweeper as any)?.unref) (_contestsCacheSweeper as any).unref(
 
 // Strict per-IP+user limiter for POST /contests/fetch-now — external fetches are expensive (3 APIs + bulk upserts).
 // General limiter (500/15m) is too loose; this gives 3/min per actor to stop N users spamming the button.
+// IPv6-safe: use ipKeyGenerator helper for the IP fallback (express-rate-limit ValidationError fix for IPv6 subnet handling).
 const fetchNowRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many fetch requests. Please wait a minute before trying again.' },
-  keyGenerator: (req: any) => (req.userId as string) || req.ip || 'unknown',
+  keyGenerator: (req: any) => (req.userId as string) || (req.ip ? ipKeyGenerator(req.ip) : 'unknown'),
 })
 
 const router = Router()

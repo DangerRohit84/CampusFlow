@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Sparkles, Bot, User, Calendar, Clock, FileText, Lightbulb, Zap, GraduationCap, MessageSquare } from 'lucide-react'
+import { Send, Sparkles, Bot, User, Calendar, Clock, FileText, Lightbulb, Zap, GraduationCap } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import { chatAPI } from '../lib/api'
 import { sanitizeMarkdown } from '../lib/sanitize'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+
 
 function getActiveProvider() {
   try {
@@ -103,15 +103,6 @@ export default function ChatPage() {
 
       <Card padding="none" className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<MessageSquare size={18} />}
-        eyebrow="Campus · Chat"
-        title={<>Chat</>}
-        subtitle="Direct and group conversations — fast, secure and campus-scoped."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
           <AnimatePresence>
             {messages.map((msg) => (
               <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>

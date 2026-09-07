@@ -49,6 +49,29 @@ function isValidUsername(u: string): boolean {
   return /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u) && u.length >= 3 && u.length <= 20
 }
 
+function normalizePortfolioUrl(input: string): string | null {
+  const raw = String(input || '').trim()
+  if (!raw) return null
+  // auto-prefix https:// if missing scheme
+  let candidate = raw
+  if (!/^https?:\/\//i.test(candidate)) candidate = 'https://' + candidate
+  try {
+    const u = new URL(candidate)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    // require host with dot or localhost
+    if (!u.hostname.includes('.') && u.hostname !== 'localhost') return null
+    if (u.hostname.length < 3) return null
+    // disallow javascript:, data:, etc already handled
+    // normalize: keep as entered but ensure no spaces
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+function isValidPortfolioUrl(input: string): boolean {
+  return normalizePortfolioUrl(input) !== null
+}
+
 // Check username availability (authed)
 router.get('/check-username/:username', async (req: AuthRequest, res: Response) => {
   try {
@@ -157,6 +180,7 @@ router.get('/profile', async (req: AuthRequest, res: Response) => {
       year: u.year,
       semester: u.semester,
       avatar: user.avatar,
+      portfolioUrl: u.portfolioUrl || null,
       preferences: user.preferences ? JSON.parse(user.preferences) : {},
     })
   } catch (error) {
@@ -167,17 +191,57 @@ router.get('/profile', async (req: AuthRequest, res: Response) => {
 // Update profile
 router.put('/profile', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, department, year, semester, preferences } = req.body
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: {
-        ...(name && { name }),
-        ...(department && { department: department } as any),
-        ...(year && { year: year } as any),
-        ...(semester && { semester: semester } as any),
-        ...(preferences && { preferences: JSON.stringify(preferences) }),
-      },
-    } as any)
+    const { name, department, year, semester, preferences, portfolioUrl } = req.body
+    const updateData: any = {
+      ...(name && { name }),
+      ...(department && { department: department } as any),
+      ...(year && { year: year } as any),
+      ...(semester && { semester: semester } as any),
+      ...(preferences && { preferences: JSON.stringify(preferences) }),
+    }
+    // portfolioUrl handling — allow any website URL (https), validate, allow clearing with empty string/null
+    if (portfolioUrl !== undefined) {
+      const raw = String(portfolioUrl || '').trim()
+      if (raw === '' || raw === null) {
+        updateData.portfolioUrl = null
+      } else {
+        const normalized = normalizePortfolioUrl(raw)
+        if (!normalized) {
+          res.status(400).json({ error: 'Invalid portfolio URL. Must be a valid https:// URL (e.g., https://your-portfolio.com)' })
+          return
+        }
+        updateData.portfolioUrl = normalized
+      }
+    }
+    let user: any
+    try {
+      user = await (prisma as any).user.update({
+        where: { id: req.userId },
+        data: updateData,
+      })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('portfolioUrl') || msg.includes('Unknown argument') || msg.includes('column')) {
+        // Fallback if migration not yet applied — strip portfolioUrl and retry
+        const { portfolioUrl: _omit, ...fallbackData } = updateData
+        user = await prisma.user.update({ where: { id: req.userId }, data: fallbackData } as any)
+        // still return success but warn that portfolioUrl not persisted
+        const uFallback = user as any
+        res.json({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: uFallback.department,
+          year: uFallback.year,
+          semester: uFallback.semester,
+          portfolioUrl: null,
+          warning: 'Portfolio URL not yet migrated',
+        })
+        return
+      }
+      throw e
+    }
     const u = user as any
     res.json({
       id: user.id,
@@ -187,6 +251,8 @@ router.put('/profile', async (req: AuthRequest, res: Response) => {
       department: u.department,
       year: u.year,
       semester: u.semester,
+      portfolioUrl: u.portfolioUrl || null,
+      avatar: user.avatar,
     })
   } catch (error) {
     res.status(500).json({ error: 'Failed to update profile' })
@@ -301,11 +367,18 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     }
 
     // ── Student Dashboard (default) ────────────────────────────────
-    const [grades, assignments, notifications, schedules] = await Promise.all([
+    const [grades, assignments, notifications, schedules, hubs, mySubmissions] = await Promise.all([
       prisma.grade.findMany({ where: { userId: req.userId } }),
       prisma.assignment.findMany({ where: { userId: req.userId } }),
       prisma.notification.findMany({ where: { userId: req.userId, read: false } }),
       prisma.schedule.findMany({ where: { userId: req.userId } }),
+      prisma.assignmentHub.findMany({
+        where: user.collegeId ? { collegeId: user.collegeId } : {},
+        select: { id: true, dueDate: true, scope: true, departmentId: true, roomId: true },
+        orderBy: { dueDate: 'asc' },
+        take: 100,
+      }).catch(()=>[] as any[]),
+      prisma.assignmentSubmission.findMany({ where: { studentId: req.userId }, select: { assignmentId: true } }).catch(()=>[] as any[]),
     ])
 
     // CGPA
@@ -313,9 +386,16 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     const weightedGpa = grades.reduce((sum, g) => sum + g.gpa * g.credits, 0)
     const cgpa = totalCredits > 0 ? Math.round((weightedGpa / totalCredits) * 100) / 100 : 0
 
-    // Assignments
-    const pendingAssignments = assignments.filter((a) => a.status === 'PENDING')
-    const upcomingDeadlines = pendingAssignments.filter((a) => new Date(a.dueDate) >= new Date()).length
+    // Assignments — legacy + hub (visibility-filtered: student sees only hubs where not yet submitted and due future or overdue)
+    const submittedSet = new Set((mySubmissions as any[]).map((s:any)=> s.assignmentId))
+    const now = new Date()
+    const hubPending = (hubs as any[]).filter((h:any)=> !submittedSet.has(h.id))
+    const legacyPending = assignments.filter((a) => a.status === 'PENDING')
+    const pendingAssignmentsCount = legacyPending.length + hubPending.length
+    // upcoming = dueDate >= now (legacy + hub) + not yet submitted
+    const legacyUpcoming = legacyPending.filter((a) => new Date(a.dueDate) >= now).length
+    const hubUpcoming = hubPending.filter((h:any)=> new Date(h.dueDate) >= now).length
+    const upcomingDeadlines = legacyUpcoming + hubUpcoming
 
     // Today's schedule (get current day of week)
     const today = getDayOfWeek()
@@ -324,11 +404,17 @@ router.get('/dashboard', async (req: AuthRequest, res: Response) => {
     res.json({
       role: 'STUDENT',
       cgpa,
-      pendingAssignments: pendingAssignments.length,
+      pendingAssignments: pendingAssignmentsCount,
       upcomingDeadlines,
       unreadNotifications: notifications.length,
       todaySchedule,
       recentNotifications: notifications.slice(0, 5),
+      // Hub stats for modern frontend — client can prefer these over legacy counts
+      hubAssignments: {
+        total: hubs.length,
+        pending: hubPending.length,
+        upcoming: hubUpcoming,
+      },
     })
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch dashboard' })

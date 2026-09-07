@@ -16,9 +16,18 @@ export default function Card({ children, className, hover = false, padding = 'md
     accent === 'emerald' ? 'card-accent--emerald' :
     accent === 'rose' ? 'card-accent--rose' :
     accent === 'neutral' ? 'card-accent--neutral' : ''
+  const isInteractive = Boolean(onClick)
   return (
     <div
       onClick={onClick}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onKeyDown={isInteractive ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      } : undefined}
       className={clsx(
         'bg-white dark:bg-night-800 rounded-[14px] border border-surface-200 dark:border-night-600 shadow-e1',
         {
@@ -29,6 +38,7 @@ export default function Card({ children, className, hover = false, padding = 'md
           'p-6': padding === 'lg',
           'cursor-pointer hover:border-primary-200': hover && onClick && accent==='default',
           'cursor-pointer': hover && onClick && accent!=='default',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30': isInteractive,
         },
         accentHover,
         className

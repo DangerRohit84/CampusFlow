@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, Upload, CheckCircle, AlertCircle, Loader2,
-  X, FileImage, Save, Target, UserCheck } from 'lucide-react'
+  X, FileImage, Save, Target } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
+import CenteredLoader from '../components/ui/CenteredLoader'
 import { attendanceAPI } from '../lib/api'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 interface Subject {
   id: string
@@ -163,20 +163,7 @@ export default function AttendancePage() {
   const overallNeedClasses = overallCanSkip < 0 ? calcNeedClasses(totalAttended, totalHeld + totalSkipped, requiredPct) : 0
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<UserCheck size={18} />}
-        eyebrow="Academics · Attendance"
-        title={<>Attendance</>}
-        subtitle="Track presence — daily, weekly and period-wise insights."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
-      </div>
-    )
+    return <CenteredLoader text="Loading attendance..." />
   }
 
   return (
@@ -193,7 +180,7 @@ export default function AttendancePage() {
             <div className="flex items-center rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 overflow-hidden">
               <button
                 onClick={() => setRequiredPct(prev => Math.max(1, prev - 1))}
-                className="px-2.5 py-1.5 text-sm font-bold text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600 transition-colors"
+                className="px-2.5 py-1.5 text-sm font-bold text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600 transition-colors dark:bg-[#1e1e1e]"
               >
                 −
               </button>
@@ -215,7 +202,7 @@ export default function AttendancePage() {
               />
               <button
                 onClick={() => setRequiredPct(prev => Math.min(100, prev + 1))}
-                className="px-2.5 py-1.5 text-sm font-bold text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600 transition-colors"
+                className="px-2.5 py-1.5 text-sm font-bold text-surface-600 dark:text-night-200 hover:bg-surface-100 dark:hover:bg-night-600 transition-colors dark:bg-[#1e1e1e]"
               >
                 +
               </button>
@@ -444,7 +431,7 @@ export default function AttendancePage() {
                 <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Upload Attendance Image</h2>
                 <button
                   onClick={() => { setShowUpload(false); setUploadImage(null); setParsedResults([]) }}
-                  className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-600"
+                  className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:bg-surface-100 dark:hover:bg-night-600 dark:bg-[#1e1e1e]"
                 >
                   <X size={18} />
                 </button>

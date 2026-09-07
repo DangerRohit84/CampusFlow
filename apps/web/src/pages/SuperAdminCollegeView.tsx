@@ -2,9 +2,7 @@ import { useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { adminAPI } from '../lib/api'
 import { useSuperAdminCollegeStore, syncLegacyStorage } from '../store/superAdminCollegeStore'
-import { Loader2, Building2 } from 'lucide-react'
-import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
-import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 /**
  * Backward-compat redirect: /superadmin/colleges/:collegeId used to render a duplicate Admin panel.
@@ -56,17 +54,8 @@ export default function SuperAdminCollegeView() {
   }, [collegeId, navigate, setSelectedCollege])
 
   return (
-    <div className="flex items-center justify-center min-h-[45vh] max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
-      <PremiumHero
-        icon={<Building2 size={18} />}
-        eyebrow="Super Admin · Tenant"
-        title={<>College View</>}
-        subtitle="Tenant workspace — users, departments and college-scoped data."
-      />
-      {/* premium tokens: bg-[#0a0a0a] rounded-[32px] backdrop-blur-xl bg-white/[0.03] border-white/10 grid-cols-12 #1ed760 */}
-      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
-      <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+    <div className="max-w-[1280px] mx-auto">
+      <CenteredLoader text="Loading college..." />
     </div>
   )
 }

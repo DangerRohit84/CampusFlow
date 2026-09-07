@@ -53,9 +53,11 @@ export interface OpportunitiesJobResult {
 }
 
 export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
-  // BUILD MODE: Other Sources detached - cron fetches ONLY 5 fixed platforms via fetchFromAllSources (DEVFOLIO/DEVPOST/MLH/UNSTOP/INTERNSHALA).
-  // OTHER_HACKATHON / OTHER_INTERNSHIP are NOT fetched here; manual only via POST /fetch/other/* (detached per user request).
-  console.log('[Cron] Fetching opportunities from external sources...')
+  // BUILD MODE (operational mode build): Cron now respects PlatformSettings tick/target saved via Fetch All.
+  // OTHER_HACKATHON / OTHER_INTERNSHIP remain detached manual-only (POST /fetch/other/*).
+  // Cron reads platform_settings (platform, type, enabled, fetchLimit): enabled=false → skip, fetchLimit → target (0=All, else 1-50), default 10.
+  // Frontend Fetch All persists tick+target via PUT /fetch/:platform/limit {limit,type,enabled} and PUT /fetch/settings (bulk).
+  console.log('[Cron] Fetching opportunities from external sources (respecting PlatformSettings tick/target)...')
 
   // Find an admin to own the staging records
   const admin = await prisma.user.findFirst({
@@ -66,7 +68,44 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
     return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 }
   }
 
-  const allOpps = await fetchFromAllSources()
+  // Build limits from PlatformSettings — tick (enabled) + target (fetchLimit) — so cron respects Fetch All selection
+  const ALL_PLATFORMS = ['DEVFOLIO', 'DEVPOST', 'MLH', 'UNSTOP', 'HACK2SKILL', 'DORAHACKS', 'HACKEREARTH', 'INTERNSHALA', 'UNSTOP_INTERNSHIP', 'WELLFOUND'] as const
+  const PLATFORM_TYPE: Record<string, string> = {
+    DEVFOLIO: 'HACKATHON', DEVPOST: 'HACKATHON', MLH: 'HACKATHON', UNSTOP: 'HACKATHON',
+    HACK2SKILL: 'HACKATHON', DORAHACKS: 'HACKATHON', HACKEREARTH: 'HACKATHON',
+    INTERNSHALA: 'INTERNSHIP', UNSTOP_INTERNSHIP: 'INTERNSHIP', WELLFOUND: 'INTERNSHIP',
+  }
+  let limits: Record<string, number | undefined> = {}
+  let disabledSkipped: string[] = []
+  try {
+    const dbSettings = await prisma.platformSettings.findMany()
+    if (dbSettings.length > 0) {
+      for (const p of ALL_PLATFORMS) {
+        const type = PLATFORM_TYPE[p]
+        const s = (dbSettings as any[]).find((x: any) => x.platform === p && x.type === type)
+        if (s && (s as any).enabled === false) {
+          disabledSkipped.push(p)
+          continue
+        }
+        const raw = s ? (s as any).fetchLimit : 10
+        limits[p] = raw === 0 ? undefined : raw
+      }
+      if (Object.keys(limits).length === 0) {
+        console.log(`[Cron] All platforms disabled via PlatformSettings (skipped: ${disabledSkipped.join(', ')}) — skipping fetch`)
+        return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 }
+      }
+      console.log(`[Cron] PlatformSettings limits: ${Object.entries(limits).map(([k, v]) => `${k}:${v === undefined ? 'All' : v}`).join(', ')}${disabledSkipped.length ? ` (skipped disabled: ${disabledSkipped.join(', ')})` : ''}`)
+    } else {
+      for (const p of ALL_PLATFORMS) limits[p] = 10
+      console.log('[Cron] No PlatformSettings found — defaulting to 10 each for all 10 platforms')
+    }
+  } catch (e: any) {
+    console.warn('[Cron] PlatformSettings read failed, defaulting to 10 each:', e?.message || e)
+    limits = {}
+    for (const p of ALL_PLATFORMS) limits[p] = 10
+  }
+
+  const allOpps = await fetchFromAllSources(limits)
   let hackathonFetched = 0, hackathonSkipped = 0
   let internshipFetched = 0, internshipSkipped = 0
   const hackathonIdsToEnrich: string[] = []

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Zap, Loader2, Sparkles } from 'lucide-react'
+import { Plus, Zap, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import ProviderCard from '../components/ai/ProviderCard'
@@ -9,6 +9,7 @@ import AiGraph from '../components/ai/AiGraph'
 import type { AiProvider, AiRouting } from '../types/api'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function AiManagerPage() {
   const [providers, setProviders] = useState<AiProvider[]>([])
@@ -88,11 +89,7 @@ export default function AiManagerPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[45vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading AI managers..." />
   }
 
   return (

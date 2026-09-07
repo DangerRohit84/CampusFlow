@@ -77,7 +77,7 @@ export default function AssignmentHubCard({ hub, onClick, onEdit, onDelete }: an
             {hasMySubmissionField && mySub?.grade && <span className="text-xs px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 border border-primary-200 dark:border-primary-700 font-bold">Grade: {mySub.grade}</span>}
           </div>
         </div>
-        {(onEdit||onDelete) && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity self-start"><button aria-label="Edit assignment" onClick={e=>{e.stopPropagation(); onEdit?.(hub)}} className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-surface-900 dark:text-night-50">✎</button><button aria-label="Delete assignment" onClick={e=>{e.stopPropagation(); onDelete?.(hub)}} className="p-2 rounded-lg hover:bg-danger-50 text-danger-500">✕</button></div>}
+        {(onEdit||onDelete) && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity self-start"><button aria-label="Edit assignment" onClick={e=>{e.stopPropagation(); onEdit?.(hub)}} className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-surface-900 dark:text-night-50 dark:bg-[#1e1e1e]">✎</button><button aria-label="Delete assignment" onClick={e=>{e.stopPropagation(); onDelete?.(hub)}} className="p-2 rounded-lg hover:bg-danger-50 text-danger-500">✕</button></div>}
       </div>
     </Card>
   )
