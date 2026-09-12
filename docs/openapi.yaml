@@ -1,0 +1,319 @@
+openapi: 3.0.3
+info:
+  title: CampusFlow API
+  version: 1.0.0
+  description: >
+    Stub generated from Zod schemas + route files (auth.ts, index.ts health/colleges,
+    hackathons.ts). Not full coverage — P0 domains only. Generate full spec from Zod
+    before public pilot.
+servers:
+  - url: http://localhost:4000
+    description: Local dev
+  - url: https://campusflow-api.onrender.com
+    description: Render prod (placeholder)
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+    RegisterBody:
+      type: object
+      required: [email, name, password]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 2
+        password:
+          type: string
+          minLength: 6
+          description: P0 follow-up raises to min 8, max 72 (F16)
+        username:
+          type: string
+          minLength: 3
+          maxLength: 20
+        departmentId:
+          type: string
+        department:
+          type: string
+        role:
+          type: string
+          description: Never SUPER_ADMIN via public route (403)
+        collegeId:
+          type: string
+          format: uuid
+        empNumber:
+          type: string
+        studentId:
+          type: string
+        incomingYear:
+          type: integer
+    LoginBody:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    College:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        code:
+          type: string
+    Hackathon:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        collegeId:
+          type: string
+          nullable: true
+paths:
+  /api/health:
+    get:
+      summary: Health check (public)
+      security: []
+      responses:
+        '200':
+          description: ok or degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  db:
+                    type: string
+                  version:
+                    type: string
+                  features:
+                    type: array
+                    items:
+                      type: string
+  /api/auth/register:
+    post:
+      summary: Register (public, rate-limited 10/15m)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterBody'
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Validation / duplicate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: SUPER_ADMIN via public route
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/login:
+    post:
+      summary: Login (public, rate-limited 10/15m)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginBody'
+      responses:
+        '200':
+          description: JWT issued
+        '400':
+          description: Validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials (generic, no enum)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/colleges/register:
+    post:
+      summary: Register college (public, rate-limited 5/h)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, code, adminEmail]
+              properties:
+                name:
+                  type: string
+                code:
+                  type: string
+                address:
+                  type: string
+                phone:
+                  type: string
+                website:
+                  type: string
+                adminEmail:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: PENDING college created
+        '400':
+          description: Missing / duplicate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/colleges/list:
+    get:
+      summary: Approved colleges for dropdown (public)
+      security: []
+      responses:
+        '200':
+          description: id+name list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/College'
+  /api/colleges/public:
+    get:
+      summary: Legacy alias of /list (public)
+      security: []
+      responses:
+        '200':
+          description: id+name list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/College'
+  /api/colleges/{id}/departments:
+    get:
+      summary: Departments for a college (public)
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: id+name list
+        '400':
+          description: Invalid id (planned UUID 400)
+  /api/hackathons:
+    get:
+      summary: List approved hackathons (tenant-scoped)
+      responses:
+        '200':
+          description: Paged list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Hackathon'
+                  pagination:
+                    type: object
+        '401':
+          description: No token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Cross-college (P0 tenant gate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/hackathons/{id}:
+    get:
+      summary: Hackathon detail (tenant + own-only for STUDENT)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detail (email masked per privacy rules)
+        '403':
+          description: Cross-college
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/me:
+    delete:
+      summary: Erasure (PLAN — not implemented, see docs/privacy.md)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  description: Current password re-entry for identity verification
+      responses:
+        '200':
+          description: Anonymized
+        '401':
+          description: No token / bad password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

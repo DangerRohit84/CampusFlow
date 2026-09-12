@@ -1,608 +1,301 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import {
-  Calendar, BookOpen, Clock, TrendingUp, Bell, FileText,
-  ChevronRight, Sparkles, Users, Target, Zap, Trophy,
-  ClipboardList, GraduationCap, Shield, DoorOpen,
-  ArrowUpRight, CheckCircle, AlertCircle, BarChart3, Plus, MessageSquare,
-  Briefcase, Code,
-  type LucideIcon,
+  Calendar, Users, Briefcase, FileText, Clock,
+  GraduationCap, DoorOpen, ClipboardList, Bell, Megaphone,
+  MapPin, ChevronRight, BookOpen, Trophy, Sparkles, Zap
 } from 'lucide-react'
-import clsx from 'clsx'
-import Card from '../components/ui/Card'
-import Badge from '../components/ui/Badge'
-import StatCard from '../components/shared/StatCard'
-import { dashboardAPI, internshipAPI, codingContestAPI } from '../lib/api'
+import { dashboardAPI, hackathonAPI, roomAPI, formAPI, announcementsAPI, timetableAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { useEntitySync } from '../lib/entitySync'
+import { motion } from 'framer-motion'
+import { PremiumHero, GlassPanel, BentoGrid, SectionCard } from '../components/premium/PremiumKit'
+import CenteredLoader from '../components/ui/CenteredLoader'
 
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-const hour = new Date().getHours()
-const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-
-const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } }
-const item = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }
-
-// ─── Quick Action Button ─────────────────────────────────────────────────────
-function QuickAction({ label, icon: Icon, onClick }: { label: string; icon: LucideIcon; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors group text-left">
-      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary-100 to-accent-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-        <Icon size={16} className="text-primary-600" />
-      </div>
-      <span className="text-sm font-medium text-surface-700 group-hover:text-primary-700 transition-colors">{label}</span>
-      <ArrowUpRight size={14} className="ml-auto text-surface-300 group-hover:text-primary-500 transition-colors" />
-    </button>
-  )
-}
-
-// ─── Schedule type color map ─────────────────────────────────────────────────
-const typeColor = (type: string) => {
-  const m: Record<string, string> = { CLASS: 'primary', LAB: 'accent', SEMINAR: 'warning', OTHER: 'default' }
-  return m[type] || 'default'
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TEACHER DASHBOARD
-// ═════════════════════════════════════════════════════════════════════════════
-function TeacherDashboard({ data, loading }: { data: any; loading: boolean }) {
-  const navigate = useNavigate()
-
-  const stats = [
-    { label: 'My Courses', value: data?.totalCourses || 0, icon: BookOpen, color: 'from-blue-400 to-blue-600', bg: 'bg-blue-50' },
-    { label: 'My Students', value: data?.totalStudents || 0, icon: Users, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Active Forms', value: data?.activeForms || 0, icon: ClipboardList, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
-    { label: 'Notifications', value: `${data?.unreadNotifications || 0} New`, icon: Bell, color: 'from-accent-400 to-accent-600', bg: 'bg-accent-50' },
-    { label: 'Posted Internships', value: data?.postedInternships || 0, icon: Briefcase, color: 'from-cyan-400 to-cyan-600', bg: 'bg-cyan-50' },
-    { label: 'Total Contests', value: data?.totalContests || 0, icon: Code, color: 'from-rose-400 to-rose-600', bg: 'bg-rose-50' },
-  ]
-
-  return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
-      <motion.div variants={item}>
-        <h1 className="text-3xl font-bold text-surface-900">
-          {greeting}, <span className="gradient-text">{useAuthStore.getState().user?.name?.split(' ')[0] || 'Teacher'}</span> 👋
-        </h1>
-        <p className="text-surface-500 mt-1">Manage your courses, students, and timetable</p>
-      </motion.div>
-
-      {/* Stats */}
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {stats.map((stat) => (
-          <StatCard key={stat.label} {...stat} loading={loading} />
-        ))}
-      </motion.div>
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Today's Schedule */}
-        <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" hover className="overflow-hidden">
-            <div className="p-6 pb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-primary-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-surface-900">Today's Schedule</h3>
-                  <p className="text-xs text-surface-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
-                </div>
-              </div>
-              <button onClick={() => navigate('/schedule')} className="text-xs font-semibold text-primary-600 hover:text-primary-700 flex items-center gap-1">
-                View timetable <ChevronRight size={12} />
-              </button>
-            </div>
-            <div className="px-6 pb-6 space-y-3">
-              {loading ? (
-                <div className="text-center py-12 text-surface-400">Loading schedule...</div>
-              ) : !data?.todaySchedule?.length ? (
-                <div className="text-center py-12">
-                  <Calendar size={32} className="mx-auto text-surface-300 mb-3" />
-                  <p className="text-surface-500 font-medium">No classes today</p>
-                  <p className="text-sm text-surface-400">Enjoy your day off!</p>
-                </div>
-              ) : (
-                data.todaySchedule.map((event: any, i: number) => (
-                  <motion.div key={event.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors group cursor-pointer">
-                    <div className="w-1 h-12 rounded-full" style={{ backgroundColor: event.color || '#5c7cfa' }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-surface-900 group-hover:text-primary-700 transition-colors">{event.title}</p>
-                        <Badge variant={typeColor(event.type) as any}>{event.type}</Badge>
-                      </div>
-                      <p className="text-sm text-surface-500 mt-0.5">{event.location}</p>
-                      {event.teacher && <p className="text-xs text-surface-400 mt-0.5">{event.teacher}</p>}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="flex items-center gap-1.5 text-surface-900 font-semibold"><Clock size={14} className="text-surface-400" />{event.startTime}</div>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* Quick Actions */}
-        <motion.div variants={item} className="space-y-6">
-          <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles size={20} />
-              <h3 className="font-bold">Quick Actions</h3>
-            </div>
-            <p className="text-sm text-white/80 mb-4">Jump to what you need</p>
-            <div className="space-y-2">
-              <button onClick={() => navigate('/schedule')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Calendar size={14} className="inline mr-2" />View Timetable
-              </button>
-              <button onClick={() => navigate('/forms')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <ClipboardList size={14} className="inline mr-2" />Create Form
-              </button>
-              <button onClick={() => navigate('/rooms')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <DoorOpen size={14} className="inline mr-2" />Manage Rooms
-              </button>
-              <button onClick={() => navigate('/chat')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <MessageSquare size={14} className="inline mr-2" />AI Assistant
-              </button>
-            </div>
-          </Card>
-
-          <Card hover>
-            <h3 className="font-bold text-surface-900 mb-3">Recent Notifications</h3>
-            <div className="space-y-3">
-              {data?.recentNotifications?.slice(0, 4).map((n: any) => (
-                <div key={n.id} className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center shrink-0">
-                    <Bell size={14} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-surface-700">{n.title || n.message}</p>
-                    <p className="text-xs text-surface-400 mt-0.5">{new Date(n.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
-              )) || (
-                <p className="text-sm text-surface-400 text-center py-4">No recent notifications</p>
-              )}
-            </div>
-          </Card>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// COLLEGE ADMIN DASHBOARD
-// ═════════════════════════════════════════════════════════════════════════════
-function CollegeAdminDashboard({ data, loading }: { data: any; loading: boolean }) {
-  const navigate = useNavigate()
-
-  const stats = [
-    { label: 'Total Users', value: data?.totalUsers || 0, icon: Users, color: 'from-blue-400 to-blue-600', bg: 'bg-blue-50' },
-    { label: 'Teachers', value: data?.totalTeachers || 0, icon: GraduationCap, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Students', value: data?.totalStudents || 0, icon: BookOpen, color: 'from-purple-400 to-purple-600', bg: 'bg-purple-50' },
-    { label: 'Hackathons', value: data?.hackathons || 0, icon: Trophy, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
-  ]
-
-  return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
-      <motion.div variants={item}>
-        <h1 className="text-3xl font-bold text-surface-900">
-          {greeting}, <span className="gradient-text">{useAuthStore.getState().user?.name?.split(' ')[0] || 'Admin'}</span> 👋
-        </h1>
-        <p className="text-surface-500 mt-1">Manage your college's users and content</p>
-      </motion.div>
-
-      {/* Stats */}
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {stats.map((stat) => (
-          <StatCard key={stat.label} {...stat} loading={loading} />
-        ))}
-      </motion.div>
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Content Summary */}
-        <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" hover className="overflow-hidden">
-            <div className="p-6 pb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-                  <BarChart3 className="w-5 h-5 text-primary-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-surface-900">Content Overview</h3>
-                  <p className="text-xs text-surface-400">Hackathons and forms in your college</p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 pb-6">
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200/50">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Trophy size={16} className="text-purple-600" />
-                    <span className="text-sm font-semibold text-purple-800">Hackathons</span>
-                  </div>
-                  <p className="text-2xl font-bold text-purple-900">{loading ? '—' : data?.hackathons || 0}</p>
-                </div>
-                <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200/50">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ClipboardList size={16} className="text-amber-600" />
-                    <span className="text-sm font-semibold text-amber-800">Forms</span>
-                  </div>
-                  <p className="text-2xl font-bold text-amber-900">{loading ? '—' : data?.forms || 0}</p>
-                </div>
-              </div>
-
-              {/* Recent Hackathons */}
-              {!loading && data?.recentHackathons?.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-surface-700 mb-3">Recent Hackathons</h4>
-                  <div className="space-y-2">
-                    {data.recentHackathons.map((h: any) => (
-                      <div key={h.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors cursor-pointer"
-                        onClick={() => navigate(`/hackathons/${h.id}`)}>
-                        <Trophy size={14} className="text-purple-500 shrink-0" />
-                        <span className="text-sm font-medium text-surface-900 truncate flex-1">{h.title}</span>
-                        <Badge variant={h.status === 'PUBLISHED' ? 'success' : 'warning'}>{h.status}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* Quick Actions + Stats */}
-        <motion.div variants={item} className="space-y-6">
-          <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles size={20} />
-              <h3 className="font-bold">Quick Actions</h3>
-            </div>
-            <p className="text-sm text-white/80 mb-4">Jump to what you need</p>
-            <div className="space-y-2">
-              <button onClick={() => navigate('/admin/add-teachers')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Users size={14} className="inline mr-2" />Add Teacher
-              </button>
-              <button onClick={() => navigate('/admin/add-students')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <BookOpen size={14} className="inline mr-2" />Add Student
-              </button>
-              <button onClick={() => navigate('/rooms')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <DoorOpen size={14} className="inline mr-2" />Manage Rooms
-              </button>
-              <button onClick={() => navigate('/admin')} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Shield size={14} className="inline mr-2" />Admin Panel
-              </button>
-            </div>
-          </Card>
-
-          <Card hover>
-            <h3 className="font-bold text-surface-900 mb-3">College Stats</h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50">
-                <span className="text-sm text-surface-600">Admins</span>
-                <span className="text-sm font-bold text-surface-900">{loading ? '—' : data?.totalAdmins || 0}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50">
-                <span className="text-sm text-surface-600">Teachers</span>
-                <span className="text-sm font-bold text-surface-900">{loading ? '—' : data?.totalTeachers || 0}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50">
-                <span className="text-sm text-surface-600">Students</span>
-                <span className="text-sm font-bold text-surface-900">{loading ? '—' : data?.totalStudents || 0}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50">
-                <span className="text-sm text-surface-600">Active Forms</span>
-                <span className="text-sm font-bold text-surface-900">{loading ? '—' : data?.forms || 0}</span>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// SUPER ADMIN DASHBOARD
-// ═════════════════════════════════════════════════════════════════════════════
-function SuperAdminDashboard({ data, loading }: { data: any; loading: boolean }) {
-  const navigate = useNavigate()
-
-  const stats = [
-    { label: 'Total Colleges', value: data?.totalColleges || 0, icon: GraduationCap, color: 'from-blue-400 to-blue-600', bg: 'bg-blue-50' },
-    { label: 'Total Users', value: data?.totalUsers || 0, icon: Users, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Pending Approvals', value: data?.pendingColleges || 0, icon: AlertCircle, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
-    { label: 'Hackathons', value: data?.hackathons || 0, icon: Trophy, color: 'from-purple-400 to-purple-600', bg: 'bg-purple-50' },
-  ]
-
-  return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
-      <motion.div variants={item}>
-        <h1 className="text-3xl font-bold text-surface-900">
-          {greeting}, <span className="gradient-text">{useAuthStore.getState().user?.name?.split(' ')[0] || 'Super Admin'}</span> 👋
-        </h1>
-        <p className="text-surface-500 mt-1">System-wide overview and management</p>
-      </motion.div>
-
-      {/* Stats */}
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {stats.map((stat) => (
-          <StatCard key={stat.label} {...stat} loading={loading} />
-        ))}
-      </motion.div>
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* System Overview */}
-        <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" hover className="overflow-hidden">
-            <div className="p-6 pb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-                  <BarChart3 className="w-5 h-5 text-primary-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-surface-900">System Overview</h3>
-                  <p className="text-xs text-surface-400">All colleges and platform content</p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 pb-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200/50">
-                  <GraduationCap size={16} className="text-blue-600 mb-2" />
-                  <p className="text-xl font-bold text-blue-900">{loading ? '—' : data?.totalColleges || 0}</p>
-                  <p className="text-xs text-blue-600">Colleges</p>
-                </div>
-                <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200/50">
-                  <Users size={16} className="text-emerald-600 mb-2" />
-                  <p className="text-xl font-bold text-emerald-900">{loading ? '—' : data?.totalUsers || 0}</p>
-                  <p className="text-xs text-emerald-600">Users</p>
-                </div>
-                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200/50">
-                  <Trophy size={16} className="text-purple-600 mb-2" />
-                  <p className="text-xl font-bold text-purple-900">{loading ? '—' : data?.hackathons || 0}</p>
-                  <p className="text-xs text-purple-600">Hackathons</p>
-                </div>
-                <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200/50">
-                  <ClipboardList size={16} className="text-amber-600 mb-2" />
-                  <p className="text-xl font-bold text-amber-900">{loading ? '—' : data?.forms || 0}</p>
-                  <p className="text-xs text-amber-600">Forms</p>
-                </div>
-              </div>
-
-              {/* Pending colleges alert */}
-              {!loading && data?.pendingColleges > 0 && (
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle size={16} className="text-amber-600" />
-                    <span className="text-sm font-semibold text-amber-800">Pending College Approvals</span>
-                  </div>
-                  <p className="text-sm text-amber-700">{data.pendingColleges} college(s) awaiting approval</p>
-                  <button onClick={() => navigate('/admin')} className="mt-2 text-xs font-semibold text-amber-800 hover:text-amber-900 underline">
-                    Review now →
-                  </button>
-                </div>
-              )}
-
-              {/* User breakdown */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3 rounded-xl bg-surface-50 text-center">
-                  <p className="text-lg font-bold text-surface-900">{loading ? '—' : data?.totalTeachers || 0}</p>
-                  <p className="text-xs text-surface-500">Teachers</p>
-                </div>
-                <div className="p-3 rounded-xl bg-surface-50 text-center">
-                  <p className="text-lg font-bold text-surface-900">{loading ? '—' : data?.totalStudents || 0}</p>
-                  <p className="text-xs text-surface-500">Students</p>
-                </div>
-                <div className="p-3 rounded-xl bg-surface-50 text-center">
-                  <p className="text-lg font-bold text-surface-900">{loading ? '—' : data?.totalAdmins || 0}</p>
-                  <p className="text-xs text-surface-500">Admins</p>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* Quick Actions */}
-        <motion.div variants={item} className="space-y-6">
-          <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
-            <div className="flex items-center gap-2 mb-4">
-              <Zap size={20} />
-              <h3 className="font-bold">Quick Actions</h3>
-            </div>
-            <p className="text-sm text-white/80 mb-4">Jump to what you need</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => navigate('/admin')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <GraduationCap size={16} className="inline mr-2" />Manage Colleges
-              </button>
-              <button onClick={() => navigate('/admin')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Users size={16} className="inline mr-2" />View All Users
-              </button>
-              <button onClick={() => navigate('/admin/register-college')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <Plus size={16} className="inline mr-2" />Register College
-              </button>
-              <button onClick={() => navigate('/rooms')} className="text-left px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                <DoorOpen size={16} className="inline mr-2" />Manage Rooms
-              </button>
-            </div>
-          </Card>
-
-          <Card hover>
-            <h3 className="font-bold text-surface-900 mb-3">Recent Activity</h3>
-            <div className="space-y-2">
-              {!loading && data?.recentHackathons?.length > 0 ? (
-                data.recentHackathons.map((h: any) => (
-                  <div key={h.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/hackathons/${h.id}`)}>
-                    <Trophy size={12} className="text-purple-500 shrink-0" />
-                    <span className="text-xs text-surface-700 truncate flex-1">{h.title}</span>
-                    <span className="text-[10px] text-surface-400">{new Date(h.createdAt).toLocaleDateString()}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-surface-400 text-center py-4">No recent activity</p>
-              )}
-            </div>
-          </Card>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// STUDENT DASHBOARD (original, preserved)
-// ═════════════════════════════════════════════════════════════════════════════
-function StudentDashboard({ data, loading }: { data: any; loading: boolean }) {
-  const navigate = useNavigate()
-
-  const stats = [
-    { label: 'CGPA', value: data?.cgpa?.toFixed(1) || '—', icon: TrendingUp, color: 'from-emerald-400 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Attendance', value: `${data?.attendancePercent || 0}%`, icon: Target, color: 'from-primary-400 to-primary-600', bg: 'bg-primary-50' },
-    { label: 'Assignments', value: `${data?.pendingAssignments || 0} Due`, icon: FileText, color: 'from-amber-400 to-amber-600', bg: 'bg-amber-50' },
-    { label: 'Notifications', value: `${data?.unreadNotifications || 0} New`, icon: Bell, color: 'from-accent-400 to-accent-600', bg: 'bg-accent-50' },
-    { label: 'Active Internships', value: data?.activeInternships || 0, icon: Briefcase, color: 'from-cyan-400 to-cyan-600', bg: 'bg-cyan-50' },
-    { label: 'My Registrations', value: data?.registeredInternships || 0, icon: Briefcase, color: 'from-violet-400 to-violet-600', bg: 'bg-violet-50' },
-  ]
-
-  return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
-      <motion.div variants={item}>
-        <h1 className="text-3xl font-bold text-surface-900">
-          {greeting}, <span className="gradient-text">{useAuthStore.getState().user?.name?.split(' ')[0] || 'Student'}</span> 👋
-        </h1>
-        <p className="text-surface-500 mt-1">Here's your campus overview for today</p>
-      </motion.div>
-
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {stats.map((stat) => (
-          <StatCard key={stat.label} {...stat} loading={loading} />
-        ))}
-      </motion.div>
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        <motion.div variants={item} className="lg:col-span-2">
-          <Card padding="none" hover className="overflow-hidden">
-            <div className="p-6 pb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center"><Calendar className="w-5 h-5 text-primary-600" /></div>
-                <div>
-                  <h3 className="font-bold text-surface-900">Today's Schedule</h3>
-                  <p className="text-xs text-surface-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 pb-6 space-y-3">
-              {loading ? (
-                <div className="text-center py-12 text-surface-400">Loading schedule...</div>
-              ) : data?.todaySchedule?.length === 0 ? (
-                <div className="text-center py-12"><p className="text-surface-500 font-medium">No classes today</p><p className="text-sm text-surface-400">Enjoy your day off!</p></div>
-              ) : (
-                data?.todaySchedule?.map((event: any, i: number) => (
-                  <motion.div key={event.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.1 }} className="flex items-center gap-4 p-4 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors group cursor-pointer">
-                    <div className="w-1 h-12 rounded-full" style={{ backgroundColor: event.color || '#5c7cfa' }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-surface-900 group-hover:text-primary-700 transition-colors">{event.title}</p>
-                        <Badge variant={typeColor(event.type) as any}>{event.type}</Badge>
-                      </div>
-                      <p className="text-sm text-surface-500 mt-0.5">{event.location}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="flex items-center gap-1.5 text-surface-900 font-semibold"><Clock size={14} className="text-surface-400" />{event.startTime}</div>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="space-y-6">
-          <Card className="bg-gradient-to-br from-primary-600 to-accent-600 text-white border-0">
-            <div className="flex items-center gap-2 mb-4"><Sparkles size={20} /><h3 className="font-bold">AI Assistant</h3></div>
-            <p className="text-sm text-white/80 mb-4">What can I help you with today?</p>
-            <div className="space-y-2">
-              {['Summarize my notes', 'Check deadlines', 'Plan study schedule'].map((action) => (
-                <button key={action} className="w-full text-left px-4 py-2.5 bg-white/10 backdrop-blur-sm rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/10">
-                  <Zap size={14} className="inline mr-2" />{action}
-                </button>
-              ))}
-            </div>
-          </Card>
-
-          <Card hover>
-            <h3 className="font-bold text-surface-900 mb-4">Recent Notifications</h3>
-            <div className="space-y-3">
-              {data?.recentNotifications?.slice(0, 4).map((n: any) => (
-                <div key={n.id} className="flex items-start gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${n.type === 'EXAM' ? 'bg-red-100 text-red-600' : n.type === 'ASSIGNMENT' ? 'bg-primary-100 text-primary-600' : 'bg-accent-100 text-accent-600'}`}>
-                    {n.type === 'EXAM' ? <FileText size={14} /> : n.type === 'ASSIGNMENT' ? <BookOpen size={14} /> : <Users size={14} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-surface-700">{n.title}</p>
-                    <p className="text-xs text-surface-400 mt-0.5">{new Date(n.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// MAIN DASHBOARD (role router)
-// ═════════════════════════════════════════════════════════════════════════════
 export default function DashboardPage() {
   const { user } = useAuthStore()
-  const [data, setData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    dashboardAPI.get().then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [])
+  const firstName = user?.name?.split(' ')[0] || 'Student'
+  const now = new Date()
+  const todayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  const dayIdx = now.getDay() === 0 ? 6 : now.getDay() - 1
 
-  // Fetch internship and contest counts for dashboard stats
-  useEffect(() => {
-    if (!user) return
-    const isStudent = user.role === 'STUDENT'
-    const isTeacher = user.role === 'TEACHER'
+  // STATE-SYNC: reactive college scope — super-admin college switches change
+  // the key (new scope → fresh fetch) instead of showing the old college's
+  // cached bundle until refresh. qk.dashboard keeps prefix ['dashboard'] so
+  // notifyEntityMutated(['dashboard']) still busts every day/scope variant.
+  const collegeScope = useCollegeScope()
 
-    if (isStudent) {
-      internshipAPI.getAll().then((internships) => {
-        setData((prev: any) => ({
-          ...prev,
-          activeInternships: internships.filter((i: any) => i.computedStatus === 'ACTIVE').length,
-          registeredInternships: internships.filter((i: any) => i.registrations?.length > 0).length,
-        }))
-      }).catch(() => {})
-    }
+  // Single cancellable bundle: ONE AbortSignal threads into EVERY sub-fetch
+  // (React Query aborts the whole bundle on day/scope switch). Previously
+  // dashboardAPI.get + announcements + timetable ignored the signal, so a slow
+  // bundle could resolve after navigation and paint a stale dashboard.
+  const { data: dashboardBundle, isLoading: loading, isError, error, refetch } = useQuery({
+    queryKey: qk.dashboard(dayIdx, (user as any)?.collegeId || collegeScope),
+    queryFn: async ({ signal }) => {
+      const [dashData, hackData, roomData, formData, annData, sched] = await Promise.all([
+        dashboardAPI.get(signal),
+        hackathonAPI.getAll({ signal } as any).catch(()=>[]),
+        roomAPI.getAll({ signal } as any).catch(()=>[]),
+        formAPI.getAll({ signal } as any).catch(()=>[]),
+        announcementsAPI.list(1, 6, undefined, signal).catch(()=>({ announcements:[], unreadCount:0 })),
+        timetableAPI.getAll({ signal }).catch(()=>[]),
+      ])
+      const today = (sched as any[]).filter((s:any)=> s.dayOfWeek===dayIdx).sort((a:any,b:any)=> a.startTime.localeCompare(b.startTime))
+      return { dashData, hackData, roomData, formData, annData, today }
+    },
+    // SG cloud-dev: each API query 500-1000ms NORMAL (India→SG 70-90ms RTT+TLS+pgbouncer);
+    // staleTime 2min (>> 30s minimum for dashboard lists) avoids refetch storms on
+    // tab focus/nav. Backend dashboard is single GROUP BY aggregations (no N+1 fallback).
+    // TAB-NOREFRESH: keepPreviousData shows the cached bundle instantly on day/scope
+    // switch (no full loader flash); refetchOnWindowFocus false (inherits global)
+    // so switching browser tabs never reloads the dashboard — RQ revalidates in
+    // background only after staleTime, cancelled via signal on rapid switches.
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+  })
+  const data = dashboardBundle?.dashData ?? null
+  const hackathons = (dashboardBundle?.hackData as any[]) ?? []
+  const rooms = (dashboardBundle?.roomData as any[]) ?? []
+  const forms = (dashboardBundle?.formData as any[]) ?? []
+  const announcements = (dashboardBundle?.annData?.announcements as any[]) ?? []
+  const unreadCount = dashboardBundle?.annData?.unreadCount ?? 0
+  const todayClasses = dashboardBundle?.today ?? []
 
-    if (isTeacher) {
-      internshipAPI.getAll().then((internships) => {
-        setData((prev: any) => ({
-          ...prev,
-          postedInternships: internships.filter((i: any) => i.creatorId === user.id).length,
-        }))
-      }).catch(() => {})
-      codingContestAPI.getAll().then((contests) => {
-        setData((prev: any) => ({
-          ...prev,
-          totalContests: contests.length,
-        }))
-      }).catch(() => {})
-    }
-  }, [user])
+  const upcomingHackathons = hackathons.filter((h:any)=> h.startDate && new Date(h.startDate) > new Date()).sort((a:any,b:any)=> new Date(a.startDate).getTime()-new Date(b.startDate).getTime()).slice(0,3)
+  const periodLabels = ['I','II','III','IV','V','VI','VII','VIII']
 
-  const role = user?.role || 'STUDENT'
+  // STATE-SYNC: one canonical subscription — every entity feeding the bundle
+  // (announcements/assignments/forms/rooms/hackathons/internships/schedules/
+  // contests/attendance/grades) refreshes via notifyEntityMutated + the Layout
+  // socket bridge. No hand-rolled socket/window lists (they drifted: missing
+  // tasks/timetable/search fan-out, dead keys, double-notify).
+  useEntitySync(
+    ['announcement', 'assignment', 'form', 'room', 'hackathon', 'internship', 'schedule', 'task', 'contest', 'attendance', 'grade'],
+    async () => {},
+  )
 
-  if (role === 'TEACHER') return <TeacherDashboard data={data} loading={loading} />
-  if (role === 'COLLEGE_ADMIN') return <CollegeAdminDashboard data={data} loading={loading} />
-  if (role === 'SUPER_ADMIN') return <SuperAdminDashboard data={data} loading={loading} />
-  return <StudentDashboard data={data} loading={loading} />
+  const stats = user?.role==='STUDENT' ? [
+    { label:'CGPA', value: data?.cgpa ?? '—', sub: 'Current Standing', icon: GraduationCap },
+    { label:'Pending Tasks', value: data?.pendingAssignments ?? 0, sub: `${data?.upcomingDeadlines ?? 0} due soon`, icon: ClipboardList },
+    { label:'Notifications', value: data?.unreadNotifications ?? unreadCount, sub: 'Unread alerts', icon: Bell },
+    { label:'Periods Today', value: todayClasses.length, sub: todayLabel.split(',')[0], icon: Clock },
+  ] : [
+    { label:'Students', value: data?.totalStudents ?? data?.totalUsers ?? 0, sub: 'Enrolled', icon: GraduationCap },
+    { label:'Faculty', value: data?.totalTeachers ?? 0, sub: 'Active', icon: Users },
+    { label:'Events', value: hackathons.length, sub: 'Hackathons', icon: Calendar },
+    { label:'Rooms', value: rooms.length, sub: 'Study spaces', icon: DoorOpen },
+  ]
+
+  return (
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* WHY: one H1 per page (was 0, fails 1.3.1). Visually hidden would also pass, but PremiumHero is decorative — sr-only H1 keeps RouteFocus targeting. */}
+      <h1 className="sr-only">Dashboard — Overview for {firstName}</h1>
+      {isError && !dashboardBundle ? (
+        <div className="rounded-[20px] border border-danger-200 bg-danger-50 p-6 text-center" role="alert">
+          <p className="font-semibold text-surface-900">Couldn&apos;t load your overview</p>
+          <p className="text-sm text-surface-500 mt-1">{(error as any)?.response?.data?.error || 'Check your connection and try again.'}</p>
+          <button onClick={() => refetch()} className="mt-4 inline-flex items-center gap-1.5 min-h-[44px] px-5 bg-[#0a0a0a] dark:bg-white text-white dark:text-black rounded-full text-sm font-bold">Retry</button>
+        </div>
+      ) : null}
+      {isError && dashboardBundle ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3" role="alert">
+          <span>Showing cached overview — refresh failed.</span>
+          <button onClick={() => refetch()} className="font-bold underline underline-offset-4 shrink-0">Retry</button>
+        </div>
+      ) : null}
+      <PremiumHero
+        eyebrow={`Campus Flow · ${todayLabel}`}
+        icon={<Sparkles size={16} className="text-black dark:text-black" />}
+        title={<>Good morning, <span className="text-primary-500">{firstName}</span></>}
+        subtitle="Here's your day on the board — periods, notices and opportunities in one place."
+        actions={
+          <>
+            <button onClick={()=>navigate('/announcements')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white dark:bg-white text-black dark:text-black text-[13px] font-black hover:bg-zinc-100 dark:hover:bg-zinc-100 transition-colors shadow-lg">
+              <Megaphone size={14} className="text-primary-600 dark:text-primary-600"/> Announcements
+              {unreadCount>0 && <span className="ml-1 min-w-[20px] h-5 px-1.5 bg-[#ff4b5c] dark:bg-[#ff4b5c] text-white dark:text-white rounded-full text-xs font-black inline-flex items-center justify-center">{unreadCount>99?'99+':unreadCount}</span>}
+            </button>
+            <button onClick={()=>navigate('/schedule')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white/10 dark:bg-white/10 backdrop-blur-md border border-white/15 dark:border-white/15 text-white dark:text-white text-[13px] font-bold hover:bg-white/15 dark:hover:bg-white/15 transition-colors">
+              <Calendar size={14}/> View timetable <ChevronRight size={14} className="opacity-60"/>
+            </button>
+            <span className="hidden sm:inline-flex items-center gap-2 px-4 h-11 rounded-full bg-white/10 dark:bg-white/10 backdrop-blur-md border border-white/15 dark:border-white/15 text-white dark:text-white text-[13px] font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/> {todayClasses.length} periods today
+            </span>
+          </>
+        }
+        stats={
+          <GlassPanel className="p-4">
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/80 dark:text-white/80">Today · {todayLabel.split(',')[0]}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-white dark:bg-white p-3 border border-white/20 dark:border-white/20">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60 dark:text-black/60">Periods</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black dark:text-black">{todayClasses.length}</p>
+                <p className="mt-1 text-[11px] font-semibold text-black/70 dark:text-black/70">{todayClasses.length? 'Scheduled' : 'Open day'}</p>
+              </div>
+              <div className="rounded-2xl bg-primary-500 dark:bg-primary-500 p-3 text-black dark:text-black border border-primary-500/20 dark:border-primary-500/20">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60 dark:text-black/60">Notices</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black dark:text-black">{announcements.length}</p>
+                <p className="mt-1 text-[11px] font-bold text-black/70 dark:text-black/70">{unreadCount} unread</p>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-white/75 dark:text-white/75">
+              <Clock size={12} className="text-primary-400 dark:text-primary-400"/> Updated just now
+              <span className="w-1 h-1 rounded-full bg-white/30 dark:bg-white/30"/> <Zap size={12} className="text-primary-400 dark:text-primary-400"/> Live
+            </div>
+          </GlassPanel>
+        }
+      />
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+
+      <motion.div initial="hidden" animate="show" variants={{ hidden:{}, show:{ transition:{ staggerChildren:0.06, delayChildren:0.12 } } }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {stats.map((s, i)=> (
+          <motion.div key={s.label} variants={{ hidden:{opacity:0,y:12}, show:{opacity:1,y:0, transition:{ delay:0.08+i*0.06, duration:0.4, ease:[0.22,1,0.36,1] as any } } }}>
+            <div className="group relative overflow-hidden rounded-[20px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-4 hover:shadow-[0_12px_32px_rgba(0,0,0,0.08)] hover:border-surface-300 dark:hover:border-[#3a3a3a] transition-all">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-300">{s.label}</p>
+                  <p className="mt-1 font-display text-[22px] font-[800] tracking-[-0.02em] leading-none text-[#0a0a0a] dark:text-white">{s.value}</p>
+                  <p className="mt-1 text-[11px] font-semibold text-surface-500 dark:text-night-400">{s.sub}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shadow-sm">
+                  <s.icon size={18} />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      <SectionCard
+        title="My Day — Today"
+        subtitle={`${todayLabel} · ${todayClasses.length} periods`}
+        icon={<Clock size={16}/>}
+        action={<span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-black dark:text-black text-[11px] font-black tracking-widest uppercase"><span className="w-1.5 h-1.5 rounded-full bg-black dark:bg-black animate-pulse"/> Live</span>}
+      >
+        {loading ? (
+          <CenteredLoader text="Loading today's schedule..." minHeight="min-h-[160px]" />
+        ) : todayClasses.length===0 ? (
+          <div className="rounded-[20px] border border-dashed border-surface-300 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a]/50 p-8 text-center">
+            <div className="w-12 h-12 rounded-xl bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] flex items-center justify-center mx-auto">
+              <BookOpen size={20} className="text-surface-400 dark:text-night-400" />
+            </div>
+            <p className="mt-3 font-semibold text-surface-700 dark:text-night-200">No periods today</p>
+            <p className="text-sm text-surface-500 dark:text-night-400">Enjoy the open day — or view your complete weekly timetable.</p>
+            <button onClick={()=>navigate('/schedule')} className="mt-4 inline-flex items-center gap-1.5 min-h-[44px] px-5 bg-[#0a0a0a] dark:bg-white text-white dark:text-black rounded-full text-sm font-bold hover:bg-black dark:hover:bg-zinc-100 transition-colors">Open Timetable <ChevronRight size={16}/></button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {todayClasses.slice(0,8).map((c:any, idx:number)=>(
+              <motion.div key={c.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{ delay: idx*0.04 }} className="rounded-[20px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-4 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:border-primary-500/20 transition-all">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black tracking-widest uppercase text-primary-600">Period {periodLabels[idx] ?? idx+1}</span>
+                  <span className="text-xs font-mono font-medium text-surface-500 dark:text-night-400">{c.startTime} — {c.endTime}</span>
+                </div>
+                <p className="mt-2 font-bold text-[#0a0a0a] dark:text-white leading-tight line-clamp-2">{c.title}</p>
+                <p className="mt-1 text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-1.5">
+                  {c.location && <><MapPin size={12}/> {c.location}</>}
+                  {c.teacher && <span className="truncate">· {c.teacher}</span>}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <BentoGrid>
+        <div className="col-span-12 lg:col-span-7">
+          <SectionCard
+            title="Pinned Notices"
+            subtitle="Curated notices"
+            icon={<Megaphone size={16}/>}
+            action={<button onClick={()=>navigate('/announcements')} className="text-sm font-bold text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">View all <ChevronRight size={14}/></button>}
+          >
+            {announcements.length===0 ? (
+              <div className="p-8 text-center rounded-[20px] bg-surface-50 dark:bg-[#0a0a0a] border border-dashed border-surface-200 dark:border-[#282828]">
+                <Megaphone size={28} className="mx-auto text-surface-300 dark:text-night-500" />
+                <p className="mt-2 text-sm font-semibold text-surface-500 dark:text-night-400">No pinned notices</p>
+                <p className="text-xs text-surface-500 dark:text-night-300">Announcements will be pinned here when posted.</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {announcements.slice(0,4).map((ann:any, i:number)=>(
+                  <motion.button key={ann.id} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{ delay: i*0.05 }} onClick={()=>navigate('/announcements')} className="w-full text-left flex items-start gap-3 p-3.5 rounded-[16px] border border-surface-200 dark:border-[#282828] bg-surface-50/50 dark:bg-[#0a0a0a]/50 hover:bg-white dark:hover:bg-[#121212] hover:border-surface-300 dark:hover:border-[#3a3a3a] hover:shadow-sm transition-all">
+                    <span className="w-2 h-2 rounded-full bg-primary-500 mt-2 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-[#0a0a0a] dark:text-white truncate text-sm">{ann.title}</p>
+                      <p className="text-xs text-surface-500 dark:text-night-400 mt-0.5">{ann.creator?.name} · {new Date(ann.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
+                    </div>
+                    <ChevronRight size={16} className="text-surface-300 dark:text-night-500 shrink-0 mt-1" />
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+
+        <div className="col-span-12 lg:col-span-5 space-y-6">
+          <SectionCard title="Up Next" subtitle="Opportunities" icon={<Trophy size={16}/>} action={<button onClick={()=>navigate('/hackathons')} className="text-xs font-bold text-primary-600 hover:text-primary-700">View events →</button>}>
+            <div className="space-y-2.5">
+              {upcomingHackathons.length===0 ? (
+                <p className="text-sm text-surface-500 dark:text-night-300 py-6 text-center border border-dashed border-surface-200 dark:border-[#282828] rounded-[16px]">No upcoming events</p>
+              ) : upcomingHackathons.map((h:any)=>(
+                <div key={h.id} className="flex items-center gap-3 p-3 rounded-[16px] bg-surface-50/60 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] hover:border-primary-500/15 transition-colors">
+                  <span className="w-2 h-2 rounded-full bg-primary-500 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-[#0a0a0a] dark:text-white text-sm truncate">{h.title}</p>
+                    <p className="text-xs text-surface-500 dark:text-night-400 mt-0.5">{new Date(h.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
+                  </div>
+                  <span className="text-xs font-black text-black bg-primary-500 px-2.5 py-1 rounded-full dark:text-white">{Math.max(0, Math.ceil((new Date(h.startDate).getTime()-Date.now())/86400000))}d</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6">
+              <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-300">Quick Actions</p>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {[
+                  {label:'Browse Hackathons', sub:'Find events & team ups', action:()=>navigate('/hackathons'), icon: Trophy},
+                  {label:'Browse Internships', sub:'Explore live openings', action:()=>navigate('/internships'), icon: Briefcase},
+                  {label:'Study Rooms', sub:'Group channels & chat', action:()=>navigate('/rooms'), icon: DoorOpen},
+                  {label:'My Timetable', sub:'Weekly period matrix', action:()=>navigate('/schedule'), icon: Clock},
+                ].slice(0, user?.role==='STUDENT' ? 4 : 3).map(a=>(
+                  <button key={a.label} onClick={a.action} className="flex items-center gap-3 p-3 rounded-[16px] border border-surface-200 dark:border-[#282828] bg-white dark:bg-[#121212] hover:bg-surface-50 dark:hover:bg-[#1a1a1a] text-left transition-all hover:shadow-sm group">
+                    <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shrink-0 group-hover:bg-primary-500 group-hover:text-black transition-colors">
+                      <a.icon size={16} />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-bold text-[#0a0a0a] dark:text-white">{a.label}</span>
+                      <span className="block text-xs text-surface-500 dark:text-night-400">{a.sub}</span>
+                    </span>
+                    <ChevronRight size={14} className="text-surface-300 dark:text-night-500 group-hover:text-[#0a0a0a] dark:group-hover:text-white transition-colors" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+
+        {forms.length>0 && (
+          <div className="col-span-12">
+            <SectionCard title="Forms needing attention" subtitle={`${forms.length} open`} icon={<ClipboardList size={16}/>} action={<span className="text-xs font-black bg-[#0a0a0a] dark:bg-white text-white dark:text-black px-3 py-1.5 rounded-full">{forms.length} open</span>}>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {forms.slice(0,3).map((f:any, i:number)=>(
+                  <motion.button key={f.id} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{ delay: 0.2+i*0.06 }} onClick={()=>navigate(`/forms/${f.id}`)} className="rounded-[20px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-4 text-left hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:border-primary-500/20 hover:-translate-y-0.5 transition-all">
+                    <p className="font-bold text-[#0a0a0a] dark:text-white line-clamp-1">{f.title}</p>
+                    <p className="text-xs text-surface-500 dark:text-night-400 mt-1 line-clamp-2">{f.description || 'No description'}</p>
+                    <p className="text-xs font-mono font-medium text-surface-400 dark:text-night-400 mt-3 inline-flex items-center gap-1"><Calendar size={12}/>{f.expiresAt ? `Due ${new Date(f.expiresAt).toLocaleDateString()}` : 'No due date'}</p>
+                  </motion.button>
+                ))}
+              </div>
+            </SectionCard>
+          </div>
+        )}
+      </BentoGrid>
+    </div>
+  )
 }

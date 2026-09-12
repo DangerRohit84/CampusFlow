@@ -27,21 +27,45 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   loading: true,
   login: async (user, token) => {
-    await SecureStore.setItemAsync('token', token)
-    await SecureStore.setItemAsync('user', JSON.stringify(user))
-    set({ user, token, isAuthenticated: true })
+    try {
+      await SecureStore.setItemAsync('token', token)
+      await SecureStore.setItemAsync('user', JSON.stringify(user))
+      set({ user, token, isAuthenticated: true, loading: false })
+    } catch (error) {
+      console.error('Error saving auth data:', error)
+      set({ loading: false })
+    }
   },
   logout: async () => {
-    await SecureStore.deleteItemAsync('token')
-    await SecureStore.deleteItemAsync('user')
-    set({ user: null, token: null, isAuthenticated: false })
+    try {
+      await SecureStore.deleteItemAsync('token')
+      await SecureStore.deleteItemAsync('user')
+    } catch (error) {
+      console.error('Error clearing auth data:', error)
+    } finally {
+      set({ user: null, token: null, isAuthenticated: false, loading: false })
+    }
   },
   loadToken: async () => {
-    const token = await SecureStore.getItemAsync('token')
-    const userStr = await SecureStore.getItemAsync('user')
-    if (token && userStr) {
-      set({ user: JSON.parse(userStr), token, isAuthenticated: true, loading: false })
-    } else {
+    try {
+      const token = await SecureStore.getItemAsync('token')
+      const userStr = await SecureStore.getItemAsync('user')
+      if (token && userStr) {
+        try {
+          const user = JSON.parse(userStr)
+          set({ user, token, isAuthenticated: true, loading: false })
+        } catch (parseError) {
+          console.error('Error parsing user data:', parseError)
+          // Corrupted user data - clear it
+          await SecureStore.deleteItemAsync('token')
+          await SecureStore.deleteItemAsync('user')
+          set({ loading: false })
+        }
+      } else {
+        set({ loading: false })
+      }
+    } catch (error) {
+      console.error('Error loading token:', error)
       set({ loading: false })
     }
   },

@@ -1,10 +1,65 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 
 const prisma = new PrismaClient()
 
-async function main() {
-  console.log('Seeding database...')
+// Demo content (login accounts, courses, hackathons, internships, ...) must never
+// be created against a production database: demo accounts use a per-run random
+// password (or SEED_ADMIN_PASSWORD when set) — never a hardcoded dictionary word.
+// Guarded by shouldSeedDemo below + hard fail if NODE_ENV=production without explicit opt-in.
+// CAPTCHA/enumeration note: public /api/auth/register returns generic responses
+// (see routes/auth.ts) + per-email lockout + 5/h college-register limiter; seed
+// accounts are dev-only and must not exist in prod (avoids credential-stuffing).
+const shouldSeedDemo =
+  process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_USERS === 'true'
+
+// Fail-closed: refuse to seed demo users in production unless explicitly opted in.
+// This prevents accidental `prisma db seed` against prod Neon with weak creds.
+if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_USERS !== 'true') {
+  // Note: main() below also skips demo data in prod; this earlyModule guard
+  // documents intent for operators reading logs.
+  console.log('[Seed] NODE_ENV=production without SEED_DEMO_USERS=true — demo users will be skipped.')
+}
+
+// Resolve demo password: explicit env wins (CI/staging), else per-run random.
+// Logged once (dev convenience) — never commit the value; prod never seeds.
+function resolveSeedPassword(): { plain: string; source: 'env' | 'random' } {
+  const fromEnv = (process.env.SEED_ADMIN_PASSWORD || '').trim()
+  if (fromEnv) {
+    if (fromEnv.length < 12) throw new Error('SEED_ADMIN_PASSWORD must be >=12 chars when set')
+    return { plain: fromEnv, source: 'env' }
+  }
+  return { plain: crypto.randomBytes(16).toString('hex'), source: 'random' }
+}
+
+function sanitizeUsername(raw: string): string {
+  return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
+}
+function demoUsername(name: string, email: string, fallback: string): string {
+  const base = sanitizeUsername(name.replace(/\s+/g, '_')) || sanitizeUsername(email.split('@')[0]) || fallback
+  let s = base
+  if (s.length < 3) s = (s + 'user').slice(0, 20)
+  // ensure starts/ends alphanumeric
+  s = s.replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]+$/, '')
+  if (s.length < 3) s = fallback
+  return s.slice(0, 20)
+}
+
+// Seeds all demo data. Returns the demo college id so the AI provider built-ins
+// can be attached to it (in production they are seeded globally instead).
+async function seedDemoData(): Promise<string> {
+  console.log('Seeding demo data...')
+  const seedCreds = resolveSeedPassword()
+  // bcrypt12 to match routes/auth.ts (was 10 — bumped for parity).
+  const passwordHash = await bcrypt.hash(seedCreds.plain, 12)
+  if (seedCreds.source === 'random') {
+    // Log-once for local dev login (dev-only path; prod skips seedDemoData).
+    // Value is per-run random — safe to show in local console, never in CI artifacts.
+    console.log(`[Seed] demo password (random, dev-only, log-once): ${seedCreds.plain}`)
+  } else {
+    console.log('[Seed] demo password from SEED_ADMIN_PASSWORD (redacted)')
+  }
 
   // Create college first
   const college = await prisma.college.upsert({
@@ -40,14 +95,14 @@ async function main() {
   })
   console.log('Created departments:', csDept.name, eeDept.name, meDept.name)
 
-  // Create demo student
-  const passwordHash = await bcrypt.hash('password123', 10)
+  // Create demo student (uses per-run random / SEED_ADMIN_PASSWORD hash above)
   const user = await prisma.user.upsert({
     where: { email: 'alex@university.edu' },
-    update: {},
+    update: { username: demoUsername('Alex Johnson', 'alex@university.edu', 'alex_johnson') },
     create: {
       email: 'alex@university.edu',
       name: 'Alex Johnson',
+      username: demoUsername('Alex Johnson', 'alex@university.edu', 'alex_johnson'),
       passwordHash,
       role: 'STUDENT',
       departmentId: csDept.id,
@@ -62,10 +117,11 @@ async function main() {
   // Create demo teacher
   const teacher = await prisma.user.upsert({
     where: { email: 'prof.sharma@university.edu' },
-    update: {},
+    update: { username: demoUsername('Prof Sharma', 'prof.sharma@university.edu', 'prof_sharma') },
     create: {
       email: 'prof.sharma@university.edu',
       name: 'Prof. Sharma',
+      username: demoUsername('Prof Sharma', 'prof.sharma@university.edu', 'prof_sharma'),
       passwordHash,
       role: 'TEACHER',
       departmentId: csDept.id,
@@ -75,13 +131,22 @@ async function main() {
   })
   console.log('Created teacher:', teacher.name)
 
+  // Backfill: bulk CSV uploads with a mismatched department NAME used to
+  // silently create dept-less teachers (Prof. Sharma EMP001 showed no
+  // department). Repair pre-existing rows — only when missing, never overwrite.
+  await prisma.user.updateMany({
+    where: { email: 'prof.sharma@university.edu', departmentId: null },
+    data: { departmentId: csDept.id, collegeId: college.id },
+  })
+
   // Create college admin
   const collegeAdmin = await prisma.user.upsert({
     where: { email: 'admin@university.edu' },
-    update: {},
+    update: { username: demoUsername('College Admin', 'admin@university.edu', 'college_admin') },
     create: {
       email: 'admin@university.edu',
       name: 'College Admin',
+      username: demoUsername('College Admin', 'admin@university.edu', 'college_admin'),
       passwordHash,
       role: 'COLLEGE_ADMIN',
       empNumber: 'EMP002',
@@ -93,10 +158,11 @@ async function main() {
   // Create super admin
   const superAdmin = await prisma.user.upsert({
     where: { email: 'superadmin@university.edu' },
-    update: {},
+    update: { username: demoUsername('Super Admin', 'superadmin@university.edu', 'super_admin') },
     create: {
       email: 'superadmin@university.edu',
       name: 'Super Admin',
+      username: demoUsername('Super Admin', 'superadmin@university.edu', 'super_admin'),
       passwordHash,
       role: 'SUPER_ADMIN',
       empNumber: 'EMP003',
@@ -104,19 +170,19 @@ async function main() {
   })
   console.log('Created super admin:', superAdmin.name)
 
-  // Create more students for hackathon registrations
+  // Create more students for hackathon registrations (role explicit; default is STUDENT)
   const moreStudents = [
-    { email: 'priya@university.edu', name: 'Priya Singh', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id },
-    { email: 'rahul@university.edu', name: 'Rahul Verma', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id },
-    { email: 'anjali@university.edu', name: 'Anjali Patel', departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id },
-    { email: 'vikram@university.edu', name: 'Vikram Kumar', departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id },
+    { email: 'priya@university.edu', name: 'Priya Singh', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id, username: demoUsername('Priya Singh', 'priya@university.edu', 'priya_singh') },
+    { email: 'rahul@university.edu', name: 'Rahul Verma', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id, username: demoUsername('Rahul Verma', 'rahul@university.edu', 'rahul_verma') },
+    { email: 'anjali@university.edu', name: 'Anjali Patel', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id, username: demoUsername('Anjali Patel', 'anjali@university.edu', 'anjali_patel') },
+    { email: 'vikram@university.edu', name: 'Vikram Kumar', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id, username: demoUsername('Vikram Kumar', 'vikram@university.edu', 'vikram_kumar') },
   ]
 
   const createdStudents = [user]
   for (const s of moreStudents) {
     const student = await prisma.user.upsert({
       where: { email: s.email },
-      update: {},
+      update: { username: (s as any).username },
       create: {
         ...s,
         passwordHash,
@@ -126,11 +192,11 @@ async function main() {
   }
   console.log('Created', createdStudents.length, 'students total')
 
-  // Create courses
+  // Create courses (collegeId FK → demo college for college-scoped lists)
   const courses = [
-    { name: 'Data Structures', code: 'CS201', credits: 4, teacherId: teacher.id, semester: 'Fall 2026' },
-    { name: 'Algorithms', code: 'CS301', credits: 4, teacherId: teacher.id, semester: 'Fall 2026' },
-    { name: 'Database Systems', code: 'CS401', credits: 3, teacherId: teacher.id, semester: 'Fall 2026' },
+    { name: 'Data Structures', code: 'CS201', credits: 4, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
+    { name: 'Algorithms', code: 'CS301', credits: 4, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
+    { name: 'Database Systems', code: 'CS401', credits: 3, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
   ]
 
   const createdCourses = []
@@ -180,14 +246,32 @@ async function main() {
   }
   console.log('Created', schedules.length, 'schedules')
 
-  // Create assignments
-  const assignments = [
-    { courseId: 'CS301', title: 'ML Project Report', description: 'Implement and compare 3 ML models on the given dataset', dueDate: new Date('2026-07-22'), priority: 'HIGH', progress: 75 },
-    { courseId: 'CS202', title: 'SQL Query Practice', description: 'Complete 20 SQL queries covering JOINs, subqueries, and aggregation', dueDate: new Date('2026-07-24'), priority: 'MEDIUM', progress: 40 },
-    { courseId: 'CS201', title: 'Binary Tree Implementation', description: 'Implement BST with insert, delete, search, and traversal operations', dueDate: new Date('2026-07-26'), priority: 'LOW', progress: 10 },
-    { courseId: 'CS302', title: 'Process Scheduling Report', description: 'Compare FCFS, SJF, and Round Robin scheduling algorithms', dueDate: new Date('2026-07-28'), priority: 'LOW', progress: 0 },
-    { courseId: 'CS202', title: 'ER Diagram Design', description: 'Design an ER diagram for the hospital management system', dueDate: new Date('2026-07-20'), priority: 'HIGH', status: 'SUBMITTED', progress: 100 },
-    { courseId: 'CS201', title: 'Sorting Algorithms Analysis', description: 'Analyze time complexity of sorting algorithms with empirical testing', dueDate: new Date('2026-07-18'), priority: 'LOW', status: 'GRADED', grade: 'A', progress: 100 },
+  // Create assignments.
+  // FK: Assignment.courseId → Course.id (uuid), NOT course code (CS201/CS301/CS401).
+  // Enum: AssignmentStatus = PENDING | IN_PROGRESS | COMPLETED | CANCELLED.
+  // SUBMITTED/GRADED are SubmissionStatus (AssignmentSubmission), not Assignment —
+  // submitted/graded legacy rows map to COMPLETED here (progress 100).
+  // NOTE: seed codes CS202 (SQL/ER → CS401 Database Systems) + CS302 (OS scheduling
+  // → CS301 fallback, no OS course exists) remapped to real uuids below.
+  const courseIdByCode: Record<string, string> = Object.fromEntries(
+    createdCourses.map((c) => [c.code, c.id]),
+  )
+  const assignments: Array<{
+    courseId: string
+    title: string
+    description: string
+    dueDate: Date
+    priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+    progress: number
+    status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+    grade?: string
+  }> = [
+    { courseId: courseIdByCode['CS301'], title: 'ML Project Report', description: 'Implement and compare 3 ML models on the given dataset', dueDate: new Date('2026-07-22'), priority: 'HIGH', progress: 75 },
+    { courseId: courseIdByCode['CS401'], title: 'SQL Query Practice', description: 'Complete 20 SQL queries covering JOINs, subqueries, and aggregation', dueDate: new Date('2026-07-24'), priority: 'MEDIUM', progress: 40 },
+    { courseId: courseIdByCode['CS201'], title: 'Binary Tree Implementation', description: 'Implement BST with insert, delete, search, and traversal operations', dueDate: new Date('2026-07-26'), priority: 'LOW', progress: 10 },
+    { courseId: courseIdByCode['CS301'], title: 'Process Scheduling Report', description: 'Compare FCFS, SJF, and Round Robin scheduling algorithms', dueDate: new Date('2026-07-28'), priority: 'LOW', progress: 0 },
+    { courseId: courseIdByCode['CS401'], title: 'ER Diagram Design', description: 'Design an ER diagram for the hospital management system', dueDate: new Date('2026-07-20'), priority: 'HIGH', status: 'COMPLETED', progress: 100 },
+    { courseId: courseIdByCode['CS201'], title: 'Sorting Algorithms Analysis', description: 'Analyze time complexity of sorting algorithms with empirical testing', dueDate: new Date('2026-07-18'), priority: 'LOW', status: 'COMPLETED', grade: 'A', progress: 100 },
   ]
 
   for (const a of assignments) {
@@ -195,10 +279,11 @@ async function main() {
   }
   console.log('Created', assignments.length, 'assignments')
 
-  // Create notifications
+  // Create notifications (Priority = LOW | MEDIUM | HIGH | CRITICAL — no URGENT;
+  // urgent assignment alert maps to CRITICAL. type stays open String.)
   const notifications = [
     { title: 'Mid-term Exam Schedule Released', message: 'The mid-term examination schedule for Spring 2026 has been published.', type: 'EXAM', priority: 'HIGH' },
-    { title: 'New Assignment: ML Project Report', message: 'A new assignment has been posted for Machine Learning. Due: July 22.', type: 'ASSIGNMENT', priority: 'URGENT' },
+    { title: 'New Assignment: ML Project Report', message: 'A new assignment has been posted for Machine Learning. Due: July 22.', type: 'ASSIGNMENT', priority: 'CRITICAL' },
     { title: 'Campus Fest Registration Open', message: 'Annual tech fest "InnovateX 2026" registration is now open.', type: 'EVENT', priority: 'MEDIUM' },
     { title: 'Attendance Warning', message: 'Your attendance in Operating Systems has dropped to 75%.', type: 'ATTENDANCE', priority: 'HIGH' },
     { title: 'Grade Published: Database Systems', message: 'Your grade for Database Systems Assignment 2 has been published.', type: 'GENERAL', priority: 'LOW' },
@@ -209,7 +294,7 @@ async function main() {
   }
   console.log('Created', notifications.length, 'notifications')
 
-  // Create test hackathons
+  // Create test hackathons (themes is Json array — write native arrays, not JSON strings)
   const hackathons = [
     {
       creatorId: teacher.id,
@@ -223,7 +308,7 @@ async function main() {
       endDate: new Date('2026-08-16'),
       deadline: new Date('2026-08-10'),
       teamSize: 6,
-      themes: JSON.stringify(['AI/ML', 'HealthTech', 'AgriTech', 'Smart Education']),
+      themes: ['AI/ML', 'HealthTech', 'AgriTech', 'Smart Education'],
       status: 'PUBLISHED',
     },
     {
@@ -236,7 +321,7 @@ async function main() {
       endDate: new Date('2026-09-02'),
       deadline: new Date('2026-08-28'),
       teamSize: 4,
-      themes: JSON.stringify(['Algorithms', 'Web Development', 'Mobile Apps']),
+      themes: ['Algorithms', 'Web Development', 'Mobile Apps'],
       status: 'PUBLISHED',
     },
   ]
@@ -297,8 +382,8 @@ async function main() {
       status: 'ACTIVE',
       allowEdit: true,
       expiresAt: new Date('2026-09-30'),
-      targetDepartments: JSON.stringify([]),
-      targetYears: JSON.stringify([]),
+      targetDepartments: [],
+      targetYears: [],
       eligibilityEnabled: false,
       fields: {
         create: [
@@ -317,8 +402,8 @@ async function main() {
       status: 'ACTIVE',
       allowEdit: false,
       expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-      targetDepartments: JSON.stringify([]),
-      targetYears: JSON.stringify([]),
+      targetDepartments: [],
+      targetYears: [],
       eligibilityEnabled: false,
       fields: {
         create: [
@@ -355,13 +440,13 @@ async function main() {
         stipend: '$8,000/month',
         duration: '12 weeks',
         mode: 'HYBRID',
-        deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        targetDepartments: '[]',
-        targetYears: '[2,3]',
+        deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        targetDepartments: [],
+        targetYears: [2, 3],
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,
-        collegeId: teacherForInternship.collegeId,
+        collegeId: teacherForInternship.collegeId!,
       },
     })
 
@@ -378,13 +463,13 @@ async function main() {
         stipend: '$7,500/month',
         duration: '16 weeks',
         mode: 'REMOTE',
-        deadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        targetDepartments: '[]',
-        targetYears: '[3,4]',
+        deadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000),
+        targetDepartments: [],
+        targetYears: [3, 4],
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,
-        collegeId: teacherForInternship.collegeId,
+        collegeId: teacherForInternship.collegeId!,
       },
     })
 
@@ -401,65 +486,74 @@ async function main() {
 
   console.log('✓ Internships seeded')
 
-  // ─── Seed Coding Contests ────────────────────────────────────────────
-  const now = new Date()
-  const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const teacherHub = await prisma.user.findFirst({ where: { role: 'TEACHER' } })
+  const collegeHub = teacherHub ? await prisma.college.findUnique({ where: { id: teacherHub.collegeId! } }) : null
+  const deptHub = collegeHub ? await prisma.department.findFirst({ where: { collegeId: collegeHub.id } }) : null
+  const roomHub = teacherHub ? await prisma.room.findFirst({ where: { teacherId: teacherHub.id } }) : null
+  if (teacherHub && collegeHub) {
+    const hubs = [
+      { title: 'ALL: Campus Survey', scope: 'ALL', submissionMode: 'ONLINE', departmentId: null, roomId: null, showStats: true },
+      { title: 'DEPT: Lab Record', scope: 'DEPARTMENT', submissionMode: 'HYBRID', departmentId: deptHub?.id, roomId: null, showGrades: false },
+      { title: 'ROOM: Project Demo', scope: 'ROOM', submissionMode: 'OFFLINE', departmentId: null, roomId: roomHub?.id, showFeedback: false },
+    ]
+    for (const h of hubs) {
+      if (h.scope==='DEPARTMENT' && !h.departmentId) continue
+      if (h.scope==='ROOM' && !h.roomId) continue
+      await prisma.assignmentHub.upsert({
+        where: { id: `seed-${h.title}` },
+        update: {},
+        create: { id: `seed-${h.title}`, title: h.title, description: `Demo ${h.title}`, dueDate: new Date(Date.now()+7*86400000), creatorId: teacherHub.id, collegeId: collegeHub.id, scope: h.scope as any, departmentId: h.departmentId, roomId: h.roomId, submissionMode: h.submissionMode as any, showGrades: (h as any).showGrades??true, showFeedback: (h as any).showFeedback??true, showStats: (h as any).showStats??false, maxPoints: 100 }
+      })
+    }
+    console.log('✓ AssignmentHub demo seeded')
+  }
 
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-lc-weekly' },
-    update: {},
-    create: {
-      id: 'seed-contest-lc-weekly',
-      title: 'LeetCode Weekly Contest 400',
-      platform: 'LEETCODE',
-      url: 'https://leetcode.com/contest/weekly-contest-400/',
-      startTime: nextWeek.toISOString(),
-      duration: 90,
-      contestType: 'WEEKLY',
-      status: 'UPCOMING',
-      solutions: '[]',
-      isAutoFetched: true,
-    },
-  })
+  return college.id
+}
 
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-cc-cookoff' },
-    update: {},
-    create: {
-      id: 'seed-contest-cc-cookoff',
-      title: 'CodeChef Cook-off',
-      platform: 'CODECHEF',
-      url: 'https://www.codechef.com/contests/cook-off',
-      startTime: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-      duration: 120,
-      contestType: 'OTHER',
-      status: 'UPCOMING',
-      solutions: '[]',
-      isAutoFetched: true,
-    },
-  })
+async function main() {
+  console.log('Seeding database...')
 
-  await prisma.codingContest.upsert({
-    where: { id: 'seed-contest-cf-div2' },
-    update: {},
-    create: {
-      id: 'seed-contest-cf-div2',
-      title: 'Codeforces Round 950 (Div. 2)',
-      platform: 'CODEFORCES',
-      url: 'https://codeforces.com/contest/1985',
-      startTime: lastWeek.toISOString(),
-      duration: 120,
-      contestType: 'OTHER',
-      status: 'ENDED',
-      solutions: JSON.stringify([
-        { title: 'CF 950 Div2 Solutions', url: 'https://youtube.com/watch?v=example', thumbnail: '' },
-      ]),
-      isAutoFetched: true,
-    },
-  })
+  let aiCollegeId: string | null = null
+  if (shouldSeedDemo) {
+    aiCollegeId = await seedDemoData()
+  } else {
+    console.log('[Seed] Skipping demo data (production)')
+  }
 
-  console.log('✓ Coding contests seeded')
+  // AI Manager - seed built-in providers.
+  // ALWAYS seeded regardless of environment: the AI Manager needs these rows even
+  // on a fresh production DB. Without a demo college (production) they are created
+  // as global providers (collegeId: null).
+  const BUILTIN_PROVIDERS = [
+    { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', type: 'openai-compatible' },
+    { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', type: 'openai-compatible' },
+    { name: 'Anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514', type: 'anthropic' },
+    { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash', type: 'google' },
+    { name: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-large-latest', type: 'openai-compatible' },
+    { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', type: 'openai-compatible' },
+    { name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3', type: 'openai-compatible' },
+    { name: 'OpenCode Serve', baseUrl: 'http://localhost:8081/v1', model: 'default', type: 'openai-compatible' },
+  ]
+
+  for (const p of BUILTIN_PROVIDERS) {
+    try {
+      // findFirst + create instead of upsert: the compound-unique where input
+      // (name, collegeId) does not accept null collegeId, which we need for the
+      // global (production) providers.
+      const existing = await prisma.aiProvider.findFirst({
+        where: { name: p.name, collegeId: aiCollegeId },
+      })
+      if (!existing) {
+        await prisma.aiProvider.create({
+          data: { ...p, apiKey: 'placeholder', isBuiltIn: true, enabled: false, collegeId: aiCollegeId },
+        })
+      }
+    } catch {
+      console.log(`Skipped provider ${p.name} (already exists or constraint issue)`)
+    }
+  }
+  console.log('Seeded AI providers')
 
   console.log('Seed completed!')
 }

@@ -1,6 +1,22 @@
-version: '3.8'
-
+# LOCAL-ONLY: postgres campusflow/campusflow + JWT 1d are dev defaults bound to 127.0.0.1 — never use in prod (see .env.example + ROTATE-SECRETS).
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=campusflow
+      - POSTGRES_PASSWORD=campusflow
+      - POSTGRES_DB=campusflow
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campusflow -d campusflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -9,16 +25,22 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-      - DATABASE_URL=file:./data/campusflow.db
-      - JWT_SECRET=${JWT_SECRET:-campusflow-secret-key-2026}
-      - JWT_EXPIRES_IN=7d
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://campusflow:campusflow@db:5432/campusflow
+      - DIRECT_URL=${DIRECT_URL:-postgresql://campusflow:campusflow@db:5432/campusflow}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - copy .env.example or see docs/ROTATE-SECRETS.md}
+      - JWT_EXPIRES_IN=1d
+      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET is required - copy .env.example or see docs/ROTATE-SECRETS.md}
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:?AI_ENCRYPTION_KEY is required - copy .env.example or see docs/ROTATE-SECRETS.md}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - FRONTEND_URL=http://localhost:3000
-    volumes:
-      - backend-data:/app/data
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - DISABLE_EMBEDDED_CRON=false
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -31,8 +53,11 @@ services:
       - ./apps/web/dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  backend-data:
+  postgres-data:
+
+

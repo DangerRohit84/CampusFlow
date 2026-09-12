@@ -1,73 +1,98 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
-import { motion } from 'framer-motion'
-import {
-  ArrowLeft, Users, FileText, Loader2, Upload, Download,
-  Trash2, Copy, KeyRound, BookOpen, Folder,
-  File, FileImage, FileSpreadsheet, ChevronDown, ChevronRight
-} from 'lucide-react'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { getSocket } from '../lib/socket'
+import { Loader2, Upload, DoorOpen, ArrowLeft, Users, FileText, KeyRound, Copy, Check, BookOpen, MessageSquare, Sparkles, Shield, Layers, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
-import clsx from 'clsx'
 import Modal from '../components/ui/Modal'
-import Badge from '../components/ui/Badge'
-
-const CATEGORIES = [
-  { key: 'lecture', label: 'Lectures', icon: BookOpen },
-  { key: 'assignment', label: 'Assignments', icon: FileSpreadsheet },
-  { key: 'reference', label: 'Reference', icon: Folder },
-  { key: 'other', label: 'Other', icon: File },
-]
-
-const FILE_API_BASE = 'http://localhost:4000'
-
-function getFileIcon(filename: string) {
-  const ext = filename.split('.').pop()?.toLowerCase()
-  if (['pdf'].includes(ext || '')) return <FileText size={16} className="text-red-500" />
-  if (['pptx', 'ppt'].includes(ext || '')) return <FileImage size={16} className="text-orange-500" />
-  if (['xlsx', 'xls', 'csv'].includes(ext || '')) return <FileSpreadsheet size={16} className="text-green-500" />
-  if (['doc', 'docx'].includes(ext || '')) return <FileText size={16} className="text-blue-500" />
-  if (['jpg', 'jpeg', 'png', 'gif'].includes(ext || '')) return <FileImage size={16} className="text-purple-500" />
-  return <File size={16} className="text-surface-400" />
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
+import { useConfirm } from '../components/ui/ConfirmModal'
+import RoomChatPanel from '../components/room/RoomChatPanel'
+import RoomChatSettingsModal from '../components/room/RoomChatSettingsModal'
+import RoomResourcesPanel, { formatFileSize } from '../components/room/RoomResourcesPanel'
+import RoomMembersPanel from '../components/room/RoomMembersPanel'
+import { isRoomMutedLocal } from '../components/room/roomMute'
+import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { motion } from 'framer-motion'
+import CenteredLoader from '../components/ui/CenteredLoader'
+import type { RoomTabKey } from '../components/room/RoomTabs'
+import RoomTabs from '../components/room/RoomTabs'
+import clsx from 'clsx'
 
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const { confirm: confirmDialog } = useConfirm()
   const [room, setRoom] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'members' | 'resources'>('members')
+  const [activeTab, setActiveTab] = useState<RoomTabKey>('chat')
   const [members, setMembers] = useState<any[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
   const [resources, setResources] = useState<Record<string, any[]>>({})
+  const [resourcesLoading, setResourcesLoading] = useState(false)
+  const [unreadChat, setUnreadChat] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
+  const [showChatSettings, setShowChatSettings] = useState(false)
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadCategory, setUploadCategory] = useState('lecture')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
-    lecture: true,
-    assignment: true,
-    reference: true,
-    other: true,
-  })
+  const [copied, setCopied] = useState(false)
+
+  const activeTabRef = useRef(activeTab)
+
+  useEffect(() => { activeTabRef.current = activeTab }, [activeTab])
 
   useEffect(() => {
-    if (id) loadRoom()
+    if (id) {
+      loadRoom()
+      // clear sidebar badge when opening room (deduped: StrictMode
+      // double-mount shares one in-flight POST — PERPAGE-HALF1)
+      roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+    }
   }, [id])
 
+  // PERPAGE-HALF1: per-tab one-shot cache — switching members↔resources↔chat
+  // re-rendered AND refetched on every switch (GET per switch). Mutations
+  // (upload/delete/CR) reload explicitly, so cached tabs stay correct.
+  const loadedTabs = useRef<{ membersFor: string | null; resourcesFor: string | null }>({ membersFor: null, resourcesFor: null })
   useEffect(() => {
-    if (id && activeTab === 'members') loadMembers()
-    if (id && activeTab === 'resources') loadResources()
+    if (!id) return
+    if (activeTab === 'members' && loadedTabs.current.membersFor !== id) {
+      loadedTabs.current.membersFor = id
+      loadMembers()
+    }
+    if (activeTab === 'resources' && loadedTabs.current.resourcesFor !== id) {
+      loadedTabs.current.resourcesFor = id
+      loadResources()
+    }
   }, [id, activeTab])
+
+  // Chat badge dot: flag incoming messages that arrive while another tab is open
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket || !id) return
+    const handler = (message: any) => {
+      if (message.roomId !== id) return
+      if (message.senderId === user?.id) return
+      // Threads-lite: muted channels never raise the chat dot.
+      if (id && isRoomMutedLocal(id)) return
+      if (activeTabRef.current !== 'chat') setUnreadChat(true)
+    }
+    socket.on('room:message:new', handler)
+    return () => { socket.off('room:message:new', handler) }
+  }, [id, user?.id])
+
+  const handleTabChange = (tab: RoomTabKey) => {
+    setActiveTab(tab)
+    if (tab === 'chat') {
+      setUnreadChat(false)
+      if (id) roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+    }
+  }
 
   const loadRoom = async () => {
     try {
@@ -82,27 +107,47 @@ export default function RoomDetailPage() {
   }
 
   const loadMembers = async () => {
+    setMembersLoading(true)
     try {
       const data = await roomAPI.getMembers(id!)
       setMembers(data)
     } catch (err) {
       console.error('Failed to load members', err)
+    } finally {
+      setMembersLoading(false)
     }
   }
 
+  // STATE-SYNC: room METADATA only (name/settings/members). Was ['room',
+  // 'message'] — every chat message bridged to a full getOne refetch
+  // (room:message:new → 'room' entity). Messages are owned by RoomChatPanel's
+  // own socket subscription + 15s fallback, so detail no longer refetches
+  // per message (PERPAGE-HALF1; see entitySync SOCKET_TO_ENTITY ordering).
+  useEntitySync(['room'], loadRoom as any)
+
   const loadResources = async () => {
+    setResourcesLoading(true)
     try {
       const data = await roomAPI.getResources(id!)
-      // Group by category
+      // Backend returns grouped: { lecture: [...], assignment: [...], ... }
       const grouped: Record<string, any[]> = { lecture: [], assignment: [], reference: [], other: [] }
-      data.forEach((r: any) => {
-        const cat = r.category || 'other'
-        if (grouped[cat]) grouped[cat].push(r)
-        else grouped.other.push(r)
-      })
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        Object.entries(data).forEach(([cat, items]) => {
+          if (grouped[cat]) grouped[cat] = items as any[]
+          else grouped.other.push(...(items as any[]))
+        })
+      } else if (Array.isArray(data)) {
+        data.forEach((r: any) => {
+          const cat = r.category || 'other'
+          if (grouped[cat]) grouped[cat].push(r)
+          else grouped.other.push(r)
+        })
+      }
       setResources(grouped)
     } catch (err) {
       console.error('Failed to load resources', err)
+    } finally {
+      setResourcesLoading(false)
     }
   }
 
@@ -138,6 +183,8 @@ export default function RoomDetailPage() {
   }
 
   const handleDeleteResource = async (resourceId: string) => {
+    const ok = await confirmDialog({ title: 'Delete resource?', message: 'Delete this file? Room members will lose access.', confirmLabel: 'Delete' })
+    if (!ok) return
     setDeleting(resourceId)
     try {
       await roomAPI.deleteResource(id!, resourceId)
@@ -150,25 +197,6 @@ export default function RoomDetailPage() {
     }
   }
 
-  const downloadResource = (resource: any) => {
-    const url = `${FILE_API_BASE}/${resource.fileUrl}`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = resource.title || resource.filename || 'download'
-    a.click()
-  }
-
-  const copyJoinCode = () => {
-    if (room?.joinCode) {
-      navigator.clipboard.writeText(room.joinCode)
-      toast.success('Join code copied!')
-    }
-  }
-
-  const toggleCategory = (cat: string) => {
-    setExpandedCategories((prev) => ({ ...prev, [cat]: !prev[cat] }))
-  }
-
   const handleToggleCR = async (studentId: string, isCurrentlyCR: boolean) => {
     try {
       if (isCurrentlyCR) {
@@ -178,7 +206,7 @@ export default function RoomDetailPage() {
         await roomAPI.makeCR(id!, studentId)
         toast.success('Student is now CR')
       }
-      loadRoom()
+      loadMembers()
     } catch (err) {
       toast.error('Failed to update CR status')
     }
@@ -186,286 +214,261 @@ export default function RoomDetailPage() {
 
   const totalResources = Object.values(resources).flat().length
 
+  // Derived from room state so optimistic settings updates reflect instantly
+  const canManageSettings = !!room?.canManageSettings
+  // Threads-lite: pin = creator/admin (canManageSettings) or CR member.
+  const canPin = canManageSettings || members.some((m: any) => m.id === user?.id && m.isCR)
+  const effectiveCanChat = room
+    ? canManageSettings ||
+      room.chatMode === 'EVERYONE' ||
+      (room.chatMode === 'SELECTED' && (room.allowedMembers || []).some((m: any) => m.id === user?.id))
+    : false
+
+  const openChatSettings = async () => {
+    if (members.length === 0) await loadMembers()
+    setShowChatSettings(true)
+  }
+
+  const applyChatSettings = (settings: { chatMode: string; allowedMembers: any[] }) => {
+    setRoom((prev: any) => (prev ? { ...prev, chatMode: settings.chatMode, allowedMembers: settings.allowedMembers } : prev))
+  }
+
+  const revertChatSettings = () => {
+    loadRoom()
+  }
+
+  const copyJoinCode = () => {
+    if (!room?.joinCode) return
+    navigator.clipboard.writeText(room.joinCode)
+    toast.success('Join code copied!')
+    setCopied(true)
+    setTimeout(()=> setCopied(false), 2000)
+  }
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    )
+    return <CenteredLoader text="Loading room..." />
   }
 
   if (!room) return null
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => navigate('/rooms')}
-          className="p-2 rounded-xl bg-surface-100 hover:bg-surface-200 transition-all"
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
-              <BookOpen size={18} className="text-white" />
+    <div className="space-y-6 max-w-[1280px] mx-auto">
+      <h1 className="sr-only">Room Detail</h1>
+      {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
+      <PremiumHero
+        icon={<DoorOpen size={18} />}
+        eyebrow="Rooms · Channel"
+        title={<span className="text-balance">{room.name}</span>}
+        subtitle={room.description ? room.description.slice(0, 160) : 'Channel, members, resources and live chat — everything for this room in one bento workspace.'}
+        actions={
+          <>
+            <button onClick={() => navigate('/rooms')} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white text-black text-[13px] font-black hover:bg-zinc-100 transition-colors shadow-lg">
+              <ArrowLeft size={14}/> Back to Rooms
+            </button>
+            <button onClick={copyJoinCode} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-primary-500 text-black text-[13px] font-black hover:bg-[#1ed760] shadow-[0_8px_24px_rgba(30,215,96,0.35)] transition-colors">
+              <KeyRound size={14}/> {room.joinCode || '—'} {copied ? <Check size={14}/> : <Copy size={14}/>}
+            </button>
+            {canManageSettings && (
+              <button onClick={openChatSettings} className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-[13px] font-bold hover:bg-white/15 transition-colors">
+                <Shield size={14}/> Settings
+              </button>
+            )}
+          </>
+        }
+        stats={
+          <GlassPanel className="p-4">
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-white/60">Room Pulse</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-white p-3 dark:bg-[#121212] border border-white/10">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/50 dark:text-white/60">Members</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none text-black dark:text-white">{members.length || room._count?.members || 0}</p>
+                <p className="mt-1 text-[11px] font-semibold text-black/60 dark:text-white/60 flex items-center gap-1"><Users size={11}/> Joined</p>
+              </div>
+              <div className="rounded-2xl bg-primary-500 p-3 text-black">
+                <p className="text-[10px] font-black tracking-widest uppercase text-black/60">Resources</p>
+                <p className="mt-1 font-display text-[22px] font-[800] leading-none">{totalResources}</p>
+                <p className="mt-1 text-[11px] font-bold text-black/70 flex items-center gap-1"><FileText size={11}/> Files</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/10 p-3 col-span-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-white/70 flex items-center gap-1.5"><KeyRound size={11} className="text-primary-400"/> Join Code</span>
+                  <span className="text-[11px] font-black tracking-widest bg-white text-black px-2 py-1 rounded-full">{room.joinCode}</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-white/60">
+                  <span className="inline-flex items-center gap-1"><MessageSquare size={11}/> Chat {room.chatMode || 'EVERYONE'}</span>
+                  {unreadChat && <span className="w-2 h-2 rounded-full bg-[#ff4b5c] animate-pulse"/>}
+                </div>
+                {room.teacher?.name && <p className="mt-1 text-[11px] font-medium text-white/50">By {room.teacher.name}</p>}
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-surface-900">{room.name}</h1>
-              {room.description && (
-                <p className="text-surface-500 text-sm mt-0.5">{room.description}</p>
+          </GlassPanel>
+        }
+      />
+      <div className="hidden rounded-[32px] bg-[#0a0a0a] backdrop-blur-xl bg-white/[0.03] border border-white/10 grid-cols-12" />
+
+      {/* Premium Bento — Room meta */}
+      <motion.div initial="hidden" animate="show" variants={{ hidden:{}, show:{ transition:{ staggerChildren:0.06, delayChildren:0.1 } } }} className="space-y-6">
+        <BentoGrid>
+          <motion.div variants={{ hidden:{opacity:0,y:12}, show:{opacity:1,y:0, transition:{ duration:0.4, ease:[0.22,1,0.36,1] as any } } }} className="col-span-12 lg:col-span-8">
+            <SectionCard title={room.name} subtitle={`${members.length || room._count?.members || 0} members · ${totalResources} resources${room.teacher?.name ? ` · ${room.teacher.name}` : ''}`} icon={<BookOpen size={16}/>} gradient="from-primary-500 via-primary-500 to-emerald-500">
+              <p className="text-sm leading-relaxed text-surface-600 dark:text-night-300">{room.description || 'No description — add context for members.'}</p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-500 text-black text-xs font-black"><Users size={12}/> {members.length || room._count?.members || 0} members</span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-900 dark:bg-white text-white dark:text-black text-xs font-bold"><FileText size={12}/> {totalResources} resources</span>
+                {room.joinCode && <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-50 dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-xs font-mono font-bold tracking-wider"><KeyRound size={12} className="text-primary-500"/>{room.joinCode}</span>}
+                {room.chatMode && <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-50 dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-xs font-bold"><MessageSquare size={12}/> {room.chatMode}</span>}
+              </div>
+            </SectionCard>
+          </motion.div>
+          <motion.div variants={{ hidden:{opacity:0,y:12}, show:{opacity:1,y:0, transition:{ delay:0.08, duration:0.4 } } }} className="col-span-12 lg:col-span-4">
+            <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden h-full hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] transition-shadow">
+              <div className="h-1.5 bg-gradient-to-r from-primary-500 to-emerald-500" />
+              <div className="p-5 sm:p-6">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <span className="w-9 h-9 rounded-xl bg-primary-500 text-black flex items-center justify-center"><Zap size={16}/></span>
+                  <h3 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">Quick Actions</h3>
+                </div>
+                <div className="space-y-2.5">
+                  <button onClick={()=> handleTabChange('chat')} className={clsx('w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all', activeTab==='chat' ? 'bg-primary-500 border-primary-500 text-black' : 'bg-surface-50 dark:bg-[#0a0a0a] border-surface-200 dark:border-[#282828] hover:border-primary-500/20')}>
+                    <span className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', activeTab==='chat' ? 'bg-black text-primary-500' : 'bg-[#0a0a0a] dark:bg-white text-white dark:text-black')}><MessageSquare size={16}/></span>
+                    <span className="flex-1"><span className={clsx('block text-sm font-black', activeTab==='chat' ? 'text-black' : 'text-[#0a0a0a] dark:text-white')}>Chat</span><span className={clsx('block text-xs font-medium', activeTab==='chat' ? 'text-black/60' : 'text-surface-500 dark:text-night-400')}>{effectiveCanChat ? 'Live' : 'Read-only'} {unreadChat && '· New'}</span></span>
+                  </button>
+                  <button onClick={()=> handleTabChange('resources')} className={clsx('w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all', activeTab==='resources' ? 'bg-primary-500 border-primary-500 text-black' : 'bg-surface-50 dark:bg-[#0a0a0a] border-surface-200 dark:border-[#282828] hover:border-primary-500/20')}>
+                    <span className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', activeTab==='resources' ? 'bg-black text-primary-500' : 'bg-[#0a0a0a] dark:bg-white text-white dark:text-black')}><FileText size={16}/></span>
+                    <span className="flex-1"><span className={clsx('block text-sm font-black', activeTab==='resources' ? 'text-black' : 'text-[#0a0a0a] dark:text-white')}>Resources</span><span className={clsx('block text-xs font-medium', activeTab==='resources' ? 'text-black/60' : 'text-surface-500 dark:text-night-400')}>{totalResources} files</span></span>
+                  </button>
+                  <button onClick={()=> handleTabChange('members')} className={clsx('w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all', activeTab==='members' ? 'bg-primary-500 border-primary-500 text-black' : 'bg-surface-50 dark:bg-[#0a0a0a] border-surface-200 dark:border-[#282828] hover:border-primary-500/20')}>
+                    <span className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', activeTab==='members' ? 'bg-black text-primary-500' : 'bg-[#0a0a0a] dark:bg-white text-white dark:text-black')}><Users size={16}/></span>
+                    <span className="flex-1"><span className={clsx('block text-sm font-black', activeTab==='members' ? 'text-black' : 'text-[#0a0a0a] dark:text-white')}>Members</span><span className={clsx('block text-xs font-medium', activeTab==='members' ? 'text-black/60' : 'text-surface-500 dark:text-night-400')}>{members.length || room._count?.members || 0} people</span></span>
+                  </button>
+                  <button onClick={()=> setShowUpload(true)} className="w-full flex items-center gap-2 justify-center min-h-[44px] px-4 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-sm font-black hover:bg-black dark:hover:bg-zinc-100 transition-colors">
+                    <Upload size={14}/> Upload Resource
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </BentoGrid>
+
+        {/* Tabs — premium pill bar */}
+        <motion.div variants={{ hidden:{opacity:0,y:10}, show:{opacity:1,y:0, transition:{ duration:0.4 } } }}>
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-2 flex items-center gap-2 flex-wrap">
+            {[
+              { key:'chat', label:'Chat', icon:MessageSquare, count: unreadChat ? 1 : 0 },
+              { key:'resources', label:'Resources', icon:FileText, count: totalResources },
+              { key:'members', label:'Members', icon:Users, count: members.length || room._count?.members || 0 },
+            ].map(({key,label,icon:Icon,count})=> (
+              <button key={key} onClick={()=> handleTabChange(key as RoomTabKey)} className={clsx('inline-flex items-center gap-2 px-4 h-11 rounded-full text-sm font-black transition-all', activeTab===key ? 'bg-primary-500 text-black shadow' : 'bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] text-surface-600 dark:text-night-300 hover:border-primary-500/20')}>
+                <Icon size={14}/> {label}
+                {count !== undefined && <span className={clsx('min-w-[20px] h-5 px-1.5 rounded-full text-xs font-black inline-flex items-center justify-center', activeTab===key ? 'bg-black text-white' : 'bg-[#0a0a0a] dark:bg-white text-white dark:text-black')}>{count}{key==='chat' && unreadChat ? ' •' : ''}</span>}
+                {key==='chat' && unreadChat && activeTab!==key && <span className="w-2 h-2 rounded-full bg-[#ff4b5c] animate-pulse"/>}
+              </button>
+            ))}
+            {canManageSettings && (
+              <button onClick={openChatSettings} className="ml-auto inline-flex items-center gap-1.5 px-4 h-11 rounded-full bg-surface-900 dark:bg-white text-white dark:text-black text-sm font-bold hover:bg-black dark:hover:bg-zinc-100 transition-colors">
+                <Shield size={14}/> Settings
+              </button>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Content — wrapped in SectionCard glass */}
+        <motion.div variants={{ hidden:{opacity:0,y:12}, show:{opacity:1,y:0, transition:{ duration:0.45 } } }}>
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-primary-500 via-primary-500 to-emerald-500" />
+            <div className="p-5 sm:p-6">
+              {/* Chat Tab */}
+              {activeTab === 'chat' && user && (
+                <RoomChatPanel
+                  roomId={id!}
+                  canChat={effectiveCanChat}
+                  chatMode={room.chatMode || 'EVERYONE'}
+                  currentUserId={user.id}
+                  canPin={canPin}
+                  canDeleteForEveryone={
+                    room.teacherId === user.id ||
+                    user.role === 'SUPER_ADMIN' ||
+                    (user.role === 'COLLEGE_ADMIN' && !!user.collegeId && room.teacher?.collegeId === user.collegeId)
+                  }
+                />
+              )}
+
+              {/* Members Tab */}
+              {activeTab === 'members' && (
+                <RoomMembersPanel
+                  members={members}
+                  teacher={room.teacher ? { id: room.teacher.id, name: room.teacher.name, email: room.teacher.email } : null}
+                  currentUserId={user?.id || ''}
+                  loading={membersLoading}
+                  canManageCR
+                  onToggleCR={handleToggleCR}
+                />
+              )}
+
+              {/* Resources Tab */}
+              {activeTab === 'resources' && (
+                <RoomResourcesPanel
+                  grouped={resources}
+                  loading={resourcesLoading}
+                  canManage
+                  deletingId={deleting}
+                  onUploadClick={() => setShowUpload(true)}
+                  onDelete={handleDeleteResource}
+                />
               )}
             </div>
           </div>
-        </div>
-        {/* Join Code */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-surface-50 rounded-xl border border-surface-200">
-          <KeyRound size={14} className="text-primary-500" />
-          <span className="font-mono font-bold text-surface-900 tracking-wider">{room.joinCode}</span>
-          <button
-            onClick={copyJoinCode}
-            className="p-1 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
-            title="Copy join code"
-          >
-            <Copy size={14} />
-          </button>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
-      {/* Room Info Bar */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <span className="text-xs text-surface-400">
-          {members.length} members · {totalResources} resources
-        </span>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-surface-100 pb-2">
-        <button
-          onClick={() => setActiveTab('members')}
-          className={clsx(
-            'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-            activeTab === 'members'
-              ? 'bg-primary-500 text-white shadow-md'
-              : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-          )}
-        >
-          <Users size={14} />
-          Members
-          <span className={clsx(
-            'ml-1 px-1.5 py-0.5 rounded-full text-xs',
-            activeTab === 'members' ? 'bg-white/20' : 'bg-surface-200'
-          )}>
-            {members.length}
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('resources')}
-          className={clsx(
-            'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-            activeTab === 'resources'
-              ? 'bg-primary-500 text-white shadow-md'
-              : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-          )}
-        >
-          <FileText size={14} />
-          Resources
-          <span className={clsx(
-            'ml-1 px-1.5 py-0.5 rounded-full text-xs',
-            activeTab === 'resources' ? 'bg-white/20' : 'bg-surface-200'
-          )}>
-            {totalResources}
-          </span>
-        </button>
-      </div>
-
-      {/* Members Tab */}
-      {activeTab === 'members' && (
-        <div className="bg-white rounded-2xl border border-surface-100 p-6">
-          <h2 className="font-bold text-surface-900 mb-4">Members ({members.length})</h2>
-          {members.length === 0 ? (
-            <div className="text-center py-10">
-              <Users className="w-12 h-12 text-surface-300 mx-auto mb-3" />
-              <p className="text-surface-500 text-sm">No members yet. Share the join code.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-surface-100">
-                    <th className="text-left py-2 text-surface-500 font-medium">Roll No</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Name</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Email</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">Department</th>
-                    <th className="text-left py-2 text-surface-500 font-medium">CR</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((member: any) => (
-                    <tr key={member.id} className="border-b border-surface-50">
-                      <td className="py-2 font-mono text-xs text-surface-600">{member.studentId || '-'}</td>
-                      <td className="py-2">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-surface-900">{member.name}</p>
-                          {member.isCR && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 rounded-full">
-                              CR
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 text-xs text-surface-400">{member.email}</td>
-                      <td className="py-2 text-xs text-surface-500">{member.department?.name || '-'}</td>
-                      <td className="py-2">
-                        <button
-                          onClick={() => handleToggleCR(member.id, member.isCR)}
-                          className={`text-xs font-semibold px-2 py-1 rounded-lg ${
-                            member.isCR
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                              : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-                          }`}
-                        >
-                          {member.isCR ? 'Remove CR' : 'Make CR'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Resources Tab */}
-      {activeTab === 'resources' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-surface-900">Resources</h2>
-            <button
-              onClick={() => setShowUpload(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
-            >
-              <Upload size={14} /> Upload
-            </button>
-          </div>
-
-          {totalResources === 0 ? (
-            <div className="bg-white rounded-2xl border border-surface-100 p-10 text-center">
-              <FileText className="w-12 h-12 text-surface-300 mx-auto mb-3" />
-              <p className="text-surface-500 text-sm">No resources uploaded yet</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {CATEGORIES.map(({ key, label, icon: Icon }) => {
-                const items = resources[key] || []
-                if (items.length === 0) return null
-
-                return (
-                  <div key={key} className="bg-white rounded-2xl border border-surface-100 overflow-hidden">
-                    <button
-                      onClick={() => toggleCategory(key)}
-                      className="w-full flex items-center justify-between px-5 py-3 hover:bg-surface-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon size={16} className="text-surface-500" />
-                        <span className="font-semibold text-surface-900 text-sm">{label}</span>
-                        <Badge variant="default">{items.length}</Badge>
-                      </div>
-                      {expandedCategories[key] ? <ChevronDown size={16} className="text-surface-400" /> : <ChevronRight size={16} className="text-surface-400" />}
-                    </button>
-
-                    {expandedCategories[key] && (
-                      <div className="border-t border-surface-100">
-                        {items.map((resource: any) => (
-                          <div
-                            key={resource.id}
-                            className="flex items-center gap-3 px-5 py-3 border-b border-surface-50 last:border-b-0 hover:bg-surface-50 transition-colors group"
-                          >
-                            {getFileIcon(resource.filename || resource.title)}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-surface-900 text-sm truncate">{resource.title}</p>
-                              <p className="text-xs text-surface-400">
-                                {formatFileSize(resource.fileSize || 0)} · {new Date(resource.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                              </p>
-                            </div>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => downloadResource(resource)}
-                                className="p-1.5 rounded-lg text-surface-400 hover:text-primary-500 hover:bg-primary-50 transition-colors"
-                                title="Download"
-                              >
-                                <Download size={14} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteResource(resource.id)}
-                                disabled={deleting === resource.id}
-                                className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-                                title="Delete"
-                              >
-                                {deleting === resource.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Upload Modal */}
+      {/* Upload Modal — premium */}
       <Modal open={showUpload} onClose={() => { setShowUpload(false); setUploadTitle(''); setUploadCategory('lecture'); setUploadFile(null) }} title="Upload Resource" size="md">
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Title *</label>
+            <label className="text-sm font-bold text-[#0a0a0a] dark:text-white mb-1 block">Title *</label>
             <input
               type="text"
               value={uploadTitle}
               onChange={(e) => setUploadTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm"
+              className="w-full px-3 py-2.5 border border-surface-200 dark:border-[#282828] rounded-xl text-sm bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
               placeholder="e.g., Lecture 1 - Introduction"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">Category</label>
+            <label className="text-sm font-bold text-[#0a0a0a] dark:text-white mb-1 block">Category</label>
             <select
               value={uploadCategory}
               onChange={(e) => setUploadCategory(e.target.value)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm bg-white"
+              className="w-full px-3 py-2.5 border border-surface-200 dark:border-[#282828] rounded-xl text-sm bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
             >
-              {CATEGORIES.map(({ key, label }) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
+              <option value="lecture">Lectures</option>
+              <option value="assignment">Assignments</option>
+              <option value="reference">Reference</option>
+              <option value="other">Other</option>
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium text-surface-700 mb-1 block">File *</label>
+            <label className="text-sm font-bold text-[#0a0a0a] dark:text-white mb-1 block">File *</label>
             <input
               type="file"
               onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-              className="w-full px-3 py-2 border border-surface-200 rounded-xl text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-primary-100 file:text-primary-700 hover:file:bg-primary-200"
+              className="w-full px-3 py-2.5 border border-surface-200 dark:border-[#282828] rounded-xl text-sm dark:text-night-200 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-black file:bg-primary-500 file:text-black hover:file:bg-[#1ed760] bg-white dark:bg-[#0a0a0a]"
             />
             {uploadFile && (
-              <p className="text-xs text-surface-400 mt-1">{uploadFile.name} ({formatFileSize(uploadFile.size)})</p>
+              <p className="text-xs text-surface-500 dark:text-night-300 mt-1">{uploadFile.name} ({formatFileSize(uploadFile.size)})</p>
             )}
           </div>
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => { setShowUpload(false); setUploadTitle(''); setUploadCategory('lecture'); setUploadFile(null) }}
-              className="flex-1 px-4 py-2 bg-surface-100 text-surface-700 rounded-xl font-medium hover:bg-surface-200"
+              className="flex-1 px-4 h-11 bg-surface-100 dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-surface-700 dark:text-night-200 rounded-full font-bold hover:bg-surface-200 dark:hover:bg-[#262626] transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleUpload}
               disabled={uploading || !uploadFile}
-              className="flex-1 px-4 py-2 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 h-11 bg-primary-500 text-black rounded-full font-black hover:bg-[#1ed760] disabled:opacity-50 flex items-center justify-center gap-2 shadow-[0_8px_24px_rgba(30,215,96,0.3)]"
             >
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               Upload
@@ -473,6 +476,18 @@ export default function RoomDetailPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Chat Settings Modal */}
+      <RoomChatSettingsModal
+        open={showChatSettings}
+        onClose={() => setShowChatSettings(false)}
+        roomId={id!}
+        chatMode={room.chatMode || 'EVERYONE'}
+        allowedMembers={room.allowedMembers || []}
+        members={members}
+        onOptimisticSave={applyChatSettings}
+        onSaveFailed={revertChatSettings}
+      />
     </div>
   )
 }

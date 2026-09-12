@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { aiQuota, noteAiUpstreamError } from '../middleware/aiQuota'
+import { isAiRateLimitError } from '../ai/client'
 import { summarizeContent, chatWithAI } from '../ai/groq'
 
 const router = Router()
@@ -19,7 +21,7 @@ const studyPlanSchema = z.object({
 })
 
 // Summarize notes/content
-router.post('/summarize', async (req: AuthRequest, res: Response) => {
+router.post('/summarize', aiQuota('summarize'), async (req: AuthRequest, res: Response) => {
   try {
     const body = summarizeSchema.parse(req.body)
     const summary = await summarizeContent(body.content)
@@ -29,12 +31,17 @@ router.post('/summarize', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Validation error', details: error.errors })
       return
     }
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('summarize', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
     res.status(500).json({ error: 'Summarization failed' })
   }
 })
 
 // Generate study plan
-router.post('/study-plan', async (req: AuthRequest, res: Response) => {
+router.post('/study-plan', aiQuota('study-plan'), async (req: AuthRequest, res: Response) => {
   try {
     const body = studyPlanSchema.parse(req.body)
     const prompt = `Create a study plan for these subjects: ${body.subjects.join(', ')}.
@@ -49,6 +56,11 @@ Format as a structured plan with day-by-day breakdown.`
       res.status(400).json({ error: 'Validation error', details: error.errors })
       return
     }
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('study-plan', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
     res.status(500).json({ error: 'Failed to generate study plan' })
   }
 })
@@ -57,8 +69,19 @@ Format as a structured plan with day-by-day breakdown.`
 router.post('/check-conflicts', async (req: AuthRequest, res: Response) => {
   try {
     const { dayOfWeek, startTime, endTime, excludeId } = req.body
+    // topbottom F5: parseInt(undefined) is NaN → Prisma rejects → 500; missing
+    // times string-compare wrong → false "No conflicts". Fail closed with 400.
+    const day = typeof dayOfWeek === 'number' ? dayOfWeek : parseInt(dayOfWeek, 10)
+    if (!Number.isInteger(day) || day < 0 || day > 6) {
+      res.status(400).json({ error: 'dayOfWeek must be an integer 0-6' })
+      return
+    }
+    if (typeof startTime !== 'string' || typeof endTime !== 'string' || !startTime || !endTime) {
+      res.status(400).json({ error: 'startTime and endTime are required (HH:MM strings)' })
+      return
+    }
     const schedules = await prisma.schedule.findMany({
-      where: { userId: req.userId, dayOfWeek: parseInt(dayOfWeek) },
+      where: { userId: req.userId, dayOfWeek: day },
     })
 
     const conflicts = schedules.filter((s) => {
@@ -79,26 +102,18 @@ router.post('/check-conflicts', async (req: AuthRequest, res: Response) => {
 })
 
 // Get AI insights on grades/performance
-router.get('/insights', async (req: AuthRequest, res: Response) => {
+router.get('/insights', aiQuota('insights'), async (req: AuthRequest, res: Response) => {
   try {
-    const [grades, attendance] = await Promise.all([
-      prisma.grade.findMany({ where: { userId: req.userId } }),
-      prisma.attendance.findMany({ where: { userId: req.userId } }),
-    ])
+    const _gradeRows = await prisma.grade.findMany({ where: { userId: req.userId }, include: { course: { select: { name: true } } } })
+    const grades = _gradeRows.map((g: any) => ({ ...g, courseName: g.course?.name ?? null }))
 
     const totalCredits = grades.reduce((sum, g) => sum + g.credits, 0)
     const weightedGpa = grades.reduce((sum, g) => sum + g.gpa * g.credits, 0)
     const cgpa = totalCredits > 0 ? weightedGpa / totalCredits : 0
 
-    const totalClasses = attendance.length
-    const presentClasses = attendance.filter((a) => a.status === 'PRESENT').length
-    const attendancePercent = totalClasses > 0 ? (presentClasses / totalClasses) * 100 : 0
-
     const prompt = `Analyze this student's academic performance:
 CGPA: ${cgpa.toFixed(2)}/10
-Attendance: ${attendancePercent.toFixed(1)}%
-Grades: ${grades.map((g) => `${g.courseName}: ${g.grade}`).join(', ')}
-Courses with low attendance: ${attendance.filter((a) => a.status === 'ABSENT').map((a) => a.courseName).join(', ') || 'None'}
+Grades: ${grades.map((g) => `${(g as any).courseName ?? '?'}: ${g.grade}`).join(', ')}
 
 Provide:
 1. Overall assessment
@@ -107,8 +122,13 @@ Provide:
 4. 3 actionable recommendations`
 
     const insights = await chatWithAI(prompt)
-    res.json({ insights, cgpa, attendancePercent })
+    res.json({ insights, cgpa })
   } catch (error) {
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('insights', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
     res.status(500).json({ error: 'Failed to generate insights' })
   }
 })

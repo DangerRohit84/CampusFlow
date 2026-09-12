@@ -1,0 +1,217 @@
+# Render Blueprint for CampusFlow
+# Docs: https://render.com/docs/blueprint-spec
+# Deploy-readiness (first deploy safe):
+# - Region: singapore for api + crons + keyvalue (Neon DB is aws-ap-southeast-1
+#   Singapore — same-region API→DB turns N×200ms into N×5ms; see
+#   .ai/reports/infra-no-mumbai.md). Static web region is ignored (global CDN).
+# - Migrations: release-time ONLY via preDeployCommand (`npm run db:deploy`,
+#   i.e. `prisma migrate deploy` with DIRECT_URL). Never in-process on boot
+#   (concurrent runners race on _prisma_migrations). Boot only warns when
+#   behind — see packages/backend/src/config/migrationCheck.ts.
+# - Region is immutable after creation — changing region recreates the service.
+services:
+  # Main API web service (embedded crons disabled; jobs run via Render Cron Jobs below)
+  - type: web
+    name: campusflow-api
+    runtime: node
+    plan: starter
+    region: singapore
+    # --include=dev: NODE_ENV=production (below) makes npm skip devDependencies,
+    # but the build needs tsc and the pinned prisma CLI from devDependencies.
+    # Try to install texlive for true pdflatex (Overleaf-quality). If host disallows apt, fallback gracefully to pdfkit + latexonline.cc cloud compile.
+    buildCommand: (apt-get update -qq && apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-fonts-recommended lmodern > /dev/null 2>&1 && echo "texlive installed — local pdflatex enabled" || echo "texlive not installed — using latexonline.cc + pdfkit fallback") ; npm ci --include=dev && npx prisma generate --schema=packages/backend/prisma/schema.prisma && npm run build -w packages/backend
+    # Release-time migrate (uses DIRECT_URL via datasource directUrl). Runs once
+    # per deploy before the new release goes live — wired to the `db:deploy`
+    # npm script in packages/backend/package.json (single source of truth).
+    preDeployCommand: npm run db:deploy --workspace=@campusflow/backend
+    startCommand: node packages/backend/dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      # Neon pooled URL REQUIRED: host must contain `-pooler` + `?sslmode=require&pgbouncer=true&connection_limit=20&pool_timeout=30`
+      # Example: postgresql://user:pass@ep-xxx-pooler.c-5.us-east-2.aws.NEONHOST_REMOVED/neondb?sslmode=require&channel_binding=prefer&connect_timeout=30&pgbouncer=true&connection_limit=20&pool_timeout=30
+      - key: DATABASE_URL
+        sync: false
+      # Neon direct URL (no -pooler, no pgbouncer) REQUIRED for `prisma migrate deploy` via datasource directUrl
+      - key: DIRECT_URL
+        sync: false
+      # Shared cache — same-region internal URL (no TLS overhead). Memory fallback
+      # when unset (single-instance OK; multi-instance requires this).
+      - key: REDIS_URL
+        fromService:
+          name: campusflow-cache
+          type: keyvalue
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: AI_ENCRYPTION_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DISABLE_EMBEDDED_CRON
+        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      # TODO(first-deploy): verify these match the actual Render URLs after the
+      # Singapore recreate. Same service name reuses *.onrender.com; if renamed,
+      # update FRONTEND_URL + API_BASE_URL + VITE_API_URL + VITE_SITE_URL + cron
+      # API_BASE_URL together (and CSP connect-src in this file).
+      - key: FRONTEND_URL
+        value: https://campusflow-web.onrender.com
+      # TODO(first-deploy): same as above — must point at the live Singapore API.
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+  # Shared Redis-compatible cache (Valkey 8) — MUST be singapore for internal URL.
+  # Same region + same workspace as API to use internal redis:// (no TLS, no egress).
+  - type: keyvalue
+    name: campusflow-cache
+    plan: starter
+    region: singapore
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+  # Frontend static site (Vite build) — popular-site parity: API + Web on Render
+  - type: web
+    name: campusflow-web
+    runtime: static
+    plan: starter
+    # NOTE: region is ignored for static sites (global CDN) — kept singapore for
+    # blueprint consistency per infra-no-mumbai plan.
+    region: singapore
+    buildCommand: npm ci && npm run build -w @campusflow/web
+    staticPublishPath: apps/web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      # Prod hardening: same security headers as nginx.conf (Render static has no nginx).
+      # CSP hash must match apps/web/index.html inline theme script:
+      #   sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4= (regen cmd in nginx.conf)
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://res.cloudinary.com https://images.unsplash.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://campusflow-api.onrender.com wss://campusflow-api.onrender.com https://res.cloudinary.com; frame-src https://www.loom.com https://loom.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'deny'; upgrade-insecure-requests"
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains; preload
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+    envVars:
+      # TODO(first-deploy): must match the live Singapore API URL (same TODO as above).
+      - key: VITE_API_URL
+        value: https://campusflow-api.onrender.com
+      # Canonical site URL for SEO (apps/web/src/components/Seo.tsx + index.html og/canonical).
+      # TODO(first-deploy): replace with real custom domain (e.g., https://campusflow.dev) when DNS cuts over.
+      # Must match <link rel=canonical> in apps/web/index.html and Seo.tsx SITE_URL fallback.
+      - key: VITE_SITE_URL
+        value: https://campusflow-web.onrender.com
+      - key: NODE_VERSION
+        value: "20"
+
+  # Contest fetch - every 6 hours
+  - type: cron
+    name: campusflow-cron-contests
+    plan: starter
+    region: singapore
+    schedule: "0 */6 * * *"
+    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contests -H "x-cron-secret: $CRON_SECRET"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+
+  # Coding profile sync - hourly
+  - type: cron
+    name: campusflow-cron-profile-sync
+    plan: starter
+    region: singapore
+    schedule: "0 * * * *"
+    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/profile-sync -H "x-cron-secret: $CRON_SECRET"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+
+  # Contest reminders (#6) - every 5 min fan-out (take:200, no-op when none due).
+  # 15-min leads need <15-min granularity; 5 min keeps Render job count flat
+  # while local dev uses the 60s embedded interval (jobs/cron.ts).
+  - type: cron
+    name: campusflow-cron-contest-reminders
+    plan: starter
+    region: singapore
+    schedule: "*/5 * * * *"
+    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contest-reminders -H "x-cron-secret: $CRON_SECRET"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+
+  # Opportunity fetch + AI enrichment - every 12 hours
+  - type: cron
+    name: campusflow-cron-opportunities
+    plan: starter
+    region: singapore
+    schedule: "0 */12 * * *"
+    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/opportunities -H "x-cron-secret: $CRON_SECRET"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+
+  # Cleanup old rejected items - Sundays at 3 AM UTC
+  - type: cron
+    name: campusflow-cron-cleanup
+    plan: starter
+    region: singapore
+    schedule: "0 3 * * 0"
+    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com
+
+  # Keep-alive ping every 5 min to prevent Render + Neon free tier cold sleep
+  - type: cron
+    name: campusflow-keepalive
+    plan: starter
+    region: singapore
+    schedule: "*/5 * * * *"
+    command: 'curl -fsS $API_BASE_URL/api/health > /dev/null && echo "keepalive ok"'
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
+      - key: API_BASE_URL
+        value: https://campusflow-api.onrender.com

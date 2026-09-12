@@ -1,9 +1,15 @@
 import { Router, Response } from 'express'
-import Groq from 'groq-sdk'
+import { chatCompletion, visionCompletion, ChatMessage } from '../ai/client'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { config } from '../config'
 import multer from 'multer'
+import { getDayOfWeek } from '../utils/dateUtils'
+import { broadcastScheduleMutation } from '../services/socket'
+import { validateUploadMagicBytes, scanBufferForMalware } from '../utils/uploadScan'
+import { logger } from '../utils/logger'
+import { toScheduleTypeEnum } from '../lib/enums'
+import { isValidDayOfWeek } from '../lib/validators'
 
 const router = Router()
 router.use(authenticate)
@@ -19,21 +25,14 @@ const upload = multer({
   },
 })
 
-const hasAI = config.groqApiKey && config.groqApiKey !== 'your-groq-api-key-here'
-const groq = hasAI ? new Groq({ apiKey: config.groqApiKey }) : null
-
-async function parseWithGroq(prompt: string): Promise<string> {
-  if (!groq) return '[]'
+// AI Manager handles provider resolution
+async function parseWithAI(prompt: string): Promise<string> {
   try {
-    const completion = await groq.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.1,
-      max_tokens: 2048,
-    })
-    return completion.choices[0]?.message?.content || '[]'
+    return await chatCompletion('timetable', [
+      { role: 'user', content: prompt },
+    ], { temperature: 0.1, max_tokens: 2048 })
   } catch (err) {
-    console.error('Groq timetable parse error:', err)
+    logger.error({ err: err }, 'AI timetable parse error:')
     return '[]'
   }
 }
@@ -77,7 +76,9 @@ function parseLocalTimetable(text: string): any[] {
         const location = parts.length >= 2 ? parts[1] : ''
         const teacher = parts.length >= 3 ? parts.slice(2).join(', ') : ''
 
-        classes.push({ title, course: '', location, teacher: teacher || null, dayOfWeek: currentDay, startTime, endTime, type: line.toLowerCase().includes('lab') ? 'LAB' : 'CLASS' })
+        // Repair 20260926020000: preserve SEMINAR/OTHER in local heuristic
+        // (was LAB-vs-CLASS only; seminar/club lines misclassified as CLASS).
+        classes.push({ title, course: '', location, teacher: teacher || null, dayOfWeek: currentDay, startTime, endTime, type: (() => { const l = line.toLowerCase(); return l.includes('lab') ? 'LAB' : l.includes('seminar') ? 'SEMINAR' : (l.includes('club') || l.includes('meeting') || l.includes('activity')) ? 'OTHER' : 'CLASS'; })() })
       }
     }
   }
@@ -92,13 +93,35 @@ router.post('/upload', upload.single('timetable'), async (req: AuthRequest, res:
       return
     }
 
+    // I-6 fix: never trust mimetype alone — verify magic bytes + malware scan
+    // (same as rooms/hub/submissions/resume). Spoofed Content-Type with HTML/JS
+    // bytes must not reach the AI vision pipeline or storage.
+    try {
+      const magicErr = await validateUploadMagicBytes(req.file.buffer, req.file.originalname, req.file.mimetype, 'rooms')
+      if (magicErr) {
+        logger.warn({ requestId: (req as any).requestId, reason: magicErr }, '[timetable] upload blocked (magic-byte)')
+        res.status(400).json({ error: 'Invalid image file' })
+        return
+      }
+      const scan = await scanBufferForMalware(req.file.buffer, req.file.originalname)
+      if (!scan.clean) {
+        logger.warn({ requestId: (req as any).requestId, reason: scan.reason }, '[timetable] upload blocked (scan)')
+        res.status(400).json({ error: 'File rejected by security scan' })
+        return
+      }
+    } catch (e: any) {
+      logger.warn({ requestId: (req as any).requestId, err: String(e?.message || e).slice(0, 200) }, '[timetable] upload validation error')
+      res.status(400).json({ error: 'Invalid image file' })
+      return
+    }
+
     // Get provider config from frontend
     let provider: { baseUrl?: string; apiKey?: string; model?: string } | undefined
     try { provider = JSON.parse(req.body.provider || '{}') } catch {}
 
     const base64 = req.file.buffer.toString('base64')
     const mimeType = req.file.mimetype
-    console.log(`[Timetable Upload] File: ${req.file.originalname}, Size: ${req.file.size}, MIME: ${mimeType}, Provider: ${provider?.model || 'groq-vision'}`)
+    logger.info(`[Timetable Upload] File: ${req.file.originalname}, Size: ${req.file.size}, MIME: ${mimeType}, Provider: ${provider?.model || 'groq-vision'}`)
 
     const prompt = `Extract ALL classes from this timetable image. Return ONLY a valid JSON array.
 
@@ -106,84 +129,88 @@ For each class:
 {"title":"name","course":"code","location":"room","teacher":"professor name","dayOfWeek":0,"startTime":"HH:MM","endTime":"HH:MM","type":"CLASS"}
 
 dayOfWeek: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
-type: CLASS or LAB
+type: CLASS, LAB, SEMINAR or OTHER
 
 Return ONLY the JSON array:`
 
     let response = '[]'
 
-    // Try provider from Settings first (OpenAI, Gemini, etc.)
-    if (provider?.apiKey && provider?.baseUrl && !provider.apiKey.includes('gsk_')) {
-      try {
-        const GroqClient = (await import('groq-sdk')).default
-        const client = new GroqClient({ apiKey: provider.apiKey, baseURL: provider.baseUrl })
-        const completion = await client.chat.completions.create({
-          model: provider.model || 'gpt-4o',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-            ],
-          }],
-          max_tokens: 4096,
-          temperature: 0.1,
-        })
-        response = completion.choices[0]?.message?.content || '[]'
-        console.log('[Timetable Upload] Settings provider responded')
-      } catch (err: any) {
-        console.error('[Timetable Upload] Settings provider error:', err?.message)
-      }
+    // Use AI Manager routing (timetable feature) for vision
+    try {
+      logger.info('[Timetable Upload] Using AI Manager vision routing')
+      response = await visionCompletion('timetable', [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+        ],
+      }], { temperature: 0.1, max_tokens: 16384 })
+      logger.info({ err: response.length }, '[Timetable Upload] AI Manager vision responded, length:')
+    } catch (err: any) {
+      logger.error({ err: err?.message }, '[Timetable Upload] AI Manager vision error:')
     }
 
-    // If no response, try Groq vision
-    if (response === '[]' && groq) {
-      try {
-        console.log('[Timetable Upload] Trying Groq vision with qwen/qwen3.6-27b')
-        const completion = await groq.chat.completions.create({
-          model: 'qwen/qwen3.6-27b',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-            ],
-          }],
-          max_tokens: 16384,
-          temperature: 0.1,
-        })
-        response = completion.choices[0]?.message?.content || '[]'
-        console.log('[Timetable Upload] Groq vision responded, length:', response.length)
-      } catch (err: any) {
-        console.error('[Timetable Upload] Groq vision error:', err?.message)
-      }
-    }
-
-    // Strip <think>...</think> tags from thinking models
+    // Strip <think>...</think> tags from thinking models (handles closed, unclosed, and embedded JSON)
     let cleanResponse = response
-    const lastThinkClose = cleanResponse.indexOf('</think>')
-    if (lastThinkClose !== -1) {
-      cleanResponse = cleanResponse.substring(lastThinkClose + 8).trim()
+    // Remove closed think blocks
+    cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    // If response still starts with <think> (unclosed), find first [ after it
+    if (cleanResponse.toLowerCase().startsWith('<think>')) {
+      const firstBracket = cleanResponse.indexOf('[')
+      if (firstBracket !== -1) {
+        cleanResponse = cleanResponse.substring(firstBracket).trim()
+      } else {
+        // No JSON found after unclosed think — try raw response
+        const rawBracket = response.indexOf('[')
+        if (rawBracket !== -1) cleanResponse = response.substring(rawBracket).trim()
+      }
     }
-    console.log('[Timetable Upload] Cleaned response (first 300):', cleanResponse.substring(0, 300))
+    // Strip markdown code fences
+    cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+    logger.info({ err: cleanResponse.substring(0, 300) }, '[Timetable Upload] Cleaned response (first 300):')
 
     let classes: any[] = []
     try {
+      // Debug: log first few char codes
+      if (cleanResponse.length > 0) {
+        const codes = Array.from(cleanResponse.substring(0, 10)).map(c => c.charCodeAt(0))
+        logger.info({ err: codes.join(',') }, '[Timetable Upload] First 10 char codes:', 'total len:', cleanResponse.length, 'ends:', cleanResponse.substring(cleanResponse.length - 20))
+      }
+
       // Try cleaned response first, then full response
       for (const src of [cleanResponse, response]) {
         if (classes.length > 0) break
-        const jsonMatch = src.match(/\[[\s\S]*\]/)
-        if (jsonMatch) {
+
+        // Try direct parse first
+        try {
+          classes = JSON.parse(src)
+          if (Array.isArray(classes) && classes.length > 0 && classes[0].title) {
+            logger.info({ err: classes.length }, '[Timetable Upload] Direct parse OK, count:')
+            break
+          }
+          classes = []
+        } catch (directErr: any) {
+          logger.info({ err: directErr.message?.substring(0, 100) }, '[Timetable Upload] Direct parse failed:')
+        }
+
+        // Try extracting JSON array substring
+        const firstBracket = src.indexOf('[')
+        const lastBracket = src.lastIndexOf(']')
+        logger.info({ err: firstBracket }, '[Timetable Upload] Bracket search: first=[', 'last=]', lastBracket, 'srcLen:', src.length)
+        if (firstBracket !== -1 && lastBracket > firstBracket) {
+          const jsonStr = src.substring(firstBracket, lastBracket + 1)
           try {
-            classes = JSON.parse(jsonMatch[0])
-            if (classes.length > 0 && classes[0].title) break
+            classes = JSON.parse(jsonStr)
+            if (Array.isArray(classes) && classes.length > 0 && classes[0].title) break
             classes = []
-          } catch {}
+          } catch (extractErr: any) {
+            logger.info({ err: extractErr.message?.substring(0, 100) }, '[Timetable Upload] Extract parse failed:')
+          }
         }
       }
-      console.log('[Timetable Upload] Parsed', classes.length, 'classes')
+      logger.info({ err: classes.length }, '[Timetable Upload] Final parsed', 'classes')
     } catch (e: any) {
-      console.error('[Timetable Upload] JSON parse error:', e.message)
+      logger.error({ err: e.message }, '[Timetable Upload] Outer error:')
     }
 
     res.json({
@@ -193,7 +220,7 @@ Return ONLY the JSON array:`
         : 'Could not extract from image. Make sure your AI provider supports vision (OpenAI, Gemini), or paste your timetable as text instead.',
     })
   } catch (error) {
-    console.error('Timetable upload error:', error)
+    logger.error({ err: error }, 'Timetable upload error:')
     res.status(500).json({ error: 'Failed to process timetable' })
   }
 })
@@ -210,8 +237,8 @@ router.post('/parse-text', async (req: AuthRequest, res: Response) => {
     // Try local parser first (always works, no API key needed)
     let classes = parseLocalTimetable(text)
 
-      // If local parser found nothing and AI is available, try AI
-      if (classes.length === 0 && hasAI) {
+      // If local parser found nothing, try AI Manager routing
+      if (classes.length === 0) {
         const prompt = `Parse this timetable text. Extract every class. Return ONLY a valid JSON array.
 
 Text:
@@ -221,12 +248,12 @@ For each class:
 {"title":"name","course":"code","location":"room","teacher":"professor name","dayOfWeek":0,"startTime":"HH:MM","endTime":"HH:MM","type":"CLASS"}
 
 dayOfWeek: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
-type: CLASS or LAB
+type: CLASS, LAB, SEMINAR or OTHER
 teacher: professor/instructor name (empty string if not present)
 
 Return ONLY the JSON array:`
 
-        const response = await parseWithGroq(prompt)
+        const response = await parseWithAI(prompt)
       try {
         const jsonMatch = response.match(/\[[\s\S]*\]/)
         if (jsonMatch) classes = JSON.parse(jsonMatch[0])
@@ -260,31 +287,46 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
     }
 
     const colors = ['#5c7cfa', '#845ef7', '#20c997', '#fcc419', '#f06595', '#7950f2', '#22b8cf', '#ff6b6b']
-    const saved = []
-
-    for (let i = 0; i < classes.length; i++) {
-      const c = classes[i]
-      const schedule = await prisma.schedule.create({
-        data: {
-          userId: req.userId!,
-          title: c.title || 'Untitled',
-          course: c.course || '',
-          location: c.location || '',
-          teacher: c.teacher || null,
-          dayOfWeek: c.dayOfWeek ?? 0,
-          startTime: c.startTime || '09:00',
-          endTime: c.endTime || '10:00',
-          type: c.type || 'CLASS',
-          color: c.color || colors[i % colors.length],
-          recurring: true,
-        },
-      })
-      saved.push(schedule)
+    // HALF1: cap batch (was unbounded loop) + parallel creates (was N+1 sequential awaits).
+    // Same rows + order, bounded input to avoid OOM on huge pastes.
+    // topbottom F14: dayOfWeek contract is Monday=0..Sunday=6 (schedules.ts
+    // zod-guard); out-of-range values used to persist silently and break day
+    // queries. Fail closed with 400.
+    for (const c of classes) {
+      if (!isValidDayOfWeek((c as any)?.dayOfWeek)) {
+        res.status(400).json({ error: 'Each class needs dayOfWeek as an integer 0-6 (Monday=0)' })
+        return
+      }
     }
+    const capped = classes.slice(0, 50)
+    const saved = await Promise.all(
+      capped.map((c: any, i: number) =>
+        prisma.schedule.create({
+          data: {
+            userId: req.userId!,
+            title: c.title || 'Untitled',
+            course: c.course || '',
+            location: c.location || '',
+            teacher: c.teacher || null,
+            dayOfWeek: c.dayOfWeek ?? 0,
+            startTime: c.startTime || '09:00',
+            endTime: c.endTime || '10:00',
+            // Order 12: ScheduleType enum — Repair 20260926020000 preserves CLASS/
+            // LAB/SEMINAR/OTHER (seed real values), coerce only true ghosts to CLASS.
+            // Validated against the REAL enum (stale-client `as any` on the
+            // outer data removed; inner coerce keeps ghost→CLASS semantics).
+            type: toScheduleTypeEnum((() => { const up = String((c as any).type ?? 'CLASS').trim().toUpperCase(); return up === 'LAB' ? 'LAB' : up === 'SEMINAR' ? 'SEMINAR' : up === 'OTHER' ? 'OTHER' : 'CLASS'; })()),
+            color: c.color || colors[i % colors.length],
+            recurring: true,
+          },
+        })
+      )
+    )
 
+    try { broadcastScheduleMutation({ action: 'timetable:saved', userId: req.userId, count: saved.length }) } catch {}
     res.json({ saved: saved.length, schedules: saved })
   } catch (error) {
-    console.error('Save timetable error:', error)
+    logger.error({ err: error }, 'Save timetable error:')
     res.status(500).json({ error: 'Failed to save timetable' })
   }
 })
@@ -292,8 +334,7 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
 // Get today's classes
 router.get('/today', async (req: AuthRequest, res: Response) => {
   try {
-    const today = new Date()
-    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
+    const dayOfWeek = getDayOfWeek()
 
     const classes = await prisma.schedule.findMany({
       where: { userId: req.userId, dayOfWeek },
@@ -323,6 +364,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.delete('/clear', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.schedule.deleteMany({ where: { userId: req.userId } })
+    try { broadcastScheduleMutation({ action: 'timetable:cleared', userId: req.userId }) } catch {}
     res.json({ message: 'Timetable cleared' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to clear timetable' })

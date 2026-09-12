@@ -1,14 +1,17 @@
 #!/bin/bash
 echo "Starting CampusFlow..."
 
+# Resolve project root relative to this script
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
 # Start backend
-cd "D:/Alpha Coders/CampusFlow/packages/backend"
+cd "$PROJECT_ROOT/packages/backend"
 npm run dev &
 BACKEND_PID=$!
 echo "Backend started (PID: $BACKEND_PID)"
 
 # Start frontend
-cd "D:/Alpha Coders/CampusFlow/apps/web"
+cd "$PROJECT_ROOT/apps/web"
 npm run dev &
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID)"

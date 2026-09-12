@@ -2,6 +2,9 @@ node_modules/
 .turbo/
 *.log
 .env
+.env*
+!.env.example
+!.env.local.example
 dist/
 build/
 .DS_Store
@@ -11,3 +14,31 @@ build/
 backend.err.log
 frontend.err.log
 uploads/
+*.tsbuildinfo
+*.tmp
+coverage/
+
+# Local backup files (never track *.bak)
+*.bak
+*.bak*
+*.env.bak*
+.env.*.bak*
+# DB dumps / snapshots (never track — contain PII + creds)
+neon_dump*
+sg18_dump*
+*dump*.bak
+dump*.sql
+
+# Temp verification scripts (cleanup 2026-09-05)
+packages/backend/test-sync*
+packages/backend/verify-*.js
+tools/run-resume*
+tools/qa-*.js
+
+# Runtime / tool caches (never track)
+.vitest/
+.expo/
+.next/
+playwright-report/
+test-results/
+

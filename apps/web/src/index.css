@@ -2,187 +2,729 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Brand tokens — single primary source (#1ed760) + info blue (#0284c7) ── */
+:root {
+  --background: #F5F3FF;
+  --foreground: #18181b;
+  --muted: #71717a;
+  --muted-foreground: #71717a;
+  --card: rgba(255, 255, 255, 0.70);
+  --card-border: rgba(255, 255, 255, 0.55);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  /* WHY: single brand source — was --cta indigo #6366F1 clashing with green system. */
+  --brand: #1ed760;
+  --brand-hover: #1db954;
+  --brand-foreground: #000000;
+  --brand-text: #169c46;
+  --brand-text-strong: #0a7a3a;
+  --info: #0284c7;
+  --info-hover: #0369a1;
+}
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --muted: #a1a1aa;
+  --muted-foreground: #a1a1aa;
+  --card: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --glass: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --brand: #1ed760;
+  --brand-hover: #1db954;
+  --brand-foreground: #000000;
+  --brand-text: #1ed760;
+  --brand-text-strong: #1ed760;
+  --info: #0ea5e9;
+  --info-hover: #0284c7;
+}
+.hackathon-premium {
+  --background: #F5F3FF;
+  --foreground: #18181b;
+}
+.dark .hackathon-premium {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+}
+
+/* scrollbars hide for PillTabs */
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* Base — Spotify surfaces · Light #ffffff / Dark #121212/#000 · Green #1ed760 */
 @layer base {
-  * {
-    @apply border-surface-200;
+  * { @apply border-surface-200; }
+  html {
+    scroll-behavior: smooth;
+    /* WHY: anchor/route focus must not hide under 64px sticky header (WCAG 2.4.11 focus not obscured). */
+    scroll-padding-top: 64px;
   }
-
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
   body {
-    @apply bg-surface-50 text-surface-900 antialiased font-sans;
+    @apply bg-surface-50 text-slate-800 antialiased font-sans;
+    font-feature-settings: "ss01" 1, "cv01" 1, "cv11" 1;
+    letter-spacing: -0.01em;
+    color: #121212;
+    /* Spotify washes — green 5% + muted secondary */
+    background-image:
+      radial-gradient(ellipse 900px 520px at 8% -8%, rgba(30,215,96,0.06), transparent 60%),
+      radial-gradient(ellipse 720px 460px at 92% -6%, rgba(29,185,84,0.05), transparent 60%),
+      radial-gradient(ellipse 640px 420px at 50% 102%, rgba(30,215,96,0.04), transparent 60%);
+    background-attachment: fixed;
   }
+  h1,h2,h3 { @apply font-display tracking-tight; color:#121212; }
+  h1 { @apply font-extrabold; }
+  ::selection { @apply bg-slate-800 text-white dark:bg-white dark:text-black; }
+  button, a, [role="button"] { min-height: 0; }
+  /* scrollbar — Spotify */
+  ::-webkit-scrollbar { width:5px; height:5px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-zinc-300 dark:bg-[#282828] rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-400 dark:bg-[#3a3a3a]; }
+  /* focus ring — Spotify green #1ed760 */
+  :focus-visible { @apply outline-none ring-2 ring-primary-500/25 ring-offset-2 ring-offset-surface-50; }
+  /*
+   * WHY: programmatic route-change focus targets (main#main-content, main#public-main,
+   * h1[tabindex="-1"] focused by RouteFocus + skip links) must never show a visible
+   * ring/box in either theme. Tailwind ring-2 paints via box-shadow, so nullify both
+   * outline and ring shadows here (after the global :focus-visible rule). Interactive
+   * elements (buttons, links, inputs) are untouched and keep their visible rings.
+   */
+  main[tabindex='-1']:focus,
+  main[tabindex='-1']:focus-visible,
+  main[tabindex='-1']:focus-within,
+  h1[tabindex='-1']:focus,
+  h1[tabindex='-1']:focus-visible,
+  [tabindex='-1']:focus:not(:focus-visible) {
+    outline: none !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    box-shadow: none !important;
+  }
+}
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
+/* Dark mode — Spotify #000 / #121212 with green mist */
+.dark body {
+  background-color:#000000 !important; color:#ffffff !important;
+  background-image:
+    radial-gradient(ellipse 800px 460px at 12% 0%, rgba(30,215,96,0.08), transparent 55%),
+    radial-gradient(ellipse 700px 460px at 88% 2%, rgba(29,185,84,0.06), transparent 55%),
+    radial-gradient(ellipse 600px 380px at 50% 100%, rgba(30,215,96,0.05), transparent 55%) !important;
+}
+.dark * { border-color:#282828 !important; }
+/* preserve coloured accent borders in dark (overrides global !important via specificity) */
+.dark .due-slip--brass,
+.dark .due-slip--warning { border-left-color:#1ed760 !important; border-color:#282828 !important; }
+.dark .due-slip--blue,
+.dark .due-slip--accent { border-left-color:#1ed760 !important; border-color:#282828 !important; }
+.dark .due-slip--emerald,
+.dark .due-slip--success { border-left-color:#1db954 !important; border-color:#282828 !important; }
+.dark .due-slip--rose,
+.dark .due-slip--urgent,
+.dark .due-slip--danger { border-left-color:#ff4b5c !important; border-color:#282828 !important; }
+.dark .due-slip--neutral { border-left-color:#282828 !important; border-color:#282828 !important; }
+.dark .badge-warning,
+.dark .badge-brass { border-color:rgba(245,183,0,0.35) !important; }
+.dark .badge-accent,
+.dark .badge-primary { border-color:rgba(30,215,96,0.32) !important; }
+.dark .badge-success { border-color:rgba(29,185,84,0.32) !important; }
+.dark .badge-danger,
+.dark .badge-rose { border-color:rgba(255,75,92,0.32) !important; }
+.dark .badge-neutral { border-color:rgba(229,231,235,0.2) !important; }
+.dark .stat-card--brass::before { opacity:0.9; }
+.dark .stat-card--blue::before { opacity:0.9; }
+.dark .stat-card--emerald::before { opacity:0.9; }
+.dark .stat-card--rose::before { opacity:0.9; }
+.dark .stat-card--neutral::before { opacity:0.7; }
+.dark .bg-white, .dark [class*="bg-white/"], .dark .bg-surface-50 { background-color:#121212 !important; }
+/* Restore intentional dark:bg-white inversions (e.g., Selected stat card, black→white flip outside hero) — must be after generic override */
+.dark .dark\:bg-white { background-color:#ffffff !important; }
+.dark .dark\:bg-white\/5 { background-color:rgba(255,255,255,0.05) !important; }
+.dark .dark\:bg-white\/10 { background-color:rgba(255,255,255,0.10) !important; }
+.dark .dark\:bg-white\/\[0\.02\] { background-color:rgba(255,255,255,0.02) !important; }
+.dark .dark\:bg-white\/\[0\.03\] { background-color:rgba(255,255,255,0.03) !important; }
+.dark .dark\:bg-white\/\[0\.04\] { background-color:rgba(255,255,255,0.04) !important; }
+.dark .dark\:bg-white\/\[0\.06\] { background-color:rgba(255,255,255,0.06) !important; }
+.dark .dark\:bg-white\/70 { background-color:rgba(255,255,255,0.70) !important; }
+.dark .dark\:bg-white\/80 { background-color:rgba(255,255,255,0.80) !important; }
+.dark .dark\:text-black { color:#000000 !important; }
+.dark .dark\:text-white { color:#ffffff !important; }
+.dark .dark\:border-white\/10 { border-color:rgba(255,255,255,0.10) !important; }
+.dark .dark\:border-white { border-color:#ffffff !important; }
+.dark .bg-surface-100 { background-color:#181818 !important; }
+.dark .bg-surface-200, .dark .bg-surface-300 { background-color:#282828 !important; }
+.dark aside { background-color:#000000 !important; }
+.dark header { background-color:#121212 !important; }
+.dark .bg-primary-50 { background-color: rgba(30,215,96,0.12) !important; }
+.dark .bg-accent-50 { background-color: rgba(30,215,96,0.12) !important; }
+.dark .bg-warning-50 { background-color: rgba(245,183,0,0.12) !important; }
+.dark .bg-danger-50 { background-color: rgba(255,75,92,0.12) !important; }
+.dark .bg-success-50 { background-color: rgba(29,185,84,0.12) !important; }
+.dark .text-surface-900, .dark .text-surface-800, .dark .text-slate-800 { color:#ffffff !important; }
+.dark .text-surface-700, .dark .text-surface-600, .dark .text-surface-500 { color:#a7a7a7 !important; }
+.dark .text-surface-400 { color:#a1a1aa !important; }
+.dark .text-primary-600, .dark .text-primary-700 { color:#1ed760 !important; }
+.dark input:not([type="hidden"]), .dark textarea, .dark select { background-color:#000000 !important; color:#ffffff !important; border-color:#282828 !important; }
+.dark ::placeholder { color:#a1a1aa !important; }
 
-  ::-webkit-scrollbar-track {
-    @apply bg-transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-surface-300 rounded-full;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-surface-400;
-  }
+/* ── Resume Live Preview — isolate from dark mode (PDF fidelity: keep paper white/ink slate) ── */
+.dark #resume-print-area,
+.dark .resume-print-root {
+  background-color: #ffffff !important;
+  color: #121212 !important;
+  color-scheme: light !important;
+}
+.dark #resume-print-area .bg-white,
+.dark #resume-print-area [class*="bg-white"],
+.dark .resume-print-root .bg-white,
+.dark .resume-print-root [class*="bg-white"] {
+  background-color: #ffffff !important;
+}
+.dark #resume-print-area .bg-black,
+.dark .resume-print-root .bg-black {
+  background-color: #121212 !important;
+}
+/* Restore pastel card tints that should stay light on white paper */
+.dark #resume-print-area .bg-\[\#EEF1FF\],
+.dark .resume-print-root .bg-\[\#EEF1FF\] {
+  background-color: #EEF1FF !important;
+}
+.dark #resume-print-area .bg-\[\#EEF1FF\]\/60,
+.dark .resume-print-root .bg-\[\#EEF1FF\]\/60 {
+  background-color: rgba(238, 241, 255, 0.6) !important;
+}
+.dark #resume-print-area .bg-\[\#F8F9FF\],
+.dark .resume-print-root .bg-\[\#F8F9FF\] {
+  background-color: #F8F9FF !important;
+}
+/* Restore hairlines & borders bleached by global .dark * */
+.dark #resume-print-area .border-\[\#111827\],
+.dark .resume-print-root .border-\[\#111827\] {
+  border-color: #111827 !important;
+}
+.dark #resume-print-area .border-\[\#D1D5DB\],
+.dark .resume-print-root .border-\[\#D1D5DB\] {
+  border-color: #D1D5DB !important;
+}
+.dark #resume-print-area .border-\[\#E0E7FF\],
+.dark .resume-print-root .border-\[\#E0E7FF\] {
+  border-color: #E0E7FF !important;
+}
+.dark #resume-print-area .border-\[\#C7D2FE\],
+.dark .resume-print-root .border-\[\#C7D2FE\] {
+  border-color: #C7D2FE !important;
+}
+.dark #resume-print-area .border-surface-200,
+.dark .resume-print-root .border-surface-200 {
+  border-color: #E4E4E7 !important;
+}
+.dark #resume-print-area .border-black,
+.dark .resume-print-root .border-black {
+  border-color: #121212 !important;
+}
+.dark #resume-print-area .border-\[\#2D4A9A\]\/20,
+.dark .resume-print-root .border-\[\#2D4A9A\]\/20 {
+  border-color: rgba(45, 74, 154, 0.2) !important;
+}
+.dark #resume-print-area .border-\[\#2D4A9A\]\/30,
+.dark .resume-print-root .border-\[\#2D4A9A\]\/30 {
+  border-color: rgba(45, 74, 154, 0.3) !important;
+}
+/* Keep ink colors – prevent global dark text lightening inside paper */
+.dark #resume-print-area .text-\[\#111827\],
+.dark .resume-print-root .text-\[\#111827\],
+.dark #resume-print-area .text-black,
+.dark .resume-print-root .text-black {
+  color: #121212 !important;
 }
 
 @layer components {
-  .glass {
-    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-glass;
-  }
+  /* Page container — 12 columns, max 1280px, centered */
+  .campus-shell { @apply max-w-[1280px] mx-auto px-4 lg:px-6; }
+  .campus-grid { @apply grid grid-cols-12 gap-4 lg:gap-6; }
 
-  .glass-strong {
-    @apply bg-white/80 backdrop-blur-2xl border border-white/30 shadow-glass-lg;
+  /* Card and paper — Spotify */
+  .paper {
+    @apply bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] rounded-2xl shadow-sm;
+    color: #121212;
   }
-
-  .glass-dark {
-    @apply bg-surface-900/70 backdrop-blur-xl border border-white/10;
+  .paper-hover {
+    @apply paper transition-all duration-200 hover:border-surface-300 dark:hover:border-[#3a3a3a] hover:shadow-md;
   }
-
-  .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-600 via-accent-500 to-primary-400;
-  }
-
-  .gradient-text-hero {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-500 via-accent-400 to-pink-400;
-  }
-
-  .btn-primary {
-    @apply px-6 py-3 bg-gradient-to-r from-primary-600 to-accent-600 text-white font-semibold rounded-xl
-           hover:from-primary-700 hover:to-accent-700 transition-all duration-300 
-           shadow-lg hover:shadow-xl hover:shadow-primary-500/25 active:scale-[0.98]
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
-  }
-
-  .btn-secondary {
-    @apply px-6 py-3 bg-white border border-surface-200 text-surface-700 font-semibold rounded-xl
-           hover:bg-surface-50 hover:border-surface-300 transition-all duration-300
-           shadow-sm hover:shadow-md active:scale-[0.98];
-  }
-
-  .btn-ghost {
-    @apply px-4 py-2 text-surface-600 font-medium rounded-xl
-           hover:bg-surface-100 hover:text-surface-900 transition-all duration-200;
-  }
-
-  .btn-icon {
-    @apply p-2.5 rounded-xl text-surface-500 hover:text-surface-700
-           hover:bg-surface-100 transition-all duration-200;
-  }
-
   .card {
-    @apply bg-white rounded-2xl border border-surface-100 shadow-soft 
-           hover:shadow-soft-lg transition-all duration-300;
+    @apply bg-white dark:bg-[#121212] rounded-2xl border border-surface-200 dark:border-[#282828] shadow-sm;
+    color: #121212;
   }
+  .dark .card, .dark .paper, .dark .paper-hover { background-color:#121212; border-color:#282828; color:#ffffff; }
 
-  .card-interactive {
-    @apply card cursor-pointer hover:border-primary-200 hover:-translate-y-0.5;
+  /* Left accent strip — Spotify green */
+  .due-slip {
+    @apply relative bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] rounded-2xl overflow-hidden shadow-sm;
+    border-left-width: 3px;
+    border-left-color: #1ed760;
+    color: #121212;
   }
+  .due-slip--brass,
+  .due-slip--warning { border-left-color: #1ed760; }
+  /* WHY: info blue restored (#0284c7) — was overwritten to green, killing info vs success distinction. */
+  .due-slip--blue,
+  .due-slip--accent { border-left-color: #0284c7; }
+  .due-slip--emerald,
+  .due-slip--success { border-left-color: #1db954; }
+  .due-slip--neutral { border-left-color: #e5e7eb; }
+  .due-slip--rose,
+  .due-slip--urgent,
+  .due-slip--danger { border-left-color: #ff4b5c; }
+  /* subtle inner tints — green 5% */
+  .due-slip--brass { background: linear-gradient(90deg, rgba(30,215,96,0.06) 0%, transparent 32%), white; border-color: rgba(30,215,96,0.14); border-left-color:#1ed760; }
+  .due-slip--blue { background: linear-gradient(90deg, rgba(2,132,199,0.06) 0%, transparent 32%), white; border-color: rgba(2,132,199,0.14); border-left-color:#0284c7; }
+  .due-slip--emerald { background: linear-gradient(90deg, rgba(29,185,84,0.05) 0%, transparent 32%), white; }
+  .due-slip--neutral { background: linear-gradient(90deg, #f6f6f6 0%, transparent 40%), white; }
+  .due-slip--rose { background: linear-gradient(90deg, rgba(255,75,92,0.04) 0%, transparent 32%), white; }
+  .dark .due-slip { background-color:#121212; color:#ffffff; }
+  .dark .due-slip--brass { background: linear-gradient(90deg, rgba(30,215,96,0.08) 0%, transparent 40%), #121212 !important; }
+  .dark .due-slip--blue { background: linear-gradient(90deg, rgba(2,132,199,0.10) 0%, transparent 40%), #121212 !important; }
+  .dark .due-slip--emerald { background: linear-gradient(90deg, rgba(29,185,84,0.08) 0%, transparent 40%), #121212 !important; }
+  .dark .due-slip--neutral { background: linear-gradient(90deg, rgba(246,246,246,0.04) 0%, transparent 40%), #121212 !important; }
+  .dark .due-slip--rose { background: linear-gradient(90deg, rgba(255,75,92,0.06) 0%, transparent 40%), #121212 !important; }
 
+/* Gradient border — Spotify green */
+.gradient-border-emerald {
+  background-image: linear-gradient(white, white), linear-gradient(135deg, #1ed760, #1db954, #1ed760);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+.dark .gradient-border-emerald {
+  background-image: linear-gradient(#121212, #121212), linear-gradient(135deg, #1ed760, #1db954, #1ed760) !important;
+}
+
+  /* Live dot — Spotify green */
+  .live-dot {
+    @apply w-2 h-2 rounded-full animate-pulse;
+    background: #1ed760;
+    box-shadow: 0 0 0 4px rgba(30,215,96,0.18);
+  }
+  .live-dot--on { background:#1db954; box-shadow: 0 0 0 4px rgba(29,185,84,0.18); }
+
+  /* Buttons — Spotify green primary */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] font-semibold rounded-xl
+           active:scale-[0.98] transition-all duration-150 shadow-sm
+           disabled:opacity-50 disabled:cursor-not-allowed text-sm;
+    background: #121212; color: white;
+  }
+  .btn-primary:hover { background:#1f1f1f; }
+  .dark .btn-primary { background: white; color:#000000; }
+  .dark .btn-primary:hover { background:#f6f6f6; }
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] text-black font-semibold rounded-xl active:scale-[0.98] transition-all duration-150 shadow-sm text-sm;
+    background:#1ed760;
+  }
+  .btn-accent:hover { background:#1db954; }
+  .btn-emerald {
+    @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] text-black font-semibold rounded-xl active:scale-[0.98] transition-all duration-150 shadow-sm text-sm;
+    background:#1db954;
+  }
+  .btn-emerald:hover { background:#169c46; }
+  .btn-rose {
+    @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] bg-[#ff4b5c] text-white font-semibold rounded-xl hover:bg-[#ef4444] active:scale-[0.98] transition-all duration-150 shadow-sm text-sm;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] font-semibold rounded-xl
+           hover:bg-surface-50 dark:hover:bg-[#1f1f1f] hover:border-surface-300 dark:hover:border-[#3a3a3a] active:scale-[0.98] transition-all duration-150 text-sm shadow-sm;
+    color:#121212;
+  }
+  .dark .btn-secondary { background-color:#121212; border-color:#282828; color:#ffffff; }
+  .dark .btn-secondary:hover { background-color:#1f1f1f; border-color:#3a3a3a; }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 min-h-[44px] font-medium rounded-xl
+           hover:bg-surface-100 dark:hover:bg-[#1f1f1f] transition-colors duration-150 text-sm;
+    color:#62666d;
+  }
+  .btn-ghost:hover { color:#121212; }
+  .dark .btn-ghost { color:#a7a7a7; }
+  .dark .btn-ghost:hover { background-color:#1f1f1f; color:#ffffff; }
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-11 h-11 rounded-xl hover:bg-surface-100 dark:hover:bg-[#1f1f1f] transition-colors duration-150 shrink-0;
+    color:#62666d;
+  }
+  .btn-icon:hover { color:#121212; }
+  .dark .btn-icon { color:#a7a7a7; }
+  .dark .btn-icon:hover { color:#ffffff; background-color:#1f1f1f; }
+  .btn-brass {
+    @apply inline-flex items-center justify-center gap-2 px-4 min-h-[44px] font-semibold rounded-xl transition-colors text-sm shadow-sm;
+    background:#1ed760; color:#000000;
+  }
+  .btn-brass:hover { background:#1db954; color:#000000; }
+  /* Domain header accent bars — brand green, info blue restored */
+  .accent-brass .h-\[3px\] { background:#1ed760 !important; }
+  .accent-blue .h-\[3px\] { background:#0284c7 !important; }
+  .accent-emerald .h-\[3px\] { background:#1db954 !important; }
+  .accent-rose .h-\[3px\] { background:#ff4b5c !important; }
+  .accent-neutral .h-\[3px\] { background:#e5e7eb !important; }
+  .accent-slate .h-\[3px\] { background:#121212 !important; }
+  .accent-sky .h-\[3px\] { background:#0284c7 !important; }
+  /* Filter pill — brand + info */
+  .pill-brass { @apply text-black border-primary-500; background:#1ed760; border-color:#1ed760; }
+  .dark .pill-brass { background:#1ed760; }
+  .pill-blue { @apply bg-info-600 text-white border-info-600 dark:bg-info-500 dark:text-white dark:border-info-500; }
+  .pill-emerald { @apply text-black border-success-600; background:#1db954; }
+  .dark .pill-emerald { background:#1db954; }
+  .pill-rose { @apply bg-[#ff4b5c] text-white border-[#ff4b5c] dark:bg-[#ff4b5c] dark:text-white dark:border-[#ff4b5c]; }
+  .pill-neutral { @apply bg-surface-50 text-slate-700 border-surface-200 dark:bg-[#1f1f1f] dark:text-[#a7a7a7] dark:border-[#282828]; }
+  /* Subtle page mesh overlay */
+  .mesh-brass { background-image: radial-gradient(ellipse 600px 220px at 20% 0%, rgba(30,215,96,0.05), transparent 60%); }
+  .mesh-blue { background-image: radial-gradient(ellipse 600px 220px at 80% 0%, rgba(2,132,199,0.06), transparent 60%); }
+  .mesh-emerald { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(29,185,84,0.04), transparent 60%); }
+  .mesh-neutral { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(246,246,246,0.8), transparent 60%); }
+  /* Per-section tints — Spotify green (assignments/forms now green 5% like hackathons — not neutral gray) */
+  .section--hackathons { background: radial-gradient(ellipse 700px 240px at 15% 0%, rgba(30,215,96,0.05), transparent 65%); }
+  .section--internships { background: radial-gradient(ellipse 700px 240px at 85% 0%, rgba(30,215,96,0.05), transparent 65%); }
+  .section--rooms { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(29,185,84,0.04), transparent 65%); }
+  .section--assignments { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(30,215,96,0.05), transparent 65%); }
+  .section--forms { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(30,215,96,0.05), transparent 65%); }
+
+  /* Input — placeholder #6b7280 for 4.6:1 on white (was surface-400 #9ca3af at 2.8:1, fails AA) */
   .input-field {
-    @apply w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl
-           text-surface-900 placeholder-surface-400
-           focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400
-           transition-all duration-200;
+    @apply w-full px-4 min-h-[44px] bg-white dark:bg-[#000000] border border-surface-200 dark:border-[#282828] rounded-xl
+           placeholder:text-[#6b7280]
+           focus:outline-none focus:border-primary-500/30 dark:focus:border-primary-500/40 focus:ring-2 focus:ring-primary-500/15
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
+           transition-colors duration-150 text-sm;
+    color:#121212;
   }
+  .dark .input-field { background-color:#000000; border-color:#282828; color:#ffffff; }
 
+  /* Sidebar links — 44px rail (was 32px, fails 2.5.8 target size) */
   .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-surface-500 font-medium
-           hover:bg-surface-100 hover:text-surface-900 transition-all duration-200;
+    @apply flex items-center gap-2 px-2.5 min-h-[44px] rounded-lg font-medium
+           hover:bg-surface-100 dark:hover:bg-[#1f1f1f] transition-all duration-150 text-[12px];
+    color:#62666d;
   }
-
+  .sidebar-link:hover { color:#121212; background:#f6f6f6; }
+  .dark .sidebar-link { color:#b3b3b3; }
+  .dark .sidebar-link:hover { background-color:#1f1f1f; color:#ffffff; }
   .sidebar-link-active {
-    @apply flex items-center gap-3 px-4 py-3 rounded-xl bg-primary-50 text-primary-700 font-semibold
-           shadow-sm;
+    @apply flex items-center gap-2 px-2.5 min-h-[44px] rounded-lg font-semibold text-[12px] shadow-sm;
+    background:#1f1f1f; color:#ffffff;
   }
-
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  .dark .sidebar-link-active { background:#1f1f1f; color:#ffffff; }
+  .locker-rail {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    transform: none;
+    filter: none;
+    perspective: none;
+    contain: none;
+    will-change: auto;
+    isolation: auto;
   }
-
-  .badge-primary {
-    @apply badge bg-primary-100 text-primary-700;
+  .dark .locker-rail { background: #000000; border-color:#282828; transform: none; filter: none; contain: none; }
+  .locker-stripe {
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full;
+    background:#1ed760;
   }
+  .dark .locker-stripe { background: #1ed760; }
 
-  .badge-success {
-    @apply badge bg-emerald-100 text-emerald-700;
-  }
+  /* Badges — Spotify */
+  .badge { @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border; }
+  .badge-primary { @apply badge border-primary-200 dark:border-primary-500/40; background:#e8f8ee; color:#0a7a3a; }
+  .dark .badge-primary { background:rgba(30,215,96,0.14) !important; color:#1ed760 !important; }
+  .badge-success { @apply badge border-success-200 dark:border-success-500/40; background:#e8f8ee; color:#0a7a3a; }
+  .dark .badge-success { background:rgba(29,185,84,0.14) !important; color:#1ed760 !important; }
+  .badge-warning { @apply badge border-warning-200 dark:border-warning-500/30; background:#fffbeb; color:#92400e; }
+  .dark .badge-warning { background:rgba(245,183,0,0.14) !important; color:#f5b700 !important; }
+  .badge-danger { @apply badge bg-[#fff1f2] text-[#ff4b5c] border-[#fecdd3] dark:bg-[#ff4b5c]/15 dark:text-[#ff8a94] dark:border-[#ff4b5c]/30; }
+  .badge-accent { @apply badge border-primary-200 dark:border-primary-500/40; background:#e8f8ee; color:#0a7a3a; }
+  .dark .badge-accent { background:rgba(30,215,96,0.14) !important; color:#1ed760 !important; }
+  .badge-brass { @apply badge border-primary-200 dark:border-primary-500/30; background:#e8f8ee; color:#0a7a3a; }
+  .dark .badge-brass { background:rgba(30,215,96,0.14) !important; color:#1ed760 !important; }
+  .badge-emerald { @apply badge border-success-200 dark:border-success-500/40; background:#e8f8ee; color:#0a7a3a; }
+  .dark .badge-emerald { background:rgba(29,185,84,0.14) !important; color:#1ed760 !important; }
+  .badge-rose { @apply badge bg-[#fff1f2] text-[#ff4b5c] border-[#fecdd3] dark:bg-[#ff4b5c]/15 dark:text-[#ff8a94] dark:border-[#ff4b5c]/30; }
+  .badge-neutral { @apply badge bg-surface-50 text-slate-700 border-surface-200 dark:bg-[#1f1f1f] dark:text-[#a7a7a7] dark:border-[#282828]; }
 
-  .badge-warning {
-    @apply badge bg-amber-100 text-amber-700;
-  }
-
-  .badge-danger {
-    @apply badge bg-red-100 text-red-700;
-  }
-
-  .badge-accent {
-    @apply badge bg-accent-100 text-accent-700;
-  }
-
+  /* Stat card — Spotify green top line */
   .stat-card {
-    @apply card p-6 relative overflow-hidden;
+    @apply paper p-5 relative overflow-hidden;
   }
-
   .stat-card::before {
-    content: '';
-    @apply absolute top-0 right-0 w-32 h-32 rounded-full opacity-10 -mr-10 -mt-10;
+    content:''; @apply absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-slate-300 dark:via-[#282828] to-transparent;
   }
+  .stat-card--brass::before { background: linear-gradient(90deg, transparent, #1ed760, transparent); opacity:0.9; }
+  .stat-card--blue::before,
+  .stat-card--accent::before { background: linear-gradient(90deg, transparent, #1ed760, transparent); opacity:0.85; }
+  .stat-card--emerald::before,
+  .stat-card--success::before { background: linear-gradient(90deg, transparent, #1db954, transparent); opacity:0.85; }
+  .stat-card--rose::before,
+  .stat-card--danger::before { background: linear-gradient(90deg, transparent, #ff4b5c, transparent); opacity:0.85; }
+  .stat-card--neutral::before { background: linear-gradient(90deg, transparent, #e5e7eb, transparent); opacity:0.9; }
+  .stat-card--warning::before { background: linear-gradient(90deg, transparent, #f5b700, transparent); opacity:0.85; }
+  /* subtle card tint on hover — Spotify green */
+  .card-accent--brass:hover { border-color: rgba(30,215,96,0.25) !important; box-shadow: 0 4px 20px rgba(30,215,96,0.08); }
+  .card-accent--blue:hover { border-color: rgba(30,215,96,0.20) !important; box-shadow: 0 4px 20px rgba(30,215,96,0.08); }
+  .card-accent--emerald:hover { border-color: rgba(29,185,84,0.20) !important; box-shadow: 0 4px 20px rgba(29,185,84,0.08); }
+  .card-accent--rose:hover { @apply border-[#fecdd3] dark:border-[#ff4b5c]/40; box-shadow: 0 4px 20px rgba(255,75,92,0.07); }
+  .card-accent--neutral:hover { border-color:#e5e7eb !important; box-shadow: 0 4px 20px rgba(18,18,18,0.05); }
 
-  .page-enter {
-    @apply animate-slide-up;
+  /* Notice board — card with header */
+  .notice-board {
+    @apply paper p-0 overflow-hidden;
   }
-
-  .hover-lift {
-    @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-soft-lg;
+  .notice-head {
+    @apply flex items-center justify-between px-5 py-4 border-b border-surface-200 bg-surface-50/60 dark:bg-[#181818];
   }
+  .dark .notice-head { background-color:#181818 !important; }
 
+  /* Simple slide up animation on page load */
+  .page-enter { @apply animate-slideUp; }
+  .hover-lift { @apply transition-all duration-200 hover:shadow-md hover:-translate-y-0.5; }
   .dot-pattern {
-    background-image: radial-gradient(circle, #d5dbe6 1px, transparent 1px);
-    background-size: 20px 20px;
+    background-image: radial-gradient(circle, #e5e7eb 1.1px, transparent 1.1px);
+    background-size: 20px 20px; opacity:0.35;
+  }
+  .dark .dot-pattern { background-image: radial-gradient(circle, #282828 1.1px, transparent 1.1px); opacity:0.5; }
+  /* Subtle glass micro-glow texture */
+  .paper-grain {
+    background-image:
+      radial-gradient(ellipse at 20% 30%, rgba(255,255,255,0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(18,18,18,0.03) 0%, transparent 50%);
   }
 }
+
+/* ── Contrast enforcement (WCAG AA C1) ──
+ * WHY: #1ed760 on white is 1.9:1 (fails). Restrict #1ed760 to large/dark surfaces only.
+ * Body/small text must use --brand-text-strong #0a7a3a (5.9:1) or #007A67 teal fallback.
+ * text-primary-600 (#1db954, 2.9:1) and text-primary-500 (#1ed760) on white also fail for
+ * small text — remap light-mode small-text usages to #0a7a3a. Dark mode keeps #1ed760
+ * (passes on #000/#121212). Verified axe-conscious: no white-on-green, no green-on-white small text.
+ */
+@layer utilities {
+  .text-primary-600 { color: #0a7a3a; }
+  .dark .text-primary-600 { color: #1ed760; }
+  .text-primary-700 { color: #0a7a3a; }
+  .dark .text-primary-700 { color: #1ed760; }
+  .text-primary-500 { color: #0a7a3a; }
+  .dark .text-primary-500 { color: #1ed760; }
+  /* Success reuses same green hue — same remap (was #1db954/#169c46 on white, fails small-text AA). */
+  .text-success-600 { color: #0a7a3a; }
+  .dark .text-success-600 { color: #1ed760; }
+  .text-success-700 { color: #0a7a3a; }
+  .dark .text-success-700 { color: #1ed760; }
+  /* Placeholder must be #6b7280 (4.6:1), never #9ca3af/surface-400 (2.8:1). */
+  .placeholder\:text-surface-400::placeholder { color: #6b7280 !important; }
+  input::placeholder, textarea::placeholder { color: #6b7280; }
+  .dark input::placeholder, .dark textarea::placeholder { color: #a1a1aa; }
+}
+
+/* Hanging lamp — theme toggle — Spotify green glow */
+.theme-lamp { display:flex; flex-direction:column; align-items:center; cursor:pointer; transition:transform .3s cubic-bezier(0.34,1.56,0.64,1); animation:lampSwing 4s ease-in-out infinite; transform-origin:top center; }
+@keyframes lampSwing { 0%,100%{transform:rotate(0deg)}25%{transform:rotate(1.5deg)}75%{transform:rotate(-1.5deg)} }
+.theme-lamp:hover{ animation-duration:1.3s; }
+@media (prefers-reduced-motion: reduce) {
+  .theme-lamp { animation: none; }
+  .theme-lamp:hover { animation: none; }
+}
+.theme-lamp__cord{ width:6px; height:18px; color:#9ca3af; flex-shrink:0; }
+.dark .theme-lamp__cord{ color:#52525b; }
+.theme-lamp__bulb{ width:28px; height:34px; flex-shrink:0; transition:transform .3s; }
+.theme-lamp:hover .theme-lamp__bulb{ transform:scale(1.1); }
+.theme-lamp:active .theme-lamp__bulb{ transform:scale(0.9); }
+.theme-lamp__icon{ width:100%; height:100%; filter:drop-shadow(0 2px 6px rgba(18,18,18,0.10)); }
+.dark .theme-lamp__icon{ filter:drop-shadow(0 2px 8px rgba(30,215,96,0.22)); }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
-
-  .animate-in {
-    animation: slideUp 0.5s ease-out forwards;
-  }
-
-  .stagger-1 { animation-delay: 0.1s; }
-  .stagger-2 { animation-delay: 0.2s; }
-  .stagger-3 { animation-delay: 0.3s; }
-  .stagger-4 { animation-delay: 0.4s; }
-  .stagger-5 { animation-delay: 0.5s; }
+  .text-balance{ text-wrap:balance; }
+  .animate-in{ animation: slideUp 0.32s ease-out forwards; }
+  .stagger-1{animation-delay:.06s}.stagger-2{animation-delay:.12s}.stagger-3{animation-delay:.18s}.stagger-4{animation-delay:.24s}
 }
 
-/* Print styles */
 @media print {
-  /* Reset layout constraints so full page prints */
-  .h-screen, .flex-1 { height: auto !important; }
-  .overflow-hidden, .overflow-y-auto { overflow: visible !important; }
+  /* Reset page for clean paper */
+  html, body {
+    background: white !important;
+    color: #121212 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .h-screen,.flex-1{height:auto !important}
+  .overflow-hidden,.overflow-y-auto{overflow:visible !important}
+  /* Hide chrome: sidebar, header, nav, modals, toasts, fixed overlays */
+  aside, header, nav, .fixed, #root > .fixed, [role="dialog"] { display: none !important; }
+  /* Utility hide — any element marked no-print is omitted from paper */
+  .no-print { display: none !important; }
+  .print\:hidden { display: none !important; }
 
-  /* Hide sidebar, header, nav, interactive elements */
-  aside, header, nav, .print\:hidden,
-  .fixed { display: none !important; }
+  /* Remove app chrome spacing */
+  main, .campus-shell { padding: 0 !important; margin: 0 !important; max-width: none !important; }
 
-  /* Clean up cards */
-  .rounded-2xl { border-radius: 4px !important; }
-  .shadow-lg, .shadow-md, .shadow-sm, .shadow-glow, .shadow-soft, .shadow-soft-lg { box-shadow: none !important; }
+  /* Isolate resume: hide everything, then reveal only the print area */
+  body * { visibility: hidden; }
+  #resume-print-area, #resume-print-area * { visibility: visible; }
+  #resume-print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 
-  /* Page breaks between sections */
-  .bg-white { break-inside: avoid; page-break-inside: avoid; }
+  /* Resume paper — A4 white, no shadow/border/radius, light mode only */
+  .resume-print-root,
+  #resume-print-area .resume-print-root {
+    background: white !important;
+    color: #121212 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-width: 210mm !important;
+    width: 210mm !important;
+    margin: 0 auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .resume-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Remove wrapper chrome around preview */
+  .resume-print-area {
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
 
-  /* Headings */
-  h1 { font-size: 20pt !important; margin-bottom: 8pt !important; }
-  h2 { font-size: 14pt !important; margin-top: 12pt !important; margin-bottom: 6pt !important; }
+  .rounded-2xl, .rounded-xl { border-radius: 0 !important; }
 
-  /* Keep background colors for hero */
-  .bg-gradient-to-br { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 10mm; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Premium hero isolation — banner must stay legible in dark mode
+   Global .dark .bg-white / .dark [class*="bg-white/"] and .dark * border
+   overrides would otherwise wash out hero's intentional white-on-dark
+   design (white buttons → #121212 + black text = invisible). These
+   higher-specificity !important rules restore the hero's intended
+   translucent-white surfaces and white borders/text inside .premium-hero.
+   Order: generic white first, dark-specific later so dark variants win.
+   ─────────────────────────────────────────────────────────────── */
+.dark .premium-hero { background-color: #0a0a0a !important; border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero .bg-white { background-color: #ffffff !important; }
+.dark .premium-hero [class~="bg-white"] { background-color: #ffffff !important; }
+.dark .premium-hero [class*="bg-white/10"] { background-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="bg-white/15"] { background-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero [class*="bg-white/70"] { background-color: rgba(255,255,255,0.70) !important; }
+.dark .premium-hero [class*="bg-white/[0.010]"] { background-color: rgba(255,255,255,0.010) !important; }
+.dark .premium-hero [class*="bg-white/[0.015]"] { background-color: rgba(255,255,255,0.015) !important; }
+.dark .premium-hero [class*="bg-white/[0.025]"] { background-color: rgba(255,255,255,0.025) !important; }
+.dark .premium-hero [class*="bg-white/[0.028]"] { background-color: rgba(255,255,255,0.028) !important; }
+.dark .premium-hero [class*="bg-white/[0.032]"] { background-color: rgba(255,255,255,0.032) !important; }
+.dark .premium-hero [class*="bg-white/[0.035]"] { background-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="bg-white/[0.03]"] { background-color: rgba(255,255,255,0.03) !important; }
+.dark .premium-hero [class*="bg-white/[0.04]"] { background-color: rgba(255,255,255,0.04) !important; }
+.dark .premium-hero [class*="bg-white/[0.06]"] { background-color: rgba(255,255,255,0.06) !important; }
+.dark .premium-hero [class*="bg-white/[0.02]"] { background-color: rgba(255,255,255,0.02) !important; }
+.dark .premium-hero [class*="bg-white/5"] { background-color: rgba(255,255,255,0.05) !important; }
+/* dark variants that intentionally stay translucent/dark — must appear after generics */
+.dark .premium-hero [class*="dark:bg-white/[0.010]"] { background-color: rgba(255,255,255,0.010) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.025]"] { background-color: rgba(255,255,255,0.025) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.028]"] { background-color: rgba(255,255,255,0.028) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.035]"] { background-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.06]"] { background-color: rgba(255,255,255,0.06) !important; }
+.dark .premium-hero [class*="dark:bg-white/[0.03]"] { background-color: rgba(255,255,255,0.03) !important; }
+.dark .premium-hero [class*="dark:bg-white/10"] { background-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="dark:bg-[#121212]"] { background-color: #121212 !important; }
+.dark .premium-hero [class*="dark:bg-[#0a0a0a]"] { background-color: #0a0a0a !important; }
+.dark .premium-hero [class*="border-white/[0.035]"] { border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero [class*="border-white/10"] { border-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero [class*="border-white/15"] { border-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero [class*="border-white/20"] { border-color: rgba(255,255,255,0.20) !important; }
+.dark .premium-hero [class*="border-white/5"] { border-color: rgba(255,255,255,0.05) !important; }
+.dark .premium-hero .border-white\/10 { border-color: rgba(255,255,255,0.10) !important; }
+.dark .premium-hero .border-white\/15 { border-color: rgba(255,255,255,0.15) !important; }
+.dark .premium-hero .border-white\/\[0\.035\] { border-color: rgba(255,255,255,0.035) !important; }
+.dark .premium-hero .text-white { color: #ffffff !important; }
+.dark .premium-hero .text-black { color: #000000 !important; }
+.dark .premium-hero [class*="text-white/60"] { color: rgba(255,255,255,0.60) !important; }
+.dark .premium-hero [class*="text-white/70"] { color: rgba(255,255,255,0.70) !important; }
+.dark .premium-hero [class*="text-white/65"] { color: rgba(255,255,255,0.65) !important; }
+.dark .premium-hero [class*="text-black/50"] { color: rgba(0,0,0,0.50) !important; }
+.dark .premium-hero [class*="text-black/60"] { color: rgba(0,0,0,0.60) !important; }
+.dark .premium-hero [class*="text-black/70"] { color: rgba(0,0,0,0.70) !important; }
+/* keep green primary cards' text black in dark (white on green fails contrast) */
+.dark .premium-hero .bg-primary-500.text-black,
+.dark .premium-hero .bg-primary-500 .text-black { color: #000000 !important; }
+.dark .premium-hero [class*="bg-primary-500"] [class*="text-black"] { color: #000000 !important; }
+
+/* ───────────────────────────────────────────────────────────────
+   Fix: PremiumHero select/drag whitener — banner text selection
+   was washed to opaque white (global ::selection dark:bg-white)
+   causing a "whitener" flash when selecting/dragging title
+   (e.g., CodeSprint) and glass stats. Premium high-end fix:
+   scope hero's ::selection to translucent brand green #1ed760
+   (30% opacity) with white text — preserves dark #0a0a0a luxe,
+   mesh + backdrop-blur depth, no white wash during drag.
+   Covers ::selection + ::-moz-selection for all descendants,
+   light + .dark, with !important to beat global dark overrides.
+   Drag ghost: keep hero text selectable, but buttons/links are
+   user-select none + -webkit-user-drag none to avoid white
+   drag-image when dragging across banner chrome.
+   ─────────────────────────────────────────────────────────────── */
+.premium-hero,
+.premium-hero * {
+  -webkit-tap-highlight-color: transparent;
+}
+.premium-hero::selection,
+.premium-hero *::selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.premium-hero::-moz-selection,
+.premium-hero *::-moz-selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+}
+.dark .premium-hero::selection,
+.dark .premium-hero *::selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.dark .premium-hero::-moz-selection,
+.dark .premium-hero *::-moz-selection {
+  background: rgba(30, 215, 96, 0.32) !important;
+  background-color: rgba(30, 215, 96, 0.32) !important;
+  color: #ffffff !important;
+}
+/* drag whitener — text stays selectable, chrome elements don't create white ghost */
+.premium-hero {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.premium-hero button,
+.premium-hero a,
+.premium-hero [role="button"] {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-user-drag: none !important;
+}
+.premium-hero img {
+  -webkit-user-drag: none !important;
+  user-select: none !important;
 }
