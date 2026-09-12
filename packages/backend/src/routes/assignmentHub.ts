@@ -3,14 +3,18 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { buildHubListWhere, filterSubmissionForStudentVisibility } from '../utils/assignmentVisibility'
+import { parseAttachmentUrls } from '../utils/childTables'
 import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 import multer from 'multer'
 import { uploadFile } from '../config/storage'
+import { validateUploadMagicBytes, scanBufferForMalware } from '../utils/uploadScan'
 import path from 'path'
 import { broadcastAssignmentMutation } from '../services/socket'
+import { logger } from '../utils/logger'
+import { toAssignmentScopeEnum, toSubmissionModeEnum } from '../lib/enums'
 
 export const hubBlocked = ['.html','.htm','.xhtml','.svg','.xml','.js','.mjs','.css','.exe','.sh']
-const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 }, fileFilter: (_req,file,cb)=> {
+const hubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: (_req,file,cb)=> {
   if (hubBlocked.includes(path.extname(file.originalname).toLowerCase())) cb(new Error('File type not allowed'))
   else cb(null,true)
 }})
@@ -63,7 +67,8 @@ const updateHubSchema = assignmentHubSchema.partial()
 
 router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // NARROW-READ: auth needs only id/role/collegeId (was full row). Same 403/400 payload.
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     // QA compat: if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN'].includes(user.role))
     if (!user || !['TEACHER','COLLEGE_ADMIN','SUPER_ADMIN','SUPER'].includes(user.role)) {
       res.status(403).json({ error: 'Only teachers and admins can create assignments' }); return
@@ -81,6 +86,10 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
     let attachmentUrls: string[] = []
     if ((req as any).files && Array.isArray((req as any).files)) {
       for (const f of (req as any).files as Express.Multer.File[]) {
+        const magicErr = await validateUploadMagicBytes(f.buffer, f.originalname, f.mimetype, 'submissions')
+        if (magicErr) { res.status(400).json({ error: magicErr }); return }
+        const scan = await scanBufferForMalware(f.buffer, f.originalname)
+        if (!scan.clean) { res.status(400).json({ error: scan.reason || 'File rejected by scan' }); return }
         const stored = await uploadFile(f.buffer, { folder: `assignments/hub`, resourceType: 'auto', fileName: f.originalname })
         attachmentUrls.push(stored.url)
       }
@@ -111,6 +120,11 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
       const isSuper = user.role === 'SUPER_ADMIN' || (user as any).role === 'SUPER'
       if (!isCreator && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Not authorized for this room' }); return }
     }
+    // Order-1 FK: AssignmentHub.courseId → Course(id) ON DELETE SET NULL (nullable).
+    if (body.courseId) {
+      const course = await prisma.course.findUnique({ where: { id: body.courseId }, select: { id: true } })
+      if (!course) { res.status(400).json({ error: 'Invalid courseId: course not found' }); return }
+    }
     const hub = await prisma.assignmentHub.create({
       data: {
         title: body.title.trim(),
@@ -119,10 +133,12 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
         dueDate: body.dueDate as Date,
         creatorId: user.id,
         collegeId: derivedCollegeId,
-        scope: body.scope as any,
+        // Zod already restricted to UPPERCASE members; re-validate against
+        // the REAL Prisma enums so drift fails closed (no `as any` lie).
+        scope: toAssignmentScopeEnum(body.scope),
         departmentId: body.scope === 'DEPARTMENT' ? body.departmentId! : null,
         roomId: body.scope === 'ROOM' ? body.roomId! : null,
-        submissionMode: body.submissionMode as any,
+        submissionMode: toSubmissionModeEnum(body.submissionMode),
         showGrades: body.showGrades,
         showFeedback: body.showFeedback,
         showSubmissionStatus: body.showSubmissionStatus,
@@ -134,6 +150,16 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
       },
       include: { creator: { select: { id: true, name: true } }, college: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true } }, _count: { select: { submissions: true } } }
     })
+    // Order 10 (V-17): dual-write attachments blob → AssignmentAttachment
+    // rows (best-effort — table may predate migration; blob stays fallback).
+    try {
+      const urls = parseAttachmentUrls(attachmentsJson)
+      if (urls.length > 0) {
+        await (prisma as any).assignmentAttachment.createMany({
+          data: urls.map((url, i) => ({ assignmentId: hub.id, url, order: i })),
+        })
+      }
+    } catch (err) { logger.debug({ err }, '[hub] attachments dual-write non-fatal') }
     try { broadcastAssignmentMutation(hub.id) } catch {}
     res.status(201).json(hub)
   } catch (e: any) {
@@ -142,13 +168,16 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
     if (e.message === 'File type not allowed' || e.code === 'LIMIT_FILE_SIZE') {
       res.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message }); return
     }
-    console.error('Create hub error', e); res.status(500).json({ error: 'Failed to create assignment', detail: e?.message })
+    // Defensive: FK race (course/room/department deleted between check + create) → 400.
+    if (e?.code === 'P2003') { res.status(400).json({ error: 'Invalid reference: related record not found' }); return }
+    logger.error({ err: e }, 'Create hub error'); res.status(500).json({ error: 'Failed to create assignment', detail: e?.message })
   }
 })
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // NARROW-READ: list auth needs id/role/collegeId/departmentId only (was full row).
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true } })
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
     const page = Math.max(1, parseInt(req.query.page as string) || 1)
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
@@ -157,8 +186,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const scope = req.query.scope as string | undefined
     const submissionMode = req.query.submissionMode as string | undefined
     const collegeId = (getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined)
+    // WHY: ?status=all|active|completed filters server-side; missing/unknown defaults to all (backward compat).
+    const status = req.query.status as string | undefined
 
-    let where: any = buildHubListWhere(user as any, { search, scope, submissionMode, collegeId })
+    let where: any = buildHubListWhere(user as any, { search, scope, submissionMode, collegeId, status })
 
     if (user.role === 'STUDENT') {
       // Optimized: fetch hubs + roomMembers in parallel, then batch submission queries to avoid N*2 connection burst (fixes P2024 pool timeout)
@@ -176,7 +207,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       const total = visible.length
       const paged = visible.slice(skip, skip + limit)
       if (paged.length === 0) {
-        res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30')
+        res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
         res.json({ data: [], pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
         return
       }
@@ -199,7 +230,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         const raw = myMap.get(h.id) || null
         return { ...h, submissionsCount: submissions, mySubmission: raw ? filterForStudent(h, raw) : null }
       })
-      res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30')
+      res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
       res.json({ data: withCounts, pagination: { page, limit, total, pages: Math.ceil(total/limit) } })
       return
     }
@@ -209,13 +240,43 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       if (user.role === 'COLLEGE_ADMIN') where.collegeId = user.collegeId
     }
 
-    const [hubs, total] = await Promise.all([
-      prisma.assignmentHub.findMany({ where, include: { creator: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true } }, _count: { select: { submissions: true } } }, orderBy: { dueDate: 'asc' }, skip, take: limit }),
+    // TWO-STEP HYDRATE (fan-out #3): was single findMany with
+    // include creator/department/room/_count (4 joins + per-row count).
+    // AFTER: 1 base findMany (scalars only) + count in parallel, then 4
+    // batched hydrations (creators/depts/rooms/counts via IN + groupBy) in
+    // ONE Promise.all. Same response shape { ...hub, creator, department,
+    // room, _count:{submissions} } — joins replaced by ID-then-hydrate.
+    const [hubsBase, total] = await Promise.all([
+      prisma.assignmentHub.findMany({ where, orderBy: { dueDate: 'asc' }, skip, take: limit }),
       prisma.assignmentHub.count({ where })
     ])
-    res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30')
+    let hubs: any[] = hubsBase as any[]
+    if (hubsBase.length) {
+      const hubIds = hubsBase.map((h: any) => h.id)
+      const creatorIds = [...new Set(hubsBase.map((h: any) => h.creatorId).filter(Boolean))] as string[]
+      const deptIds = [...new Set(hubsBase.map((h: any) => h.departmentId).filter(Boolean))] as string[]
+      const roomIds = [...new Set(hubsBase.map((h: any) => h.roomId).filter(Boolean))] as string[]
+      const [creators, depts, rooms, groupedCounts] = await Promise.all([
+        creatorIds.length ? prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } }) : Promise.resolve([] as any[]),
+        deptIds.length ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } }) : Promise.resolve([] as any[]),
+        roomIds.length ? prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, name: true } }) : Promise.resolve([] as any[]),
+        prisma.assignmentSubmission.groupBy({ by: ['assignmentId'], where: { assignmentId: { in: hubIds } }, _count: { _all: true } }).catch(() => [] as any[]),
+      ])
+      const creatorMap = new Map((creators as any[]).map((c: any) => [c.id, c]))
+      const deptMap = new Map((depts as any[]).map((d: any) => [d.id, d]))
+      const roomMap = new Map((rooms as any[]).map((r: any) => [r.id, r]))
+      const countMap = new Map<string, number>((groupedCounts as any[]).map((g: any) => [g.assignmentId, g._count?._all ?? 0]))
+      hubs = hubsBase.map((h: any) => ({
+        ...h,
+        creator: creatorMap.get(h.creatorId) ?? { id: h.creatorId, name: '' },
+        department: h.departmentId ? (deptMap.get(h.departmentId) ?? null) : null,
+        room: h.roomId ? (roomMap.get(h.roomId) ?? null) : null,
+        _count: { submissions: countMap.get(h.id) ?? 0 },
+      }))
+    }
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json({ data: hubs, pagination: { page, limit, total, pages: Math.ceil(total/limit) } })
-  } catch (e) { console.error('List hub error', e); res.status(500).json({ error: 'Failed to list assignments' }) }
+  } catch (e) { logger.error({ err: e }, 'List hub error'); res.status(500).json({ error: 'Failed to list assignments' }) }
 })
 
 function filterForStudent(hub: any, submission: any) {
@@ -224,12 +285,19 @@ function filterForStudent(hub: any, submission: any) {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // NARROW-READ: detail auth needs id/role/collegeId/departmentId only (was full row).
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true } })
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
-    const hub = await prisma.assignmentHub.findUnique({ where: { id: req.params.id as string }, include: { creator: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true, joinCode: true } }, submissions: user.role === 'STUDENT' ? { where: { studentId: user.id } } : false, _count: { select: { submissions: true } } } })
+    // PARALLEL: hub + roomMembers are independent (roomMembers needs only user.id).
+    // Was sequential (hub await, then roomMembers await). Same payload.
+    const hubPromise = prisma.assignmentHub.findUnique({ where: { id: req.params.id as string }, include: { creator: { select: { id: true, name: true } }, department: { select: { id: true, name: true } }, room: { select: { id: true, name: true, joinCode: true } }, submissions: user.role === 'STUDENT' ? { where: { studentId: user.id } } : false, _count: { select: { submissions: true } } } })
+    const roomMembersPromise = user.role === 'STUDENT'
+      ? prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } })
+      : Promise.resolve([] as { roomId: string }[])
+    const [hub, roomMembers] = await Promise.all([hubPromise, roomMembersPromise])
     if (!hub) { res.status(404).json({ error: 'Assignment not found' }); return }
     if (user.role === 'STUDENT') {
-      const roomIds = (await prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } })).map(r => r.roomId)
+      const roomIds = (roomMembers as { roomId: string }[]).map(r => r.roomId)
       const visible = hub.scope === 'ALL' ? true : hub.scope === 'DEPARTMENT' ? hub.departmentId === user.departmentId : !!hub.roomId && roomIds.includes(hub.roomId)
       if (!visible || hub.collegeId !== user.collegeId) { res.status(403).json({ error: 'Not visible to you' }); return }
       const mySubmission = (hub as any).submissions?.[0] ? filterForStudent(hub, (hub as any).submissions[0]) : null
@@ -245,14 +313,17 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const isSuper = user.role === 'SUPER_ADMIN'
     if (!isOwner && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Access denied' }); return }
     res.json(hub)
-  } catch (e) { console.error('Get hub error', e); res.status(500).json({ error: 'Failed to fetch assignment' }) }
+  } catch (e) { logger.error({ err: e }, 'Get hub error'); res.status(500).json({ error: 'Failed to fetch assignment' }) }
 })
 
 router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // NARROW + PARALLEL: user (id/role/collegeId) + hub are independent — was 2 sequential awaits.
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.assignmentHub.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
-    const existing = await prisma.assignmentHub.findUnique({ where: { id: req.params.id as string } })
     if (!existing) { res.status(404).json({ error: 'Not found' }); return }
     const isOwner = existing.creatorId === user.id
     const isCollegeAdmin = user.role === 'COLLEGE_ADMIN' && existing.collegeId === user.collegeId
@@ -265,6 +336,10 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
     if ((req as any).files && Array.isArray((req as any).files) && (req as any).files.length) {
       const attachmentUrls: string[] = []
       for (const f of (req as any).files as Express.Multer.File[]) {
+        const magicErr = await validateUploadMagicBytes(f.buffer, f.originalname, f.mimetype, 'submissions')
+        if (magicErr) { res.status(400).json({ error: magicErr }); return }
+        const scan = await scanBufferForMalware(f.buffer, f.originalname)
+        if (!scan.clean) { res.status(400).json({ error: scan.reason || 'File rejected by scan' }); return }
         const stored = await uploadFile(f.buffer, { folder: `assignments/hub`, resourceType: 'auto', fileName: f.originalname })
         attachmentUrls.push(stored.url)
       }
@@ -285,7 +360,12 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
       if (body.scope === 'ALL' && (body.departmentId || body.roomId)) {
         res.status(400).json({ error: 'departmentId/roomId must be empty for ALL scope' }); return
       }
-      data.scope = body.scope as any
+      // Validate against the REAL enum (400 on ghost via throw).
+      try {
+        data.scope = toAssignmentScopeEnum(body.scope)
+      } catch {
+        res.status(400).json({ error: 'Invalid scope. Allowed: ALL, DEPARTMENT, ROOM' }); return
+      }
       if (body.scope === 'DEPARTMENT') {
         data.departmentId = (body.departmentId ?? existing.departmentId) as string
         data.roomId = null
@@ -365,9 +445,23 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
 
     if (body.title !== undefined) data.title = body.title.trim()
     if (body.description !== undefined) data.description = body.description
-    if (body.courseId !== undefined) data.courseId = body.courseId
+    if (body.courseId !== undefined) {
+      if (body.courseId) {
+        const course = await prisma.course.findUnique({ where: { id: body.courseId }, select: { id: true } })
+        if (!course) { res.status(400).json({ error: 'Invalid courseId: course not found' }); return }
+        data.courseId = body.courseId
+      } else {
+        data.courseId = body.courseId
+      }
+    }
     if (body.dueDate !== undefined) data.dueDate = body.dueDate as Date
-    if (body.submissionMode !== undefined) data.submissionMode = body.submissionMode as any
+    if (body.submissionMode !== undefined) {
+      try {
+        data.submissionMode = toSubmissionModeEnum(body.submissionMode)
+      } catch {
+        res.status(400).json({ error: 'Invalid submissionMode. Allowed: ONLINE, OFFLINE, HYBRID' }); return
+      }
+    }
     if (body.showGrades !== undefined) data.showGrades = body.showGrades
     if (body.showFeedback !== undefined) data.showFeedback = body.showFeedback
     if (body.showSubmissionStatus !== undefined) data.showSubmissionStatus = body.showSubmissionStatus
@@ -377,6 +471,19 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
     if (body.allowLateSubmission !== undefined) data.allowLateSubmission = body.allowLateSubmission
 
     const updated = await prisma.assignmentHub.update({ where: { id: existing.id }, data })
+    // Order 10 (V-17): when the blob changed, replace child rows to match
+    // (best-effort; blob stays the fallback truth until contract phase).
+    if (data.attachments !== undefined) {
+      try {
+        const urls = parseAttachmentUrls((updated as any).attachments)
+        await (prisma as any).assignmentAttachment.deleteMany({ where: { assignmentId: existing.id } })
+        if (urls.length > 0) {
+          await (prisma as any).assignmentAttachment.createMany({
+            data: urls.map((url, i) => ({ assignmentId: existing.id, url, order: i })),
+          })
+        }
+      } catch (err) { logger.debug({ err }, '[hub] attachments re-sync non-fatal') }
+    }
     try { broadcastAssignmentMutation(updated.id) } catch {}
     res.json(updated)
   } catch (e: any) {
@@ -384,15 +491,19 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
     if (e.message === 'File type not allowed' || e.code === 'LIMIT_FILE_SIZE') {
       res.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message }); return
     }
-    console.error('Update hub error', e); res.status(500).json({ error: 'Failed to update', detail: e?.message })
+    if (e?.code === 'P2003') { res.status(400).json({ error: 'Invalid reference: related record not found' }); return }
+    logger.error({ err: e }, 'Update hub error'); res.status(500).json({ error: 'Failed to update', detail: e?.message })
   }
 })
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // NARROW + PARALLEL: user (id/role/collegeId) + hub are independent — was 2 sequential awaits.
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.assignmentHub.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user) { res.status(401).json({ error: 'User not found' }); return }
-    const existing = await prisma.assignmentHub.findUnique({ where: { id: req.params.id as string } })
     if (!existing) { res.status(404).json({ error: 'Not found' }); return }
     const isOwner = existing.creatorId === user.id
     const isCollegeAdmin = user.role === 'COLLEGE_ADMIN' && existing.collegeId === user.collegeId
@@ -401,7 +512,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await prisma.assignmentHub.delete({ where: { id: existing.id } })
     try { broadcastAssignmentMutation(existing.id) } catch {}
     res.json({ message: 'Deleted' })
-  } catch (e) { console.error('Delete hub error', e); res.status(500).json({ error: 'Failed to delete' }) }
+  } catch (e) { logger.error({ err: e }, 'Delete hub error'); res.status(500).json({ error: 'Failed to delete' }) }
 })
 
 export default router

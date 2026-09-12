@@ -1,12 +1,18 @@
 /**
- * CampusFlow — PNG preview via html-to-image
- * capture previewRef to PNG, add Download PNG button
+ * CampusFlow — PNG preview via html-to-image (on-demand chunk)
+ * WHY: html-to-image (~100KB) is only needed for PNG export — dynamic
+ * import() keeps it out of the initial bundle like popular sites.
  */
-import { toPng } from 'html-to-image'
+
+async function loadToPng(): Promise<(el: HTMLElement, opts?: any) => Promise<string>> {
+  const mod: any = await import('html-to-image')
+  return mod.toPng as (el: HTMLElement, opts?: any) => Promise<string>
+}
 
 export async function downloadPreviewPng(element: HTMLElement, filenameBase?: string): Promise<void> {
   if (!element) throw new Error('Preview element not found')
   // html-to-image options tuned for resume: high pixelRatio for sharpness
+  const toPng = await loadToPng()
   const dataUrl = await toPng(element, {
     cacheBust: true,
     pixelRatio: 2,
@@ -32,5 +38,6 @@ export async function downloadPreviewPng(element: HTMLElement, filenameBase?: st
 }
 
 export async function capturePreviewPngDataUrl(element: HTMLElement): Promise<string> {
+  const toPng = await loadToPng()
   return toPng(element, { cacheBust: true, pixelRatio: 2, backgroundColor: '#ffffff' })
 }

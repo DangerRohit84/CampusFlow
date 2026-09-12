@@ -24,8 +24,13 @@ export default function CenteredLoader({
 }: CenteredLoaderProps) {
   const heightClass = minHeight ?? (fullScreen ? 'min-h-screen' : 'min-h-[60vh]')
   return (
-    <div className={`flex flex-col items-center justify-center ${heightClass} w-full px-4 py-12 ${className}`}>
-      <Loader2 className="w-8 h-8 animate-spin text-primary-500" aria-label="Loading" />
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={text}
+      className={`flex flex-col items-center justify-center ${heightClass} w-full px-4 py-12 ${className}`}
+    >
+      <Loader2 className="w-8 h-8 animate-spin text-primary-500" aria-hidden="true" />
       <p className="mt-3 text-sm font-medium text-surface-500 dark:text-night-400">{text}</p>
     </div>
   )

@@ -4,14 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import { TouchableOpacity } from 'react-native';
+import DashboardScreen from '../screens/DashboardScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 
 function DashboardTab() {
-  return (
-    <View style={styles.tabContainer}>
-      <Text style={styles.tabTitle}>Dashboard</Text>
-      <Text style={styles.tabPlaceholder}>Welcome to CampusFlow!</Text>
-    </View>
-  );
+  return <DashboardScreen />;
 }
 
 function ScheduleTab() {
@@ -24,12 +21,7 @@ function ScheduleTab() {
 }
 
 function NotificationsTab() {
-  return (
-    <View style={styles.tabContainer}>
-      <Text style={styles.tabTitle}>Notifications</Text>
-      <Text style={styles.tabPlaceholder}>No new notifications</Text>
-    </View>
-  );
+  return <NotificationsScreen />;
 }
 
 function ProfileTab() {

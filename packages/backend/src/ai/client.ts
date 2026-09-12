@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import { getProvidersForFeature } from '../services/ai-manager'
 import { config } from '../config'
+import { logger } from '../utils/logger'
 
 export interface AIProvider {
   id?: string
@@ -90,11 +91,11 @@ async function executeWithFailoverWithUserKey(
     const label = provider.name || provider.baseUrl
     try {
       const result = await callProvider(provider, messages, options)
-      console.log(`AI request [${feature}] (user key) served by provider "${label}" (${provider.model})`)
+      logger.info(`AI request [${feature}] (user key) served by provider "${label}" (${provider.model})`)
       return result
     } catch (error: any) {
       lastError = error
-      console.error(`AI provider (user key) "${label}" failed for [${feature}], trying next:`, error?.message || error)
+      logger.error({ err: error?.message || error }, `AI provider (user key) "${label}" failed for [${feature}], trying next`)
     }
   }
   if (!hadUsableKey) return NOT_CONFIGURED_MESSAGE
@@ -121,11 +122,11 @@ async function executeWithFailover(
     const label = provider.name || provider.baseUrl
     try {
       const result = await callProvider(provider, messages, options)
-      console.log(`AI request [${feature}] served by provider "${label}" (${provider.model})`)
+      logger.info(`AI request [${feature}] served by provider "${label}" (${provider.model})`)
       return result
     } catch (error: any) {
       lastError = error
-      console.error(`AI provider "${label}" failed for [${feature}], trying next candidate:`, error?.message || error)
+      logger.error({ err: error?.message || error }, `AI provider "${label}" failed for [${feature}], trying next candidate`)
     }
   }
 
@@ -261,18 +262,30 @@ async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[
 }
 
 /**
- * Route to correct provider based on type.
+ * Route to correct provider based on type — OCP registry (Track 4: was a
+ * switch on provider.type; adding a provider edited this function).
+ * New provider type = one entry in PROVIDER_CALLS.
  */
+type ProviderCall = (
+  provider: AIProvider,
+  messages: ChatMessage[],
+  options?: { temperature?: number; max_tokens?: number },
+) => Promise<string>;
+
+const PROVIDER_CALLS: Record<string, ProviderCall> = {
+  google: callGoogle,
+  anthropic: callAnthropic,
+  'openai-compatible': callOpenAICompatible,
+};
+
+export function registerProviderCall(type: string, fn: ProviderCall): void {
+  PROVIDER_CALLS[String(type || '').toLowerCase()] = fn;
+}
+
 async function callProvider(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
-  switch (provider.type) {
-    case 'google':
-      return callGoogle(provider, messages, options)
-    case 'anthropic':
-      return callAnthropic(provider, messages, options)
-    case 'openai-compatible':
-    default:
-      return callOpenAICompatible(provider, messages, options)
-  }
+  const key = String(provider?.type || '').toLowerCase();
+  const fn = PROVIDER_CALLS[key] ?? PROVIDER_CALLS['openai-compatible'];
+  return fn(provider, messages, options);
 }
 
 /**

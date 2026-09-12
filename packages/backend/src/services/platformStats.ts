@@ -1,28 +1,32 @@
 // packages/backend/src/services/platformStats.ts
-export interface PlatformStat {
-  platform: string
-  handle: string
-  valid: boolean
-  problemsSolved?: number | null
-  easySolved?: number | null
-  mediumSolved?: number | null
-  hardSolved?: number | null
-  totalProblems?: number | null
-  rating?: number | null
-  maxRating?: number | null
-  rankTitle?: string | null
-  maxRankTitle?: string | null
-  globalRank?: number | null
-  countryRank?: number | null
-  stars?: number | null
-  division?: string | null
-  score?: number | null
-  badges?: number | null
-  contestCount?: number | null
-}
+// Track 4: PlatformStat kept here for compat; canonical ISP split lives in
+// ./stats/types.ts (BaseStat + per-platform unions). fetchAllPlatformStats
+// uses the OCP registry (one registration per platform).
+
+import { PlatformRegistry } from './platforms/registry'
+import { fetchCodeforcesJson } from './codeforcesGate'
+import { logger } from '../utils/logger'
+
+export type { PlatformStat } from './stats/types'
+import type { PlatformStat } from './stats/types'
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 const FETCH_TIMEOUT_MS = 5000
+// Codeforces stats (user.info / user.status / user.rating fallback) use the
+// contest-fetcher budget (10s), not the 5s scrape budget. LIVE root cause:
+// 5s aborted healthy user.info from India while user.rating (10s) succeeded
+// → 35 contests shown with stats valid 0/1 + "verify handle" loop after a
+// fresh sync. Same 2s gate, no extra load on the happy path.
+export const CF_STATS_TIMEOUT_MS = 10_000
+// LeetCode GraphQL tail is slow from India — 5s FETCH_TIMEOUT aborted
+// healthy syncs (AbortSignal timeout at _leetcodeStats). 12s covers the
+// p95 tail without holding sync workers (per-platform isolation keeps
+// other platforms on the tight 5s budget).
+export const LEETCODE_STATS_TIMEOUT_MS = 12_000
+export const LEETCODE_STATS_MAX_RETRIES = 1
+/** Base + jitter ceiling for the single LeetCode retry (600..1100ms). */
+export const LEETCODE_STATS_RETRY_BASE_MS = 600
+export const LEETCODE_STATS_RETRY_JITTER_MS = 500
 const CACHE_TTL_MS = 60_000
 const HANDLE_RE = /^[a-zA-Z0-9._-]+$/
 function sanitizeHandleStat(handle: string): string | null {
@@ -35,6 +39,10 @@ function sanitizeHandleStat(handle: string): string | null {
 
 // Coalescing cache for stats — same handle within TTL reuses promise, avoids hammering APIs on bulk sync
 const statsCache = new Map<string, { promise: Promise<PlatformStat>; expiry: number }>()
+/** Test-only: clear coalescing cache (retry tests need fresh fetch per handle). */
+export function __clearStatsCacheForTests(): void {
+  statsCache.clear()
+}
 function statsCacheKey(platform: string, handle: string): string {
   return `stat:${platform}:${String(handle || '').trim().toLowerCase()}`
 }
@@ -56,16 +64,51 @@ function setStatsCached(platform: string, handle: string, promise: Promise<Platf
   })
 }
 
-async function _leetcodeStats(handle: string): Promise<PlatformStat> {
+/** True for timeout/abort throws only — the sole retryable class for LeetCode. */
+export function isLeetcodeRetryableError(err: unknown): boolean {
+  const name = (err as any)?.name
+  if (name === 'TimeoutError' || name === 'AbortError') return true
+  // Fallback for runtimes that surface abort as generic Error with timeout text.
+  const msg = String((err as any)?.message || err || '').toLowerCase()
+  if (/(aborted|aborterror|timeout|timed out|operation was aborted)/.test(msg)) {
+    // Avoid retrying validation/404 text — only abort/timeout phrasing.
+    return true
+  }
+  return false
+}
+
+/**
+ * Single-retry delay: base + 0..jitterMs. `rand` injectable for deterministic tests.
+ */
+export function getLeetcodeRetryDelayMs(rand: () => number = Math.random): number {
+  let jitter = 0
+  try {
+    const r = rand()
+    if (Number.isFinite(r) && r >= 0 && r < 1) jitter = Math.floor(r * LEETCODE_STATS_RETRY_JITTER_MS)
+  } catch {
+    jitter = 0
+  }
+  return LEETCODE_STATS_RETRY_BASE_MS + jitter
+}
+
+export interface LeetcodeStatsDeps {
+  fetchFn?: typeof fetch
+  sleep?: (ms: number) => Promise<void>
+  random?: () => number
+}
+
+const defaultLeetcodeSleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms))
+
+export async function _leetcodeStats(handle: string, deps: LeetcodeStatsDeps = {}): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'leetcode', handle, valid: false }
   const sanitized = sanitizeHandleStat(handle)
   if (!sanitized || !HANDLE_RE.test(sanitized)) return stat
-  try {
-    const resp = await fetch('https://leetcode.com/graphql', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': UA, Referer: 'https://leetcode.com' },
-      body: JSON.stringify({
-        query: `query userPublicProfile($username: String!) {
+  const fetchFn = deps.fetchFn ?? globalThis.fetch
+  const sleep = deps.sleep ?? defaultLeetcodeSleep
+  const random = deps.random ?? Math.random
+  const body = JSON.stringify({
+    query: `query userPublicProfile($username: String!) {
           allQuestionsCount { difficulty count }
           matchedUser(username: $username) {
             username
@@ -75,28 +118,56 @@ async function _leetcodeStats(handle: string): Promise<PlatformStat> {
             }
           }
         }`,
-        variables: { username: sanitized },
-      }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
-    const data: any = await resp.json()
-    const user = data?.data?.matchedUser
-    if (!user) return stat
+    variables: { username: sanitized },
+  })
+  const maxAttempts = LEETCODE_STATS_MAX_RETRIES + 1
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Fresh AbortSignal per attempt: reusing a timed-out signal would abort
+      // the retry immediately (same pattern as codeforcesGate.ts).
+      const resp = await fetchFn('https://leetcode.com/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': UA, Referer: 'https://leetcode.com' },
+        body,
+        signal: AbortSignal.timeout(LEETCODE_STATS_TIMEOUT_MS),
+      } as RequestInit)
+      const data: any = await (resp as Response).json()
+      const user = data?.data?.matchedUser
+      if (!user) return stat
 
-    const all = data.data.allQuestionsCount || []
-    const ac = user.submitStatsGlobal?.acSubmissionNum || []
-    const find = (arr: any[], d: string) => arr.find((x: any) => x.difficulty === d)?.count ?? 0
+      const all = data.data.allQuestionsCount || []
+      const ac = user.submitStatsGlobal?.acSubmissionNum || []
+      const find = (arr: any[], d: string) => arr.find((x: any) => x.difficulty === d)?.count ?? 0
 
-    stat.valid = true
-    stat.easySolved = find(ac, 'Easy')
-    stat.mediumSolved = find(ac, 'Medium')
-    stat.hardSolved = find(ac, 'Hard')
-    stat.problemsSolved = (stat.easySolved ?? 0) + (stat.mediumSolved ?? 0) + (stat.hardSolved ?? 0)
-    stat.totalProblems = find(all, 'All')
-    stat.globalRank = user.profile?.ranking || null
-    stat.score = user.profile?.reputation || null
-  } catch (err) {
-    console.error('LeetCode stats error:', err)
+      stat.valid = true
+      stat.easySolved = find(ac, 'Easy')
+      stat.mediumSolved = find(ac, 'Medium')
+      stat.hardSolved = find(ac, 'Hard')
+      stat.problemsSolved = (stat.easySolved ?? 0) + (stat.mediumSolved ?? 0) + (stat.hardSolved ?? 0)
+      stat.totalProblems = find(all, 'All')
+      stat.globalRank = user.profile?.ranking || null
+      stat.score = user.profile?.reputation || null
+      return stat
+    } catch (err) {
+      const retryable = isLeetcodeRetryableError(err)
+      const lastAttempt = attempt >= maxAttempts
+      // 404/validation never throw here (early return above) — only
+      // timeout/abort is retried once; anything else returns stale immediately.
+      if (retryable && !lastAttempt) {
+        logger.debug({ handle: sanitized, attempt }, 'LeetCode stats timeout, retrying once')
+        await sleep(getLeetcodeRetryDelayMs(random))
+        continue
+      }
+      // Per-platform isolation: never throw — return invalid stat so
+      // fetchAllPlatformStats (allSettled) keeps other platforms fresh.
+      // Warn (not error) to avoid error-spam on an expected India-network tail.
+      if (retryable) {
+        logger.warn({ handle: sanitized, attempts: attempt }, 'LeetCode stats timeout after retry, returning stale')
+      } else {
+        logger.warn({ handle: sanitized, err: (err as any)?.message || err }, 'LeetCode stats error, returning stale')
+      }
+      return stat
+    }
   }
   return stat
 }
@@ -108,47 +179,143 @@ async function leetcodeStats(handle: string): Promise<PlatformStat> {
   return p
 }
 
+/**
+ * Fallback validity + rating probe via user.rating (same endpoint/size as the
+ * contest fetcher, same gate/timeout). Used ONLY when user.info fails.
+ *
+ * LIVE: contests showed 35 rows (user.rating OK) while stats stayed valid
+ * 0/1 with Problems 0 + Best Rating empty — user.info had flaked (5s timeout
+ * vs 10s fetcher budget, or a transient 429/503) and validity depended on
+ * info alone. Non-empty rating OK proves the handle exists: valid true with
+ * rating = last newRating, maxRating = max, contestCount = history length.
+ * Rating OK + empty result also proves existence (0-contest account): valid
+ * true with null rating and contestCount 0. problemsSolved stays best-effort
+ * via user.status (undefined when status also fails so the UI renders 0/—
+ * honestly, valid already proven). 400/404/FAILED/rate-limit/throw on rating
+ * too → invalid (honest 0/1, e.g. deleted handle).
+ */
+async function codeforcesRatingFallbackStat(sanitized: string, stat: PlatformStat): Promise<PlatformStat> {
+  try {
+    const rating = await fetchCodeforcesJson<any>(
+      `https://codeforces.com/api/user.rating?handle=${encodeURIComponent(sanitized)}`,
+      { timeoutMs: CF_STATS_TIMEOUT_MS }
+    )
+    if (rating.stillRateLimited) return stat
+    if (rating.status === 404 || (rating.status as number) === 400) return stat
+    const data: any = rating.data
+    if (!data || data.status !== 'OK' || !Array.isArray(data.result)) return stat
+    const ratings: number[] = []
+    for (const r of data.result) {
+      if (Number.isFinite((r as any)?.newRating)) ratings.push(Math.round((r as any).newRating))
+    }
+    // OK + empty history = valid handle with zero rated contests (do not
+    // confuse with 400-invalid). Rating stays null, contestCount 0.
+    if (ratings.length === 0 && data.result.length === 0) {
+      stat.valid = true
+      stat.rating = null
+      stat.maxRating = null
+      stat.contestCount = 0
+    } else {
+      if (ratings.length === 0) return stat
+      stat.valid = true
+      stat.rating = ratings[ratings.length - 1]
+      let peak = ratings[0]
+      for (let i = 1; i < ratings.length; i++) if (ratings[i] > peak) peak = ratings[i]
+      stat.maxRating = peak
+      stat.contestCount = data.result.length
+    }
+    // problemsSolved best-effort (never demotes valid back to false).
+    try {
+      const status = await fetchCodeforcesJson<any>(
+        `https://codeforces.com/api/user.status?handle=${encodeURIComponent(sanitized)}&from=1&count=10000`,
+        { timeoutMs: CF_STATS_TIMEOUT_MS }
+      )
+      if (status.stillRateLimited) return stat
+      if (status.status === 404 || (status.status as number) === 400) return stat
+      const statusData: any = status.data
+      if (statusData && statusData.status === 'OK') {
+        const solved = new Set<string>()
+        for (const sub of statusData.result || []) {
+          if (sub?.verdict === 'OK' && sub?.problem?.contestId != null && sub?.problem?.index != null) {
+            solved.add(`${sub.problem.contestId}-${sub.problem.index}`)
+          }
+        }
+        stat.problemsSolved = solved.size
+      }
+    } catch {
+      // solves best-effort; rating/valid already proven
+    }
+  } catch {
+    // rating probe best-effort; invalid stays honest
+  }
+  return stat
+}
+
 async function _codeforcesStats(handle: string): Promise<PlatformStat> {
   const stat: PlatformStat = { platform: 'codeforces', handle, valid: false }
   const sanitized = sanitizeHandleStat(handle)
   if (!sanitized || !HANDLE_RE.test(sanitized)) return stat
   try {
-    const infoResp = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(sanitized)}&checkHistoricHandles=false&lang=en`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-    // 404 or invalid handle -> not valid, don't throw
-    if (!infoResp.ok) return stat
-    const infoData: any = await infoResp.json()
-    if (infoData.status !== 'OK' || !infoData.result?.length) return stat
-    const u = infoData.result[0]
+    // Upgrade 1: shared 2s gate + 1 jittered retry (same gate as contests).
+    const info = await fetchCodeforcesJson<any>(
+      `https://codeforces.com/api/user.info?handles=${encodeURIComponent(sanitized)}&checkHistoricHandles=false&lang=en`,
+      { timeoutMs: CF_STATS_TIMEOUT_MS }
+    )
+    // 404/400, FAILED body, timeout (status 0, data null), or persistent
+    // 429/503 after 1 retry → fall back to user.rating before giving up.
+    // CF returns HTTP 400 + {status:FAILED} for unknown handles (not 404).
+    // Only when rating ALSO fails does valid stay false (0/1 honest).
+    if (!info.stillRateLimited && info.status !== 404 && (info.status as number) !== 400) {
+      const infoData: any = info.data
+      if (infoData && infoData.status === 'OK' && infoData.result?.length) {
+        const u = infoData.result[0]
 
-    stat.valid = true
-    stat.rating = u.rating ?? null
-    stat.maxRating = u.maxRating ?? null
-    stat.rankTitle = u.rank ? String(u.rank).replace(/^\w/, (c: string) => c.toUpperCase()) : null
-    stat.maxRankTitle = u.maxRank ? String(u.maxRank).replace(/^\w/, (c: string) => c.toUpperCase()) : null
-    stat.globalRank = u.rank != null && u.maxRating != null ? null : null
+        stat.valid = true
+        stat.rating = u.rating ?? null
+        stat.maxRating = u.maxRating ?? null
+        stat.rankTitle = u.rank ? String(u.rank).replace(/^\w/, (c: string) => c.toUpperCase()) : null
+        stat.maxRankTitle = u.maxRank ? String(u.maxRank).replace(/^\w/, (c: string) => c.toUpperCase()) : null
+        stat.globalRank = u.rank != null && u.maxRating != null ? null : null
 
-    // Count unique solved problems via user.status — isolated, timeout guarded
-    try {
-      const statusResp = await fetch(`https://codeforces.com/api/user.status?handle=${encodeURIComponent(sanitized)}&from=1&count=10000`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-      if (!statusResp.ok) return stat
-      const statusData: any = await statusResp.json()
-      if (statusData.status === 'OK') {
-        const solved = new Set<string>()
-        let contests = new Set<number>()
-        for (const sub of statusData.result || []) {
-          if (sub.verdict === 'OK') {
-            solved.add(`${sub.problem.contestId}-${sub.problem.index}`)
-            if (sub.contestId) contests.add(sub.contestId)
+        // Count unique solved problems via user.status — isolated, timeout guarded.
+        // Same CF gate (3rd CF call in a full sync still spaced 2s).
+        try {
+          const status = await fetchCodeforcesJson<any>(
+            `https://codeforces.com/api/user.status?handle=${encodeURIComponent(sanitized)}&from=1&count=10000`,
+            { timeoutMs: CF_STATS_TIMEOUT_MS }
+          )
+          if (status.stillRateLimited) return stat
+          if (status.status === 404 || (status.status as number) === 400) return stat
+          const statusData: any = status.data
+          if (statusData && statusData.status === 'OK') {
+            const solved = new Set<string>()
+            let contests = new Set<number>()
+            for (const sub of statusData.result || []) {
+              // Guard malformed rows (missing problem) — one bad submission must
+              // not wipe the whole solved count (stats must populate when data
+              // exists). valid stays true (rating already proven by user.info).
+              if (sub?.verdict === 'OK' && sub?.problem?.contestId != null && sub?.problem?.index != null) {
+                solved.add(`${sub.problem.contestId}-${sub.problem.index}`)
+                if (sub.contestId) contests.add(sub.contestId)
+              }
+            }
+            stat.problemsSolved = solved.size
+            stat.contestCount = contests.size
           }
+        } catch {
+          // status fetch is best-effort; keep stat without solved count
         }
-        stat.problemsSolved = solved.size
-        stat.contestCount = contests.size
+        return stat
       }
-    } catch {
-      // status fetch is best-effort; keep stat without solved count
     }
+    if (info.stillRateLimited) {
+      logger.warn(`[codeforces] stats rate limit persisted after 1 retry for ${sanitized}`)
+    }
+    // Primary probe failed — user.rating (the contests endpoint) is the
+    // fallback validity proof.
+    return await codeforcesRatingFallbackStat(sanitized, stat)
   } catch (err) {
-    console.error('Codeforces stats error:', err)
+    logger.error({ err }, 'Codeforces stats error')
   }
   return stat
 }
@@ -202,7 +369,7 @@ async function _codechefStats(handle: string): Promise<PlatformStat> {
       }
     }
   } catch (err) {
-    console.error('CodeChef stats error:', err)
+    logger.error({ err }, 'CodeChef stats error')
   }
   return stat
 }
@@ -247,7 +414,7 @@ async function _hackerrankStats(handle: string): Promise<PlatformStat> {
     stat.badges = userData.badges_count ?? null
     stat.contestCount = userData.contest_count ?? null
   } catch (err) {
-    console.error('HackerRank stats error:', err)
+    logger.error({ err }, 'HackerRank stats error')
   }
   return stat
 }
@@ -284,7 +451,7 @@ async function _gfgStats(handle: string): Promise<PlatformStat> {
     stat.globalRank = num('over_all_rank') ?? num('overall_coding_score') != null ? num('over_all_rank') : null
     stat.countryRank = num('institute_rank')
   } catch (err) {
-    console.error('GFG stats error:', err)
+    logger.error({ err }, 'GFG stats error')
   }
   return stat
 }
@@ -303,12 +470,16 @@ export async function fetchAllPlatformStats(profile: {
   hackerrankHandle?: string | null
   gfgHandle?: string | null
 }): Promise<PlatformStat[]> {
-  const jobs: Promise<PlatformStat>[] = []
-  if (profile.leetcodeHandle) jobs.push(leetcodeStats(profile.leetcodeHandle))
-  if (profile.codeforcesHandle) jobs.push(codeforcesStats(profile.codeforcesHandle))
-  if (profile.codechefHandle) jobs.push(codechefStats(profile.codechefHandle))
-  if (profile.hackerrankHandle) jobs.push(hackerrankStats(profile.hackerrankHandle))
-  if (profile.gfgHandle) jobs.push(gfgStats(profile.gfgHandle))
+  // OCP registry — new platform = one register() line (was 5 if-branches).
+  const registry = new PlatformRegistry<PlatformStat>()
+  registry.register({ profileKey: 'leetcodeHandle', code: 'leetcode', fetch: (h) => leetcodeStats(h) })
+  registry.register({ profileKey: 'codeforcesHandle', code: 'codeforces', fetch: (h) => codeforcesStats(h) })
+  registry.register({ profileKey: 'codechefHandle', code: 'codechef', fetch: (h) => codechefStats(h) })
+  registry.register({ profileKey: 'hackerrankHandle', code: 'hackerrank', fetch: (h) => hackerrankStats(h) })
+  registry.register({ profileKey: 'gfgHandle', code: 'gfg', fetch: (h) => gfgStats(h) })
+  const jobs: Promise<PlatformStat>[] = registry
+    .tasksFor(profile as Record<string, string | null | undefined>)
+    .map((task) => task())
 
   const settled = await Promise.allSettled(jobs)
   return settled

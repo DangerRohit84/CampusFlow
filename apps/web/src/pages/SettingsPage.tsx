@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor, Settings2, Shield, Eye, EyeOff, Sparkles, KeyRound, Zap } from 'lucide-react'
 import Button from '../components/ui/Button'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { LOGOUT_DEST } from '../lib/logout'
 import { userAPI, codingProfileAPI, waitForCodingSync, authAPI } from '../lib/api'
+import { useLanguage } from '../i18n/LanguageContext'
+import { SUPPORTED_LOCALES } from '../i18n/index'
 import toast from 'react-hot-toast'
 import { PremiumHero, GlassPanel, BentoGrid, SectionCard } from '../components/premium/PremiumKit'
 import clsx from 'clsx'
@@ -23,7 +27,14 @@ const themeOptions = [
 ]
 
 export default function SettingsPage() {
-  const { user, logout, updateUser } = useAuthStore()
+  // WHY logout race: whole-store destructure re-rendered on set() and raced
+  // navigate(); selectors keep logout stable. Deterministic replace to /login
+  // (not ProtectedRoute bounce) keeps logout <300ms with no dashboard flash.
+  const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
+  const updateUser = useAuthStore((s) => s.updateUser)
+  const navigate = useNavigate()
+  const { locale, setLocale, t } = useLanguage()
   const [profile, setProfile] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [username, setUsername] = useState('')
@@ -53,10 +64,18 @@ export default function SettingsPage() {
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [changeSaving, setChangeSaving] = useState(false)
+  // #12 self-delete danger zone — double confirm (password + type DELETE)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [showDeletePassword, setShowDeletePassword] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => { 
+    // SINGLE-IDENTITY-FETCH (PERPAGE-HALF2): getProfile already returns
+    // username + portfolioUrl — the removed parallel authAPI.me() fetched the
+    // same identity twice per mount (2 GETs, last-write-wins on both fields).
     userAPI.getProfile().then((p)=>{ setProfile(p); if(p?.username) setUsername(p.username); if(p?.portfolioUrl) setPortfolioUrl(p.portfolioUrl) }).catch(console.error)
-    authAPI.me().then(me=>{ if(me?.username) setUsername(me.username); if((me as any)?.portfolioUrl) setPortfolioUrl((me as any).portfolioUrl)}).catch(()=>{})
   }, [])
 
   useEffect(() => {
@@ -190,8 +209,29 @@ export default function SettingsPage() {
     setNotifications(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
+  // #12 self-delete — double confirm: password re-entry + typed DELETE.
+  // Backend (DELETE /user/me) re-verifies password, anonymizes per
+  // privacy.md §3, audit-logs without PII, and revokes the session.
+  const handleDeleteMe = async () => {
+    if (!deletePassword) { toast.error('Enter your password to confirm'); return }
+    if (deleteConfirmText.trim() !== 'DELETE') { toast.error('Type DELETE to confirm'); return }
+    setDeleting(true)
+    try {
+      await userAPI.deleteMe(deletePassword)
+      toast.success(t('settings.deleteSuccess'))
+      setDeletePassword(''); setDeleteConfirmText(''); setDeleteOpen(false)
+      // Sync logout is fire-and-forget (no network await); navigate
+      // deterministically with replace (no dashboard flash, no history entry).
+      await logout()
+      navigate(LOGOUT_DEST, { replace: true })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to delete account')
+    } finally { setDeleting(false) }
+  }
+
   return (
     <div className="space-y-6 max-w-[840px] mx-auto">
+      <h1 className="sr-only">Settings — Manage your profile and preferences</h1>
       {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
       <PremiumHero
         icon={<Settings2 size={18} />}
@@ -453,6 +493,23 @@ export default function SettingsPage() {
         {/* Appearance — premium */}
         <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
           <SectionCard title="Appearance" subtitle="Customize how CampusFlow looks" icon={<Sun size={16}/>} gradient="from-primary-500 to-emerald-500">
+            {/* #12 i18n — language switcher (en today, structure for additions) */}
+            <div className="mb-5 flex items-center justify-between gap-3 p-4 rounded-2xl bg-surface-50 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828]">
+              <div>
+                <p className="text-sm font-black text-[#0a0a0a] dark:text-white">{t('common.language')}</p>
+                <p className="text-xs font-medium text-surface-500 dark:text-night-400">{t('settings.languageSub')}</p>
+              </div>
+              <select
+                value={locale}
+                onChange={(e) => setLocale(e.target.value)}
+                aria-label={t('common.language')}
+                className="px-4 h-11 rounded-full border border-surface-200 dark:border-[#282828] bg-white dark:bg-[#121212] text-sm font-bold text-surface-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              >
+                {SUPPORTED_LOCALES.map((l) => (
+                  <option key={l} value={l}>{l === 'en' ? 'English' : l}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               {themeOptions.map(({ value, label, icon: Icon }) => (
                 <button
@@ -552,6 +609,78 @@ export default function SettingsPage() {
           </SectionCard>
         </motion.div>
 
+        {/* #12 Danger Zone — self-delete with double confirm (password + DELETE) */}
+        <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
+          <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-[#ff4b5c]/30 dark:border-[#ff4b5c]/20 overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-[#ff4b5c] to-[#ff8a5c]" />
+            <div className="p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-[#ff4b5c]/10 border border-[#ff4b5c]/20 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-[#ff4b5c]" />
+                  </span>
+                  <div>
+                    <h3 className="font-black text-[#0a0a0a] dark:text-white">{t('settings.dangerZone')}</h3>
+                    <p className="text-xs font-medium text-surface-500 dark:text-night-400">{t('settings.dangerZoneSub')}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeleteOpen(v => !v)}
+                  aria-expanded={deleteOpen}
+                  className="px-6 h-11 rounded-full border-2 border-[#ff4b5c] text-[#ff4b5c] text-sm font-black hover:bg-[#ff4b5c] hover:text-white transition-colors shrink-0"
+                >
+                  {t('settings.deleteAccount')}
+                </button>
+              </div>
+              {deleteOpen && (
+                <div className="mt-5 pt-5 border-t border-surface-200 dark:border-[#282828] space-y-4">
+                  <p className="text-sm font-medium text-surface-600 dark:text-night-300">{t('settings.deleteConfirmBody')}</p>
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">{t('settings.deleteStepPassword')}</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"><Lock size={16}/></span>
+                      <input
+                        type={showDeletePassword ? 'text' : 'password'}
+                        value={deletePassword}
+                        onChange={e => setDeletePassword(e.target.value)}
+                        placeholder={t('auth.currentPassword')}
+                        autoComplete="current-password"
+                        className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#ff4b5c]/20 focus:border-[#ff4b5c]"
+                      />
+                      <button onClick={() => setShowDeletePassword(v => !v)} aria-label="Toggle password visibility" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] flex items-center justify-center text-surface-500 hover:text-[#ff4b5c] transition-colors">
+                        {showDeletePassword ? <EyeOff size={14}/> : <Eye size={14}/>}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1.5">{t('settings.deleteStepType')}</label>
+                    <input
+                      type="text"
+                      value={deleteConfirmText}
+                      onChange={e => setDeleteConfirmText(e.target.value)}
+                      placeholder={t('settings.deleteTypePlaceholder')}
+                      autoComplete="off"
+                      className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#ff4b5c]/20 focus:border-[#ff4b5c]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-3">
+                    <button onClick={() => { setDeleteOpen(false); setDeletePassword(''); setDeleteConfirmText('') }} className="px-5 h-11 rounded-full border border-surface-200 dark:border-[#282828] text-sm font-bold text-surface-600 dark:text-night-300 hover:bg-surface-50 dark:hover:bg-[#1a1a1a] transition-colors">
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      onClick={handleDeleteMe}
+                      disabled={deleting || !deletePassword || deleteConfirmText.trim() !== 'DELETE'}
+                      className="inline-flex items-center gap-2 px-6 h-11 rounded-full bg-[#ff4b5c] text-white text-sm font-black hover:bg-[#e53e4c] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_8px_24px_rgba(255,75,92,0.3)]"
+                    >
+                      {deleting ? <Loader2 size={16} className="animate-spin"/> : null} {t('settings.deleteCta')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
         {/* Sign Out — premium danger but Spotify style */}
         <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
           <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden">
@@ -566,7 +695,7 @@ export default function SettingsPage() {
                   <p className="text-xs font-medium text-surface-500 dark:text-night-400">Sign out from all devices</p>
                 </div>
               </div>
-              <button onClick={logout} className="px-6 h-11 rounded-full bg-[#ff4b5c] text-white text-sm font-black hover:bg-[#e53e4c] shadow-[0_8px_24px_rgba(255,75,92,0.3)]">Sign Out</button>
+              <button onClick={() => { logout(); navigate(LOGOUT_DEST, { replace: true }) }} className="px-6 h-11 rounded-full bg-[#ff4b5c] text-white text-sm font-black hover:bg-[#e53e4c] shadow-[0_8px_24px_rgba(255,75,92,0.3)]">Sign Out</button>
             </div>
           </div>
         </motion.div>

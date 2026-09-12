@@ -1,9 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
 import { Search as SearchIcon, Calendar, BookOpen, Bell, ArrowRight, Sparkles } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import { searchAPI } from '../lib/api'
+import { getSearchResultRoute } from '../lib/searchRoute'
+import { useDebounce } from '../hooks/useDebounce'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 const typeIcons: Record<string, React.ElementType> = {
@@ -20,18 +25,28 @@ const typeColors: Record<string, string> = {
 
 export default function SearchPage() {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [searched, setSearched] = useState(false)
-
-  useEffect(() => {
-    if (query.length < 2) { setResults([]); return }
-    const timer = setTimeout(() => {
-      setLoading(true)
-      searchAPI.search(query).then((data) => { setResults(data.results); setSearched(true) }).catch(console.error).finally(() => setLoading(false))
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [query])
+  const navigate = useNavigate()
+  // Debounced + cancellable search (GitHub/Stripe instant-search pattern):
+  // useDebounce avoids per-keystroke storms, AbortController (via useQuery
+  // signal) cancels stale in-flight requests so fast typing never stacks.
+  const debouncedQuery = useDebounce(query, 300)
+  const trimmed = debouncedQuery.trim()
+  const enabled = trimmed.length >= 2
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: qk.search(trimmed),
+    queryFn: ({ signal }) => searchAPI.search(trimmed, signal),
+    enabled,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+  const results: any[] = (data as any)?.results ?? []
+  // keepPreviousData: keep old results visible while refetching (no flash),
+  // spinner shows fetching state like popular sites.
+  const loading = isLoading || isFetching
+  const searched = enabled
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-3xl mx-auto">
@@ -68,7 +83,15 @@ export default function SearchPage() {
         </div>
       </motion.div>
 
-      {searched && !loading && (
+      {searched && !loading && isError && (
+        <div className="rounded-2xl border border-danger-200 bg-danger-50 p-6 text-center" role="alert">
+          <p className="font-semibold text-surface-900">Search failed</p>
+          <p className="text-sm text-surface-500 mt-1">{(error as any)?.response?.data?.error || 'Check your connection and try again.'}</p>
+          <button onClick={() => refetch()} className="mt-4 px-5 py-2.5 rounded-xl bg-surface-900 text-white text-sm font-semibold">Retry</button>
+        </div>
+      )}
+
+      {searched && !loading && !isError && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <p className="text-sm text-surface-500 dark:text-night-400">{results.length} result{results.length !== 1 ? 's' : ''} found</p>
 
@@ -82,9 +105,8 @@ export default function SearchPage() {
             <div className="space-y-3">
               {results.map((r: any, i: number) => {
                 const Icon = typeIcons[r.type] || Bell
-                return (
-                  <motion.div key={`${r.type}-${r.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                    <Card hover className="group cursor-pointer">
+                const dest = getSearchResultRoute(r)
+                const inner = (
                       <div className="flex items-center gap-4">
                         <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${typeColors[r.type] || typeColors.notification}`}>
                           <Icon size={20} />
@@ -96,9 +118,18 @@ export default function SearchPage() {
                           </div>
                           <p className="text-sm text-surface-500 dark:text-night-400 truncate">{r.subtitle}</p>
                         </div>
-                        <ArrowRight size={16} className="text-surface-400 dark:text-night-400 group-hover:text-primary-500 transition-colors shrink-0" />
+                        {dest && <ArrowRight size={16} className="text-surface-400 dark:text-night-400 group-hover:text-primary-500 transition-colors shrink-0" />}
                       </div>
-                    </Card>
+                )
+                return (
+                  <motion.div key={`${r.type}-${r.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                    {dest ? (
+                      <button onClick={() => navigate(dest)} className="w-full text-left">
+                        <Card hover className="group cursor-pointer">{inner}</Card>
+                      </button>
+                    ) : (
+                      <Card className="group">{inner}</Card>
+                    )}
                   </motion.div>
                 )
               })}

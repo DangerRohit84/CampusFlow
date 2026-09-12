@@ -282,7 +282,7 @@ export default function OtherSourcesCard({ type, platform, onRefresh }: Props) {
           onChange={(e) => setUrlsText(e.target.value)}
           placeholder={'https://example.com/hackathon-1\nhttps://example.com/hackathon-2'}
           rows={3}
-          className="w-full text-xs border border-surface-300 dark:border-night-600 rounded-lg px-3 py-2 bg-white dark:bg-night-800 text-surface-700 dark:text-night-200 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none"
+          className="w-full text-xs border border-surface-300 dark:border-night-600 rounded-lg px-3 py-2 bg-white dark:bg-night-800 text-surface-700 dark:text-night-200 placeholder:text-[#6b7280] focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none"
         />
         <div className="flex items-center justify-between mt-2">
           <span className="text-[11px] text-surface-500 dark:text-night-400">

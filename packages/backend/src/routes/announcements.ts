@@ -3,6 +3,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { broadcastAnnouncementMutation } from '../services/socket'
 import { getSuperAdminTargetCollegeId } from '../utils/roles'
+import { logger } from '../utils/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -10,7 +11,8 @@ router.use(authenticate)
 // ─── GET /api/announcements/colleges — list colleges for super admin ──────────
 router.get('/colleges', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user || user.role !== 'SUPER_ADMIN') {
       res.status(403).json({ error: 'Super admin only' })
       return
@@ -20,9 +22,11 @@ router.get('/colleges', async (req: AuthRequest, res: Response) => {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     })
+    // CACHE-ALL: APPROVED id/name ref-data, no PII — private edge SWR (codingProfile.ts:333 pattern).
+    res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=120')
     res.json(colleges)
   } catch (error: any) {
-    console.error('Colleges list error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Colleges list error:')
     res.status(500).json({ error: 'Failed to fetch colleges' })
   }
 })
@@ -30,7 +34,8 @@ router.get('/colleges', async (req: AuthRequest, res: Response) => {
 // ─── POST /api/announcements — create ────────────────────────────────────────
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
@@ -110,11 +115,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         return
       }
       const deptCollegeId = isSuperAnnouncementCollegeId(announcementCollegeId, user)
+      // HALF2: narrow validation to id only (was full rows, only length used)
       const validDepts = await prisma.department.findMany({
         where: {
           id: { in: departmentIds },
           collegeId: deptCollegeId,
         },
+        select: { id: true },
       })
       if (validDepts.length !== departmentIds.length) {
         res.status(400).json({ error: 'One or more department IDs are invalid for your college' })
@@ -130,6 +137,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
       const validColleges = await prisma.college.findMany({
         where: { id: { in: collegeIds }, status: 'APPROVED' },
+        select: { id: true },
       })
       if (validColleges.length !== collegeIds.length) {
         res.status(400).json({ error: 'One or more college IDs are invalid' })
@@ -180,7 +188,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     try { broadcastAnnouncementMutation({ announcementId: announcement.id, collegeId: announcement.collegeId, targetScope: (announcement as any).targetScope }) } catch {}
     res.status(201).json(announcement)
   } catch (error: any) {
-    console.error('Announcement create error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement create error:')
     res.status(500).json({ error: 'Failed to create announcement' })
   }
 })
@@ -230,7 +238,8 @@ function buildAnnouncementWhere(user: any, filterCollegeId: string | undefined, 
 // ─── GET /api/announcements — list for current user's college ────────────────
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
@@ -280,6 +289,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       isRead: readSet.has(a.id),
     }))
 
+    // CACHE-ALL: list (creator display cols only, no emails) — private edge SWR; per-user isRead stays browser-local via `private`.
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json({
       announcements: withIsRead,
       pagination: {
@@ -291,7 +302,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       unreadCount,
     })
   } catch (error: any) {
-    console.error('Announcement list error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement list error:')
     res.status(500).json({ error: 'Failed to fetch announcements' })
   }
 })
@@ -299,7 +310,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // ─── POST /api/announcements/read-all — mark all visible unread as read ─────
 router.post('/read-all', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
@@ -323,7 +335,7 @@ router.post('/read-all', async (req: AuthRequest, res: Response) => {
     })
     res.json({ count: result.count })
   } catch (error: any) {
-    console.error('Announcement read-all error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement read-all error:')
     res.status(500).json({ error: 'Failed to mark all as read' })
   }
 })
@@ -331,7 +343,8 @@ router.post('/read-all', async (req: AuthRequest, res: Response) => {
 // ─── POST /api/announcements/:id/read — mark single as read ─────────────────
 router.post('/:id/read', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
@@ -354,7 +367,7 @@ router.post('/:id/read', async (req: AuthRequest, res: Response) => {
     })
     res.json({ success: true })
   } catch (error: any) {
-    console.error('Announcement mark-read error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement mark-read error:')
     res.status(500).json({ error: 'Failed to mark as read' })
   }
 })
@@ -362,17 +375,20 @@ router.post('/:id/read', async (req: AuthRequest, res: Response) => {
 // ─── PUT /api/announcements/:id — edit announcement ─────────────────────────
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const announcementId = req.params.id as string
+    // HALF2: parallel independent reads (was user then existing sequential) + narrow auth
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.announcement.findUnique({
+        where: { id: announcementId },
+        include: { departments: true, colleges: true },
+      }),
+    ])
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
     }
 
-    const announcementId = req.params.id as string
-    const existing = await prisma.announcement.findUnique({
-      where: { id: announcementId },
-      include: { departments: true, colleges: true },
-    })
     if (!existing) {
       res.status(404).json({ error: 'Announcement not found' })
       return
@@ -441,8 +457,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       }
       const deptCollegeId = existing.collegeId || user.collegeId
       if (deptCollegeId) {
+        // HALF2: narrow validation to id only (was full rows, only length used)
         const validDepts = await prisma.department.findMany({
           where: { id: { in: departmentIds }, collegeId: deptCollegeId },
+          select: { id: true },
         })
         if (validDepts.length !== departmentIds.length) {
           res.status(400).json({ error: 'One or more department IDs are invalid for your college' })
@@ -460,6 +478,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       }
       const validColleges = await prisma.college.findMany({
         where: { id: { in: collegeIds }, status: 'APPROVED' },
+        select: { id: true },
       })
       if (validColleges.length !== collegeIds.length) {
         res.status(400).json({ error: 'One or more college IDs are invalid' })
@@ -511,7 +530,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     try { broadcastAnnouncementMutation({ announcementId, collegeId: announcement.collegeId }) } catch {}
     res.json(announcement)
   } catch (error: any) {
-    console.error('Announcement update error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement update error:')
     res.status(500).json({ error: 'Failed to update announcement' })
   }
 })
@@ -519,17 +538,19 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // ─── DELETE /api/announcements/:id — creator or admin only ───────────────────
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const announcementId = req.params.id as string
+    // HALF2: parallel independent reads (was user then announcement sequential) + narrow auth
+    const [user, announcement] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.announcement.findUnique({
+        where: { id: announcementId },
+      }),
+    ])
     if (!user) {
       res.status(401).json({ error: 'User not found' })
       return
     }
 
-    const announcementId = req.params.id as string
-
-    const announcement = await prisma.announcement.findUnique({
-      where: { id: announcementId },
-    })
     if (!announcement) {
       res.status(404).json({ error: 'Announcement not found' })
       return
@@ -561,7 +582,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     try { broadcastAnnouncementMutation({ announcementId, collegeId: announcement.collegeId }) } catch {}
     res.json({ success: true })
   } catch (error: any) {
-    console.error('Announcement delete error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Announcement delete error:')
     res.status(500).json({ error: 'Failed to delete announcement' })
   }
 })

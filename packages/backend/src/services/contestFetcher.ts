@@ -1,4 +1,205 @@
 import prisma, { isRetryableError, isP1001Error, prismaBase } from '../config/db';
+import { normalizeSolutions } from '../lib/validators';
+import { logger } from '../utils/logger';
+
+// ---------------------------------------------------------------------------
+// Order 3 (V-12): CodingContest.solutions is canonical Json (@default("[]")).
+// The 20260909 dual-write window (solutions String + solutionsJson twin) is
+// CLOSED by 20260920000000_order3_json_twins (backfill → DROP String →
+// RENAME solutionsJson → solutions). New code writes/reads ONLY `solutions`
+// (Json array, objects with url/title). Helpers below accept legacy String
+// during rollout (stale replicas) and never throw.
+// Drift handling (P2022) is retained generically: if a future migration is
+// pending, warn once + fall back to legacy-column raw SQL instead of 500.
+// Preload map (N+1 fix) is retained: ≤3 findMany per run into Map.
+// ---------------------------------------------------------------------------
+
+const SAFE_CONTEST_SELECT = {
+  id: true,
+  title: true,
+  platform: true,
+  url: true,
+  startTime: true,
+  duration: true,
+  contestType: true,
+  status: true,
+  solutions: true,
+  isAutoFetched: true,
+  creatorId: true,
+  collegeId: true,
+  createdAt: true,
+} as const;
+
+export function isMissingColumnError(e: any): boolean {
+  if (!e) return false;
+  if ((e as any).code === 'P2022') return true;
+  const msg = String((e as any).message || '');
+  // Order 3: canonical is `solutions` (Json); keep generic drift match for any
+  // pending-migration column (never match on stale `solutionsJson` name).
+  return msg.includes('does not exist in the current database');
+}
+
+let schemaDriftWarned = false;
+export function resetSchemaDriftWarnedForTests(): void {
+  schemaDriftWarned = false;
+}
+function warnSchemaDriftOnce(context: string, err: any): void {
+  if (schemaDriftWarned) return;
+  schemaDriftWarned = true;
+  logger.warn(
+    `[ContestFetcher] SCHEMA DRIFT (${context}): DB missing a column expected by current code — ` +
+      `run 'npx prisma migrate deploy' (uses DIRECT_URL) then 'npx prisma generate'. ` +
+      `Error: ${String((err as any)?.code || 'P2022')} ${String((err as any)?.message || '').slice(0, 300)}`
+  );
+}
+
+function getSolutionsArray(existing: { solutions?: unknown }): any[] {
+  try {
+    // Order 3: canonical Json array; legacy String accepted during rollout.
+    const raw = (existing as any).solutions;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      const t = raw.trim();
+      if (!t) return [];
+      try {
+        const p = JSON.parse(t);
+        return Array.isArray(p) ? p : [];
+      } catch { return []; }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+// Per-run preload for contest existence checks (DB write N+1 fix, ranked cause #2).
+// BEFORE: per-contest findFirst (N round-trips; N≈50 → 50 queries).
+// AFTER: 1 findMany per distinct platform (≤3 queries) into Map<platform|url, row>,
+// loop does in-memory lookup. Mirrors syncEngine preloadContestCandidates 26-41.
+// Explicit select (SAFE_CONTEST_SELECT, includes canonical `solutions` Json);
+// on drift, warn-once + empty map (loop falls back to per-contest findFirst).
+type ContestPreloadMap = Map<string, any>
+
+export async function preloadContestsByPlatform(platforms: string[]): Promise<ContestPreloadMap> {
+  const map: ContestPreloadMap = new Map()
+  const distinct = [...new Set(platforms)]
+  if (distinct.length === 0) return map
+  await Promise.all(distinct.map(async (platform) => {
+    try {
+      const rows: any[] = await (prisma as any).codingContest.findMany({
+        where: { platform },
+        select: SAFE_CONTEST_SELECT,
+      })
+      for (const r of rows) map.set(`${platform}|${r.url}`, r)
+    } catch (e: any) {
+      if (isMissingColumnError(e)) {
+        warnSchemaDriftOnce('preload', e)
+      } else {
+        logger.warn({ err: String((e as Error)?.message || e).slice(0, 200) }, `[ContestFetcher] preload failed for ${platform} (non-critical, per-contest fallback)`)
+      }
+    }
+  }))
+  return map
+}
+
+async function findExistingContest(platform: string, url: string, preload?: ContestPreloadMap): Promise<any | null> {
+  if (preload && preload.has(`${platform}|${url}`)) return preload.get(`${platform}|${url}`) ?? null
+  // If preload was provided but missed, it is authoritative for that platform
+  // when the platform was preloaded (empty means no row). Fall back to DB only
+  // when no preload map was supplied (unit tests / direct callers).
+  if (preload) return null
+  try {
+    return await (prisma as any).codingContest.findFirst({
+      where: { platform, url },
+      select: SAFE_CONTEST_SELECT,
+    });
+  } catch (e: any) {
+    if (isMissingColumnError(e)) {
+      warnSchemaDriftOnce('findFirst', e);
+      // Fallback: raw SQL with canonical columns only (never touches dropped twins).
+      // LINT ALLOWLIST ($queryRawUnsafe): parameterized ($1/$2), fixed column allowlist
+      // SAFE_CONTEST_SELECT only, no string concat of user input. Prefer Prisma query
+      // builder for new code — do not add new $queryRawUnsafe without allowlist review.
+      try {
+        const rows = await (prismaBase as any).$queryRawUnsafe(
+          `SELECT "id","title","platform","url","startTime","duration","contestType","status","solutions","isAutoFetched","creatorId","collegeId","createdAt" FROM "CodingContest" WHERE "platform" = $1 AND "url" = $2 LIMIT 1`,
+          platform,
+          url
+        );
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      } catch (rawErr) {
+        logger.warn({ err: String((rawErr as Error).message).slice(0, 200) }, '[ContestFetcher] fallback raw lookup failed (non-critical)');
+        return null;
+      }
+    }
+    throw e;
+  }
+}
+
+async function createContestResilient(data: {
+  title: string;
+  platform: string;
+  url: string;
+  startTime: string;
+  duration: number | null;
+  contestType: string;
+  status: string;
+  isAutoFetched: boolean;
+  creatorId?: string | null;
+  collegeId?: string | null;
+}): Promise<any> {
+  // Order 3: canonical `solutions` Json only (no String twin, no solutionsJson).
+  // Order 8 dual-write: String startTime + typed startAt.
+  const solutionsArr: any[] = [];
+  let _startAt: Date | undefined;
+  try { const _d = new Date(data.startTime); if (!Number.isNaN(_d.getTime())) _startAt = _d } catch {}
+  const baseData: any = {
+    title: data.title,
+    platform: data.platform,
+    url: data.url,
+    startTime: data.startTime,
+    ...(_startAt ? { startAt: _startAt } : {}),
+    duration: data.duration,
+    contestType: data.contestType,
+    status: data.status,
+    isAutoFetched: data.isAutoFetched,
+    solutions: solutionsArr as any,
+    ...(data.creatorId ? { creatorId: data.creatorId } : {}),
+    ...(data.collegeId ? { collegeId: data.collegeId } : {}),
+  };
+  try {
+    return await (prisma as any).codingContest.create({
+      data: baseData,
+    });
+  } catch (e: any) {
+    if (isMissingColumnError(e)) {
+      warnSchemaDriftOnce('create', e);
+      return await prisma.codingContest.create({ data: baseData });
+    }
+    throw e;
+  }
+}
+
+async function updateSolutionsResilient(id: string, solutions: any[]): Promise<void> {
+  // Order 3: canonical Json only.
+  const arr = normalizeSolutions<any>(solutions);
+  try {
+    await (prisma as any).codingContest.update({
+      where: { id },
+      data: { solutions: arr as any },
+    });
+  } catch (e: any) {
+    if (isMissingColumnError(e)) {
+      warnSchemaDriftOnce('update-solutions', e);
+      await prisma.codingContest.update({
+        where: { id },
+        data: { solutions: arr as any },
+      });
+      return;
+    }
+    throw e;
+  }
+}
 
 interface NormalizedContest {
   title: string;
@@ -48,7 +249,7 @@ async function fetchLeetCode(): Promise<NormalizedContest[]> {
     }
     return contests;
   } catch (error) {
-    console.error('LeetCode fetch error:', error);
+      logger.error({ err: error }, 'LeetCode fetch error');
     return [];
   }
 }
@@ -85,7 +286,7 @@ async function fetchCodeChef(): Promise<NormalizedContest[]> {
     }
     return contests;
   } catch (error) {
-    console.error('CodeChef fetch error:', error);
+      logger.error({ err: error }, 'CodeChef fetch error');
     return [];
   }
 }
@@ -120,7 +321,7 @@ async function fetchCodeforces(): Promise<NormalizedContest[]> {
     }
     return contests;
   } catch (error) {
-    console.error('Codeforces fetch error:', error);
+      logger.error({ err: error }, 'Codeforces fetch error');
     return [];
   }
 }
@@ -170,7 +371,7 @@ export async function fetchYouTubeSolutions(contestTitle: string, platform: stri
       duration: durations[item.id.videoId] ?? null,
     }));
   } catch (error) {
-    console.error('YouTube fetch error:', error);
+      logger.error({ err: error }, 'YouTube fetch error');
     return [];
   }
 }
@@ -196,7 +397,7 @@ async function isDbReachableQuick(): Promise<boolean> {
 
 // Main fetch function — called by cron and manual trigger
 export async function fetchAndStoreContests(): Promise<{ fetched: number; updated: number }> {
-  console.log('[ContestFetcher] Starting fetch...');
+  logger.info('[ContestFetcher] Starting fetch...');
 
   // Wrap entire job so DB CONN_ERR never crashes process or leaves unhandled rejection
   try {
@@ -205,7 +406,7 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
     // If DB is down, we save external API calls + avoid spam of 50 contests * 4 retries each.
     const dbOk = await isDbReachableQuick();
     if (!dbOk) {
-      console.warn('[ContestFetcher] DB unreachable (pre-flight SELECT 1 failed) — skipping contest sync, will retry on next cron. No DB queries will be attempted.');
+      logger.warn('[ContestFetcher] DB unreachable (pre-flight SELECT 1 failed) — skipping contest sync, will retry on next cron. No DB queries will be attempted.');
       return { fetched: 0, updated: 0 };
     }
 
@@ -237,11 +438,27 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
     let updated = 0;
     let dbFailures = 0;
 
+    // Preload existing contests per platform (≤3 findMany) to avoid N findFirst.
+    // Map is authoritative for preloaded platforms; loop falls back to DB only
+    // when preload failed (empty map + platform not preloaded is ambiguous, so
+    // findExistingContest without map is used as fallback in that case).
+    // To keep fallback correct, track which platforms preloaded successfully.
+    let contestPreload: ContestPreloadMap | undefined
+    try {
+      const platforms = [...new Set(allContests.map((c) => c.platform))]
+      contestPreload = await preloadContestsByPlatform(platforms)
+    } catch (e: any) {
+      logger.warn({ err: String((e as Error)?.message || e).slice(0, 200) }, '[ContestFetcher] preload outer failed, using per-contest fallback')
+      contestPreload = undefined
+    }
+
     for (const contest of allContests) {
       try {
-        const existing = await prisma.codingContest.findFirst({
-          where: { platform: contest.platform, url: contest.url },
-        });
+        // Explicit select (SAFE_CONTEST_SELECT, canonical Json) + preload map.
+        // Batched: in-memory map hit when preload supplied, else per-contest DB.
+        const existing = contestPreload
+          ? (contestPreload.get(`${contest.platform}|${contest.url}`) ?? null)
+          : await findExistingContest(contest.platform, contest.url);
 
         if (existing) {
           // Update status if changed — use single now for consistency
@@ -258,26 +475,22 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
             });
             updated++;
 
-            // Auto-fetch YouTube solutions when contest ends — guard JSON parse
-            let existingSolsLen = 0
-            try { const arr = JSON.parse(existing.solutions || '[]'); existingSolsLen = Array.isArray(arr) ? arr.length : 0 } catch { existingSolsLen = 0 }
+            // Auto-fetch YouTube solutions when contest ends — canonical Json array.
+            const existingSolsLen = getSolutionsArray(existing as any).length
             if (newStatus === 'ENDED' && existingSolsLen === 0) {
               try {
                 const solutions = await fetchYouTubeSolutions(contest.title, contest.platform);
                 if (solutions.length > 0) {
-                  await prisma.codingContest.update({
-                    where: { id: existing.id },
-                    data: { solutions: JSON.stringify(solutions) },
-                  });
+                  await updateSolutionsResilient(existing.id, solutions);
                 }
               } catch (ytErr: any) {
                 // YouTube failures are non-critical; log and continue. If DB is down here, handle as CONN_ERR
                 if (isRetryableError(ytErr) || isP1001Error(ytErr)) {
-                  console.warn(`[ContestFetcher] DB CONN_ERR while saving YouTube solutions for "${contest.title}" — aborting remaining contests`);
+                  logger.warn(`[ContestFetcher] DB CONN_ERR while saving YouTube solutions for "${contest.title}" — aborting remaining contests`);
                   dbFailures++;
                   break;
                 }
-                console.error(`YouTube solution save error for ${contest.title}:`, ytErr);
+                logger.error(`YouTube solution save error for ${contest.title}:`, ytErr);
               }
             }
           }
@@ -289,46 +502,53 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
           const initialStatus = start > now ? 'UPCOMING' : end > now ? 'ONGOING' : 'ENDED'
 
           // Use upsert-style handling for race: try create, catch unique violation (P2002) as already exists
+          // Canonical Json write with generic drift fallback (warn once, continue).
           try {
-            await prisma.codingContest.create({
-              data: {
-                title: contest.title,
-                platform: contest.platform,
-                url: contest.url,
-                startTime: contest.startTime,
-                duration: contest.duration,
-                contestType: contest.contestType,
-                status: initialStatus,
-                isAutoFetched: true,
-                solutions: '[]',
-              },
+            await createContestResilient({
+              title: contest.title,
+              platform: contest.platform,
+              url: contest.url,
+              startTime: contest.startTime,
+              duration: contest.duration,
+              contestType: contest.contestType,
+              status: initialStatus,
+              isAutoFetched: true,
             });
             fetched++;
           } catch (createErr: any) {
             if (createErr.code === 'P2002') {
               // Duplicate due to concurrent fetch — treat as updated check
               updated++;
+            } else if (isMissingColumnError(createErr)) {
+              // Defense-in-depth: helper already falls back, but handle direct drift here too (log once, continue).
+              warnSchemaDriftOnce('create-loop', createErr);
+              updated++;
             } else throw createErr
           }
         }
       } catch (error: any) {
-        // --- Resilient guard: DB CONN_ERR must NOT spam per-contest nor crash server ---
+        // --- Resilient guards: DB CONN_ERR + SCHEMA DRIFT must NOT spam per-contest nor crash server ---
+        if (isMissingColumnError(error)) {
+          // Drift: pending migration. Log ONCE, continue to next contest.
+          warnSchemaDriftOnce('loop', error);
+          continue;
+        }
         if (isRetryableError(error) || isP1001Error(error)) {
           dbFailures++;
           if (dbFailures === 1) {
             // Log ONCE with context, then abort loop — retry on next cron (6h or startup)
-            console.warn(`[ContestFetcher] DB CONN_ERR on contest "${contest.title}" (platform=${contest.platform}) — aborting remaining ${allContests.length - fetched - updated - dbFailures + 1} contests, DB appears down. Will retry on next cron. Error: ${error.code || 'CONN_ERR'} ${String(error.message).slice(0, 300)}`);
+            logger.warn(`[ContestFetcher] DB CONN_ERR on contest "${contest.title}" (platform=${contest.platform}) — aborting remaining ${allContests.length - fetched - updated - dbFailures + 1} contests, DB appears down. Will retry on next cron. Error: ${error.code || 'CONN_ERR'} ${String(error.message).slice(0, 300)}`);
           }
           // Break to avoid spamming withRetry logs for every remaining contest (50 * 4 logs)
           break;
         }
         // Non-DB errors (validation, JSON parse, etc.) — log and continue to next contest
-        console.error(`Error processing contest ${contest.title}:`, error);
+        logger.error(`Error processing contest ${contest.title}:`, error);
       }
     }
 
     if (dbFailures > 0) {
-      console.warn(`[ContestFetcher] Done with DB failures (graceful degradation). Fetched: ${fetched}, Updated: ${updated}, Skipped due to DB: ${allContests.length - fetched - updated}`);
+      logger.warn(`[ContestFetcher] Done with DB failures (graceful degradation). Fetched: ${fetched}, Updated: ${updated}, Skipped due to DB: ${allContests.length - fetched - updated}`);
       return { fetched, updated };
     }
 
@@ -347,16 +567,24 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
           try { await prisma.codingContest.update({ where: { id: c.id }, data: { status: correct } }); updated++ } catch {}
         }
       }
-    } catch (sweepErr) {
-      console.warn('[ContestFetcher] status sweep failed (non-critical):', (sweepErr as Error).message)
+    } catch (sweepErr: any) {
+      if (isMissingColumnError(sweepErr)) {
+        warnSchemaDriftOnce('sweep', sweepErr);
+      } else {
+        logger.warn({ err: (sweepErr as Error).message }, '[ContestFetcher] status sweep failed (non-critical)')
+      }
     }
 
-    // Fallback seed: if DB empty and external fetches yielded nothing (network down), ensure UI never shows empty
-    // This guarantees at least 4 UPCOMING + 1 ENDED sample contests so student page never shows "No contests found"
+    // Demo seed (flag-gated, I-12 fix): previously unconditional sample rows
+    // ("Weekly Contest 519/520") masked outages with fake data. Now only when
+    // SEED_DEMO_CONTESTS=true (local dev/demo). Prod returns degraded:true so
+    // the UI shows "Contests unavailable — retrying" instead of fake rows.
+    // WHY: code must do what it claims; fake dates mislead teachers/students.
     try {
+      const seedEnabled = process.env.SEED_DEMO_CONTESTS === 'true'
       const totalAfter = await prisma.codingContest.count()
-      if (totalAfter === 0) {
-        console.warn('[ContestFetcher] DB empty after fetch — seeding sample contests so UI is not empty')
+      if (totalAfter === 0 && seedEnabled) {
+        logger.warn('[ContestFetcher] DB empty after fetch — seeding sample contests (SEED_DEMO_CONTESTS=true)')
         const now = new Date(nowMs)
         const samples: NormalizedContest[] = [
           { title: 'Weekly Contest 519', platform: 'LEETCODE', url: 'https://leetcode.com/contest/weekly-contest-519/', startTime: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(), duration: 90, contestType: 'WEEKLY' },
@@ -370,41 +598,53 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
           const end = new Date(start.getTime() + (s.duration ?? 180) * 60000)
           const status = start > now ? 'UPCOMING' : end > now ? 'ONGOING' : 'ENDED'
           try {
-            await prisma.codingContest.create({ data: { title: s.title, platform: s.platform, url: s.url, startTime: s.startTime, duration: s.duration, contestType: s.contestType, status, isAutoFetched: true, solutions: '[]' } })
+            await createContestResilient({ title: s.title, platform: s.platform, url: s.url, startTime: s.startTime, duration: s.duration, contestType: s.contestType, status, isAutoFetched: true })
             fetched++
-          } catch {}
+          } catch (seedOne: unknown) {
+            if (isMissingColumnError(seedOne)) warnSchemaDriftOnce('seed', seedOne);
+          }
         }
-        console.log(`[ContestFetcher] Seeded ${samples.length} sample contests (DB was empty, external APIs returned 0)`)
+        logger.info(`[ContestFetcher] Seeded ${samples.length} sample contests (demo mode only)`)
+      } else if (totalAfter === 0 && !seedEnabled) {
+        logger.warn('[ContestFetcher] DB empty after fetch — degraded (no seed; SEED_DEMO_CONTESTS!=true). UI should show empty-state, not fake rows.')
       } else {
         // Also ensure at least one UPCOMING exists — if all are ENDED and old, user sees empty UPCOMING tab (common confusion)
-        // If UPCOMING count is 0 but DB has ENDED, create one future sample so default tab is not empty
+        // Flag-gated as well: only synthesize in demo mode.
         const upcoming = await prisma.codingContest.count({ where: { status: 'UPCOMING' } })
-        if (upcoming === 0 && totalAfter > 0) {
-          console.warn('[ContestFetcher] No UPCOMING contests — creating one future sample so default tab shows data')
+        if (upcoming === 0 && totalAfter > 0 && seedEnabled) {
+          logger.warn('[ContestFetcher] No UPCOMING contests — creating one future sample (demo mode only)')
           const now2 = new Date(nowMs)
           const sampleStart = new Date(now2.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString()
           try {
-            await prisma.codingContest.create({
-              data: { title: 'Weekly Contest 520', platform: 'LEETCODE', url: 'https://leetcode.com/contest/weekly-contest-520/', startTime: sampleStart, duration: 90, contestType: 'WEEKLY', status: 'UPCOMING', isAutoFetched: true, solutions: '[]' }
+            await createContestResilient({
+              title: 'Weekly Contest 520', platform: 'LEETCODE', url: 'https://leetcode.com/contest/weekly-contest-520/', startTime: sampleStart, duration: 90, contestType: 'WEEKLY', status: 'UPCOMING', isAutoFetched: true
             })
             fetched++
-          } catch {}
+          } catch (seedOne: unknown) {
+            if (isMissingColumnError(seedOne)) warnSchemaDriftOnce('seed-upcoming', seedOne);
+          }
+        } else if (upcoming === 0 && totalAfter > 0) {
+          logger.warn('[ContestFetcher] No UPCOMING contests — degraded (no synthetic row; enable SEED_DEMO_CONTESTS for demo).')
         }
       }
     } catch (seedErr) {
-      console.warn('[ContestFetcher] sample seed failed (non-critical):', (seedErr as Error).message)
+      logger.warn({ err: (seedErr as Error).message }, '[ContestFetcher] sample seed check failed (non-critical)')
     }
 
-    console.log(`[ContestFetcher] Done. Fetched: ${fetched}, Updated: ${updated}`);
+    logger.info(`[ContestFetcher] Done. Fetched: ${fetched}, Updated: ${updated}`);
     return { fetched, updated };
 
   } catch (outerErr: any) {
     // Top-level guard: never let outer failures (pre-flight, Promise.all weirdness) throw unhandled
-    if (isRetryableError(outerErr) || isP1001Error(outerErr)) {
-      console.warn(`[ContestFetcher] DB unreachable (outer guard) — skipping sync, will retry on next cron. Error: ${outerErr.code || 'CONN_ERR'} ${String(outerErr.message).slice(0, 400)}`);
+    if (isMissingColumnError(outerErr)) {
+      warnSchemaDriftOnce('outer', outerErr);
       return { fetched: 0, updated: 0 };
     }
-    console.error('[ContestFetcher] Unexpected error (non-DB) — returning gracefully:', outerErr);
+    if (isRetryableError(outerErr) || isP1001Error(outerErr)) {
+      logger.warn(`[ContestFetcher] DB unreachable (outer guard) — skipping sync, will retry on next cron. Error: ${outerErr.code || 'CONN_ERR'} ${String(outerErr.message).slice(0, 400)}`);
+      return { fetched: 0, updated: 0 };
+    }
+    logger.error({ err: outerErr }, '[ContestFetcher] Unexpected error (non-DB) — returning gracefully');
     return { fetched: 0, updated: 0 };
   }
 }

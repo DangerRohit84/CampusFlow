@@ -8,7 +8,13 @@ import net from 'net'
  * - Blocks private IP literals (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 0/8, ::1, fc00::/7, fe80::/10)
  * - Blocks well-known metadata hosts (169.254.169.254, localhost, metadata.google.internal, etc.)
  * - Resolves DNS and checks resolved IPs against private ranges (DNS rebinding protection)
- * - Optional allowlist suffix check via EXTERNAL_FETCH_ALLOWLIST env (comma-separated suffixes)
+ * - Allowlist suffix check via EXTERNAL_FETCH_ALLOWLIST env (comma-separated suffixes).
+ *   Prod default (I-12): when unset in production, falls back to DEFAULT_FETCH_ALLOWLIST
+ *   (10 platform suffixes) instead of open internet — prevents scraper fan-out to
+ *   attacker URLs (cloud bills + IP leak). Set EXTERNAL_FETCH_ALLOWLIST explicitly
+ *   to override. TOCTOU: callers must use redirect:manual + re-validate each hop
+ *   (see routes/fetch.ts) — no pinning (DNS may rotate between validate and fetch),
+ *   so each redirect hop re-validates + timeout 10s + 2MB cap + log event:ssrf-block.
  */
 
 const BLOCKED_HOSTS = new Set([
@@ -21,12 +27,28 @@ const BLOCKED_HOSTS = new Set([
   'metadata.google',
 ])
 
+// I-12 default allowlist (prod fallback when EXTERNAL_FETCH_ALLOWLIST unset):
+// 10 platform suffixes actually fetched by opportunityAgent + fetch.ts custom URLs.
+export const DEFAULT_FETCH_ALLOWLIST = [
+  'unstop.com',
+  'internshala.com',
+  'devpost.com',
+  'devfolio.co',
+  'dorahacks.io',
+  'hack2skill.com',
+  'mlh.io',
+  'wellfound.com',
+  'reskilll.com',
+  'hackerearth.com',
+]
+
 // Optional allowlist: if set, URL host must end with one of these suffixes (e.g., "unstop.com,internshala.com")
-// If not set, any public host is allowed.
-function getAllowlist(): string[] {
+// If not set, any public host is allowed (dev) — prod falls back to DEFAULT_FETCH_ALLOWLIST.
+export function getAllowlist(): string[] {
   const raw = process.env.EXTERNAL_FETCH_ALLOWLIST?.trim()
-  if (!raw) return []
-  return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (raw) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (process.env.NODE_ENV === 'production') return [...DEFAULT_FETCH_ALLOWLIST]
+  return []
 }
 
 function isIPv4(host: string): boolean {

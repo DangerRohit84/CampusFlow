@@ -1,14 +1,37 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 
 const prisma = new PrismaClient()
 
 // Demo content (login accounts, courses, hackathons, internships, ...) must never
-// be created against a production database: every demo account shares the weak
-// password 'password123'. It is only seeded when NOT running in production, or
-// when a production demo is explicitly opted into via SEED_DEMO_USERS=true.
+// be created against a production database: demo accounts use a per-run random
+// password (or SEED_ADMIN_PASSWORD when set) — never a hardcoded dictionary word.
+// Guarded by shouldSeedDemo below + hard fail if NODE_ENV=production without explicit opt-in.
+// CAPTCHA/enumeration note: public /api/auth/register returns generic responses
+// (see routes/auth.ts) + per-email lockout + 5/h college-register limiter; seed
+// accounts are dev-only and must not exist in prod (avoids credential-stuffing).
 const shouldSeedDemo =
   process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_USERS === 'true'
+
+// Fail-closed: refuse to seed demo users in production unless explicitly opted in.
+// This prevents accidental `prisma db seed` against prod Neon with weak creds.
+if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_USERS !== 'true') {
+  // Note: main() below also skips demo data in prod; this earlyModule guard
+  // documents intent for operators reading logs.
+  console.log('[Seed] NODE_ENV=production without SEED_DEMO_USERS=true — demo users will be skipped.')
+}
+
+// Resolve demo password: explicit env wins (CI/staging), else per-run random.
+// Logged once (dev convenience) — never commit the value; prod never seeds.
+function resolveSeedPassword(): { plain: string; source: 'env' | 'random' } {
+  const fromEnv = (process.env.SEED_ADMIN_PASSWORD || '').trim()
+  if (fromEnv) {
+    if (fromEnv.length < 12) throw new Error('SEED_ADMIN_PASSWORD must be >=12 chars when set')
+    return { plain: fromEnv, source: 'env' }
+  }
+  return { plain: crypto.randomBytes(16).toString('hex'), source: 'random' }
+}
 
 function sanitizeUsername(raw: string): string {
   return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
@@ -27,6 +50,16 @@ function demoUsername(name: string, email: string, fallback: string): string {
 // can be attached to it (in production they are seeded globally instead).
 async function seedDemoData(): Promise<string> {
   console.log('Seeding demo data...')
+  const seedCreds = resolveSeedPassword()
+  // bcrypt12 to match routes/auth.ts (was 10 — bumped for parity).
+  const passwordHash = await bcrypt.hash(seedCreds.plain, 12)
+  if (seedCreds.source === 'random') {
+    // Log-once for local dev login (dev-only path; prod skips seedDemoData).
+    // Value is per-run random — safe to show in local console, never in CI artifacts.
+    console.log(`[Seed] demo password (random, dev-only, log-once): ${seedCreds.plain}`)
+  } else {
+    console.log('[Seed] demo password from SEED_ADMIN_PASSWORD (redacted)')
+  }
 
   // Create college first
   const college = await prisma.college.upsert({
@@ -62,8 +95,7 @@ async function seedDemoData(): Promise<string> {
   })
   console.log('Created departments:', csDept.name, eeDept.name, meDept.name)
 
-  // Create demo student
-  const passwordHash = await bcrypt.hash('password123', 10)
+  // Create demo student (uses per-run random / SEED_ADMIN_PASSWORD hash above)
   const user = await prisma.user.upsert({
     where: { email: 'alex@university.edu' },
     update: { username: demoUsername('Alex Johnson', 'alex@university.edu', 'alex_johnson') },
@@ -99,6 +131,14 @@ async function seedDemoData(): Promise<string> {
   })
   console.log('Created teacher:', teacher.name)
 
+  // Backfill: bulk CSV uploads with a mismatched department NAME used to
+  // silently create dept-less teachers (Prof. Sharma EMP001 showed no
+  // department). Repair pre-existing rows — only when missing, never overwrite.
+  await prisma.user.updateMany({
+    where: { email: 'prof.sharma@university.edu', departmentId: null },
+    data: { departmentId: csDept.id, collegeId: college.id },
+  })
+
   // Create college admin
   const collegeAdmin = await prisma.user.upsert({
     where: { email: 'admin@university.edu' },
@@ -130,12 +170,12 @@ async function seedDemoData(): Promise<string> {
   })
   console.log('Created super admin:', superAdmin.name)
 
-  // Create more students for hackathon registrations
+  // Create more students for hackathon registrations (role explicit; default is STUDENT)
   const moreStudents = [
-    { email: 'priya@university.edu', name: 'Priya Singh', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id, username: demoUsername('Priya Singh', 'priya@university.edu', 'priya_singh') },
-    { email: 'rahul@university.edu', name: 'Rahul Verma', departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id, username: demoUsername('Rahul Verma', 'rahul@university.edu', 'rahul_verma') },
-    { email: 'anjali@university.edu', name: 'Anjali Patel', departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id, username: demoUsername('Anjali Patel', 'anjali@university.edu', 'anjali_patel') },
-    { email: 'vikram@university.edu', name: 'Vikram Kumar', departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id, username: demoUsername('Vikram Kumar', 'vikram@university.edu', 'vikram_kumar') },
+    { email: 'priya@university.edu', name: 'Priya Singh', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023002', collegeId: college.id, username: demoUsername('Priya Singh', 'priya@university.edu', 'priya_singh') },
+    { email: 'rahul@university.edu', name: 'Rahul Verma', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2023, outgoingYear: 2027, studentId: 'CS2023003', collegeId: college.id, username: demoUsername('Rahul Verma', 'rahul@university.edu', 'rahul_verma') },
+    { email: 'anjali@university.edu', name: 'Anjali Patel', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2024, outgoingYear: 2028, studentId: 'CS2024001', collegeId: college.id, username: demoUsername('Anjali Patel', 'anjali@university.edu', 'anjali_patel') },
+    { email: 'vikram@university.edu', name: 'Vikram Kumar', role: 'STUDENT' as const, departmentId: csDept.id, incomingYear: 2022, outgoingYear: 2026, studentId: 'CS2022001', collegeId: college.id, username: demoUsername('Vikram Kumar', 'vikram@university.edu', 'vikram_kumar') },
   ]
 
   const createdStudents = [user]
@@ -152,11 +192,11 @@ async function seedDemoData(): Promise<string> {
   }
   console.log('Created', createdStudents.length, 'students total')
 
-  // Create courses
+  // Create courses (collegeId FK → demo college for college-scoped lists)
   const courses = [
-    { name: 'Data Structures', code: 'CS201', credits: 4, teacherId: teacher.id, semester: 'Fall 2026' },
-    { name: 'Algorithms', code: 'CS301', credits: 4, teacherId: teacher.id, semester: 'Fall 2026' },
-    { name: 'Database Systems', code: 'CS401', credits: 3, teacherId: teacher.id, semester: 'Fall 2026' },
+    { name: 'Data Structures', code: 'CS201', credits: 4, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
+    { name: 'Algorithms', code: 'CS301', credits: 4, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
+    { name: 'Database Systems', code: 'CS401', credits: 3, teacherId: teacher.id, collegeId: college.id, semester: 'Fall 2026' },
   ]
 
   const createdCourses = []
@@ -206,14 +246,32 @@ async function seedDemoData(): Promise<string> {
   }
   console.log('Created', schedules.length, 'schedules')
 
-  // Create assignments
-  const assignments = [
-    { courseId: 'CS301', title: 'ML Project Report', description: 'Implement and compare 3 ML models on the given dataset', dueDate: new Date('2026-07-22'), priority: 'HIGH', progress: 75 },
-    { courseId: 'CS202', title: 'SQL Query Practice', description: 'Complete 20 SQL queries covering JOINs, subqueries, and aggregation', dueDate: new Date('2026-07-24'), priority: 'MEDIUM', progress: 40 },
-    { courseId: 'CS201', title: 'Binary Tree Implementation', description: 'Implement BST with insert, delete, search, and traversal operations', dueDate: new Date('2026-07-26'), priority: 'LOW', progress: 10 },
-    { courseId: 'CS302', title: 'Process Scheduling Report', description: 'Compare FCFS, SJF, and Round Robin scheduling algorithms', dueDate: new Date('2026-07-28'), priority: 'LOW', progress: 0 },
-    { courseId: 'CS202', title: 'ER Diagram Design', description: 'Design an ER diagram for the hospital management system', dueDate: new Date('2026-07-20'), priority: 'HIGH', status: 'SUBMITTED', progress: 100 },
-    { courseId: 'CS201', title: 'Sorting Algorithms Analysis', description: 'Analyze time complexity of sorting algorithms with empirical testing', dueDate: new Date('2026-07-18'), priority: 'LOW', status: 'GRADED', grade: 'A', progress: 100 },
+  // Create assignments.
+  // FK: Assignment.courseId → Course.id (uuid), NOT course code (CS201/CS301/CS401).
+  // Enum: AssignmentStatus = PENDING | IN_PROGRESS | COMPLETED | CANCELLED.
+  // SUBMITTED/GRADED are SubmissionStatus (AssignmentSubmission), not Assignment —
+  // submitted/graded legacy rows map to COMPLETED here (progress 100).
+  // NOTE: seed codes CS202 (SQL/ER → CS401 Database Systems) + CS302 (OS scheduling
+  // → CS301 fallback, no OS course exists) remapped to real uuids below.
+  const courseIdByCode: Record<string, string> = Object.fromEntries(
+    createdCourses.map((c) => [c.code, c.id]),
+  )
+  const assignments: Array<{
+    courseId: string
+    title: string
+    description: string
+    dueDate: Date
+    priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+    progress: number
+    status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+    grade?: string
+  }> = [
+    { courseId: courseIdByCode['CS301'], title: 'ML Project Report', description: 'Implement and compare 3 ML models on the given dataset', dueDate: new Date('2026-07-22'), priority: 'HIGH', progress: 75 },
+    { courseId: courseIdByCode['CS401'], title: 'SQL Query Practice', description: 'Complete 20 SQL queries covering JOINs, subqueries, and aggregation', dueDate: new Date('2026-07-24'), priority: 'MEDIUM', progress: 40 },
+    { courseId: courseIdByCode['CS201'], title: 'Binary Tree Implementation', description: 'Implement BST with insert, delete, search, and traversal operations', dueDate: new Date('2026-07-26'), priority: 'LOW', progress: 10 },
+    { courseId: courseIdByCode['CS301'], title: 'Process Scheduling Report', description: 'Compare FCFS, SJF, and Round Robin scheduling algorithms', dueDate: new Date('2026-07-28'), priority: 'LOW', progress: 0 },
+    { courseId: courseIdByCode['CS401'], title: 'ER Diagram Design', description: 'Design an ER diagram for the hospital management system', dueDate: new Date('2026-07-20'), priority: 'HIGH', status: 'COMPLETED', progress: 100 },
+    { courseId: courseIdByCode['CS201'], title: 'Sorting Algorithms Analysis', description: 'Analyze time complexity of sorting algorithms with empirical testing', dueDate: new Date('2026-07-18'), priority: 'LOW', status: 'COMPLETED', grade: 'A', progress: 100 },
   ]
 
   for (const a of assignments) {
@@ -221,10 +279,11 @@ async function seedDemoData(): Promise<string> {
   }
   console.log('Created', assignments.length, 'assignments')
 
-  // Create notifications
+  // Create notifications (Priority = LOW | MEDIUM | HIGH | CRITICAL — no URGENT;
+  // urgent assignment alert maps to CRITICAL. type stays open String.)
   const notifications = [
     { title: 'Mid-term Exam Schedule Released', message: 'The mid-term examination schedule for Spring 2026 has been published.', type: 'EXAM', priority: 'HIGH' },
-    { title: 'New Assignment: ML Project Report', message: 'A new assignment has been posted for Machine Learning. Due: July 22.', type: 'ASSIGNMENT', priority: 'URGENT' },
+    { title: 'New Assignment: ML Project Report', message: 'A new assignment has been posted for Machine Learning. Due: July 22.', type: 'ASSIGNMENT', priority: 'CRITICAL' },
     { title: 'Campus Fest Registration Open', message: 'Annual tech fest "InnovateX 2026" registration is now open.', type: 'EVENT', priority: 'MEDIUM' },
     { title: 'Attendance Warning', message: 'Your attendance in Operating Systems has dropped to 75%.', type: 'ATTENDANCE', priority: 'HIGH' },
     { title: 'Grade Published: Database Systems', message: 'Your grade for Database Systems Assignment 2 has been published.', type: 'GENERAL', priority: 'LOW' },
@@ -235,7 +294,7 @@ async function seedDemoData(): Promise<string> {
   }
   console.log('Created', notifications.length, 'notifications')
 
-  // Create test hackathons
+  // Create test hackathons (themes is Json array — write native arrays, not JSON strings)
   const hackathons = [
     {
       creatorId: teacher.id,
@@ -249,7 +308,7 @@ async function seedDemoData(): Promise<string> {
       endDate: new Date('2026-08-16'),
       deadline: new Date('2026-08-10'),
       teamSize: 6,
-      themes: JSON.stringify(['AI/ML', 'HealthTech', 'AgriTech', 'Smart Education']),
+      themes: ['AI/ML', 'HealthTech', 'AgriTech', 'Smart Education'],
       status: 'PUBLISHED',
     },
     {
@@ -262,7 +321,7 @@ async function seedDemoData(): Promise<string> {
       endDate: new Date('2026-09-02'),
       deadline: new Date('2026-08-28'),
       teamSize: 4,
-      themes: JSON.stringify(['Algorithms', 'Web Development', 'Mobile Apps']),
+      themes: ['Algorithms', 'Web Development', 'Mobile Apps'],
       status: 'PUBLISHED',
     },
   ]
@@ -323,8 +382,8 @@ async function seedDemoData(): Promise<string> {
       status: 'ACTIVE',
       allowEdit: true,
       expiresAt: new Date('2026-09-30'),
-      targetDepartments: JSON.stringify([]),
-      targetYears: JSON.stringify([]),
+      targetDepartments: [],
+      targetYears: [],
       eligibilityEnabled: false,
       fields: {
         create: [
@@ -343,8 +402,8 @@ async function seedDemoData(): Promise<string> {
       status: 'ACTIVE',
       allowEdit: false,
       expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-      targetDepartments: JSON.stringify([]),
-      targetYears: JSON.stringify([]),
+      targetDepartments: [],
+      targetYears: [],
       eligibilityEnabled: false,
       fields: {
         create: [
@@ -381,9 +440,9 @@ async function seedDemoData(): Promise<string> {
         stipend: '$8,000/month',
         duration: '12 weeks',
         mode: 'HYBRID',
-        deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        targetDepartments: '[]',
-        targetYears: '[2,3]',
+        deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        targetDepartments: [],
+        targetYears: [2, 3],
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,
@@ -404,9 +463,9 @@ async function seedDemoData(): Promise<string> {
         stipend: '$7,500/month',
         duration: '16 weeks',
         mode: 'REMOTE',
-        deadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        targetDepartments: '[]',
-        targetYears: '[3,4]',
+        deadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000),
+        targetDepartments: [],
+        targetYears: [3, 4],
         eligibilityEnabled: false,
         status: 'ACTIVE',
         creatorId: teacherForInternship.id,

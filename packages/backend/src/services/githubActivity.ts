@@ -7,6 +7,7 @@
 // GitHub table covers ~365 days (53 weeks). Header "X contributions in the last year" counts ~371 days (from/to attrs).
 // We parse the table (365 cells) and sum data-count / tooltip counts (not levels) for the true total.
 
+import { logger } from '../utils/logger'
 export interface GithubDay {
   date: string // YYYY-MM-DD
   count: number
@@ -225,7 +226,7 @@ async function fetchGithubContributionsRaw(username: string): Promise<GithubDay[
     cache.set(user, { data: deduped, expires: Date.now() + CACHE_TTL_SUCCESS })
     return deduped
   } catch (err) {
-    console.warn(`[githubActivity] fetch failed for ${user}:`, (err as any)?.message || err)
+    logger.warn({ err: (err as any)?.message || err }, `[githubActivity] fetch failed for ${user}:`)
     negativeCache.set(normalizeUsername(username), Date.now() + CACHE_TTL_FAIL)
     return null
   }
@@ -279,7 +280,7 @@ export async function fetchGithubContributions(username: string): Promise<Github
   // and cannot represent 782 yearly contributions; we must not use it when SVG works.
   if (days && days.length > 0 && days.length < 30) {
     // Suspiciously small SVG parse result — try events as better than nothing, but log
-    console.warn(`[githubActivity] SVG parse for ${username} yielded only ${days.length} days, falling back to events`)
+    logger.warn(`[githubActivity] SVG parse for ${username} yielded only ${days.length} days, falling back to events`)
   }
   const fallback = await fetchGithubViaEvents(username)
   // If fallback also fails, return the small SVG result if we have one

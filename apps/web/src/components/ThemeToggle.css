@@ -17,13 +17,20 @@
   overflow: visible;
   /* FIX: thread cutting — ensure lamp can extend beyond h-0 wrapper without clipping */
   transform-box: fill-box;
+  /* WHY: native <button> reset + WCAG 2.5.8 44px target. Inner drag kept. */
+  background: transparent;
+  border: 0;
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: flex-start;
 }
 
 .theme-lamp:active { cursor: grabbing; }
 
+.theme-lamp:focus { outline: none; }
 .theme-lamp:focus-visible {
-  outline: 2px solid #000000;
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1ed760;
   border-radius: 10px;
 }
 

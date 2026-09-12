@@ -2,14 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { getSocket } from '../lib/socket'
 import { Loader2, Upload, DoorOpen, ArrowLeft, Users, FileText, KeyRound, Copy, Check, BookOpen, MessageSquare, Sparkles, Shield, Layers, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from '../components/ui/Modal'
+import { useConfirm } from '../components/ui/ConfirmModal'
 import RoomChatPanel from '../components/room/RoomChatPanel'
 import RoomChatSettingsModal from '../components/room/RoomChatSettingsModal'
 import RoomResourcesPanel, { formatFileSize } from '../components/room/RoomResourcesPanel'
 import RoomMembersPanel from '../components/room/RoomMembersPanel'
+import { isRoomMutedLocal } from '../components/room/roomMute'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -21,6 +24,7 @@ export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const { confirm: confirmDialog } = useConfirm()
   const [room, setRoom] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<RoomTabKey>('chat')
@@ -39,19 +43,32 @@ export default function RoomDetailPage() {
   const [copied, setCopied] = useState(false)
 
   const activeTabRef = useRef(activeTab)
+
   useEffect(() => { activeTabRef.current = activeTab }, [activeTab])
 
   useEffect(() => {
     if (id) {
       loadRoom()
-      // clear sidebar badge when opening room
-      roomAPI.markRead(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+      // clear sidebar badge when opening room (deduped: StrictMode
+      // double-mount shares one in-flight POST — PERPAGE-HALF1)
+      roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
     }
   }, [id])
 
+  // PERPAGE-HALF1: per-tab one-shot cache — switching members↔resources↔chat
+  // re-rendered AND refetched on every switch (GET per switch). Mutations
+  // (upload/delete/CR) reload explicitly, so cached tabs stay correct.
+  const loadedTabs = useRef<{ membersFor: string | null; resourcesFor: string | null }>({ membersFor: null, resourcesFor: null })
   useEffect(() => {
-    if (id && activeTab === 'members') loadMembers()
-    if (id && activeTab === 'resources') loadResources()
+    if (!id) return
+    if (activeTab === 'members' && loadedTabs.current.membersFor !== id) {
+      loadedTabs.current.membersFor = id
+      loadMembers()
+    }
+    if (activeTab === 'resources' && loadedTabs.current.resourcesFor !== id) {
+      loadedTabs.current.resourcesFor = id
+      loadResources()
+    }
   }, [id, activeTab])
 
   // Chat badge dot: flag incoming messages that arrive while another tab is open
@@ -61,6 +78,8 @@ export default function RoomDetailPage() {
     const handler = (message: any) => {
       if (message.roomId !== id) return
       if (message.senderId === user?.id) return
+      // Threads-lite: muted channels never raise the chat dot.
+      if (id && isRoomMutedLocal(id)) return
       if (activeTabRef.current !== 'chat') setUnreadChat(true)
     }
     socket.on('room:message:new', handler)
@@ -71,7 +90,7 @@ export default function RoomDetailPage() {
     setActiveTab(tab)
     if (tab === 'chat') {
       setUnreadChat(false)
-      if (id) roomAPI.markRead(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+      if (id) roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
     }
   }
 
@@ -98,6 +117,13 @@ export default function RoomDetailPage() {
       setMembersLoading(false)
     }
   }
+
+  // STATE-SYNC: room METADATA only (name/settings/members). Was ['room',
+  // 'message'] — every chat message bridged to a full getOne refetch
+  // (room:message:new → 'room' entity). Messages are owned by RoomChatPanel's
+  // own socket subscription + 15s fallback, so detail no longer refetches
+  // per message (PERPAGE-HALF1; see entitySync SOCKET_TO_ENTITY ordering).
+  useEntitySync(['room'], loadRoom as any)
 
   const loadResources = async () => {
     setResourcesLoading(true)
@@ -157,6 +183,8 @@ export default function RoomDetailPage() {
   }
 
   const handleDeleteResource = async (resourceId: string) => {
+    const ok = await confirmDialog({ title: 'Delete resource?', message: 'Delete this file? Room members will lose access.', confirmLabel: 'Delete' })
+    if (!ok) return
     setDeleting(resourceId)
     try {
       await roomAPI.deleteResource(id!, resourceId)
@@ -188,6 +216,8 @@ export default function RoomDetailPage() {
 
   // Derived from room state so optimistic settings updates reflect instantly
   const canManageSettings = !!room?.canManageSettings
+  // Threads-lite: pin = creator/admin (canManageSettings) or CR member.
+  const canPin = canManageSettings || members.some((m: any) => m.id === user?.id && m.isCR)
   const effectiveCanChat = room
     ? canManageSettings ||
       room.chatMode === 'EVERYONE' ||
@@ -223,6 +253,7 @@ export default function RoomDetailPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
+      <h1 className="sr-only">Room Detail</h1>
       {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
       <PremiumHero
         icon={<DoorOpen size={18} />}
@@ -353,6 +384,7 @@ export default function RoomDetailPage() {
                   canChat={effectiveCanChat}
                   chatMode={room.chatMode || 'EVERYONE'}
                   currentUserId={user.id}
+                  canPin={canPin}
                   canDeleteForEveryone={
                     room.teacherId === user.id ||
                     user.role === 'SUPER_ADMIN' ||

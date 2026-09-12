@@ -99,7 +99,14 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
           )}
            <div className="min-w-0">
             <h3 className="font-bold text-surface-900 dark:text-night-50 text-sm leading-tight truncate flex items-center gap-1.5">
-              {unread && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-label="unread" />}
+              {/* WHY: color-only unread dot fails 1.4.1 — add visible "Unread" badge text + sr-only. */}
+              {unread && (
+                <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-white" aria-hidden="true" />
+                  Unread
+                  <span className="sr-only">: unread announcement</span>
+                </span>
+              )}
               {announcement.title}
             </h3>
             <div className="flex items-center gap-2 mt-0.5">
@@ -117,19 +124,21 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
             {canEdit && onEdit && (
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit(announcement) }}
-                className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                aria-label={`Edit announcement: ${announcement.title}`}
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
                 title="Edit announcement"
               >
-                <Pencil size={14} />
+                <Pencil size={14} aria-hidden="true" />
               </button>
             )}
             {canDelete && onDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(announcement.id) }}
-                className="p-1.5 rounded-lg text-surface-400 dark:text-night-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                aria-label={`Delete announcement: ${announcement.title}`}
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-lg text-surface-400 dark:text-night-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
                 title="Delete announcement"
               >
-                <Trash2 size={14} />
+                <Trash2 size={14} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -144,9 +153,10 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
         {isLong && (
           <button
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
-            className="text-xs font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 mt-1 flex items-center gap-1"
+            aria-expanded={expanded}
+            className="text-xs font-semibold text-[#0a7a3a] hover:text-[#07622e] dark:text-primary-400 dark:hover:text-primary-300 mt-1 flex items-center gap-1 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
           >
-            {expanded ? <><ChevronUp size={12} /> Show less</> : <><ChevronDown size={12} /> Read more</>}
+            {expanded ? <><ChevronUp size={12} aria-hidden="true" /> Show less</> : <><ChevronDown size={12} aria-hidden="true" /> Read more</>}
           </button>
         )}
       </div>

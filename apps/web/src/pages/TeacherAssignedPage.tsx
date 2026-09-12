@@ -1,6 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { hackathonAPI, internshipAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { useRaceGuard, isAbortError } from '../hooks/useRaceGuard'
 import { motion } from 'framer-motion'
 import { Trophy, Briefcase, CheckCircle2, XCircle, Clock,
   ExternalLink, Calendar, Building2, IndianRupee, Filter, AlertCircle, BookOpen } from 'lucide-react'
@@ -11,34 +14,49 @@ import EmptyState from '../components/shared/EmptyState'
 import { parseJsonArray, parseJsonNumberArray } from '../lib/parseJson'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { useConfirm } from '../components/ui/ConfirmModal'
 
 export default function TeacherAssignedPage() {
+  const { confirm: confirmDialog } = useConfirm()
   const { user } = useAuthStore()
   const [hackathons, setHackathons] = useState<any[]>([])
   const [internships, setInternships] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<'all' | 'HACKATHON' | 'INTERNSHIP'>('all')
+
+
+  const { newRequest, isCurrent } = useRaceGuard()
+
+  const loadData = useCallback(async () => {
+    const { signal, seq } = newRequest()
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [hackData, intData] = await Promise.all([
+        hackathonAPI.getStaging(1, 50, undefined, signal),
+        internshipAPI.getStaging(1, 50, undefined, signal),
+      ])
+      if (!isCurrent(seq) || signal.aborted) return
+      // Filter to only items assigned to this teacher
+      setHackathons((hackData as any).data ? (hackData as any).data.filter((h: any) => h.assignedTeacherId === user?.id) : (hackData as any[]).filter((h: any) => h.assignedTeacherId === user?.id))
+      setInternships((intData as any).data ? (intData as any).data.filter((i: any) => i.assignedTeacherId === user?.id) : (intData as any[]).filter((i: any) => i.assignedTeacherId === user?.id))
+    } catch (err: any) {
+      if (isAbortError(err, signal)) return
+      const msg = err?.response?.data?.error || 'Could not load assigned opportunities.'
+      setLoadError(msg)
+      toast.error(msg)
+    } finally {
+      if (isCurrent(seq) && !signal.aborted) setLoading(false)
+    }
+  }, [user?.id])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const [hackData, intData] = await Promise.all([
-        hackathonAPI.getStaging(),
-        internshipAPI.getStaging(),
-      ])
-      // Filter to only items assigned to this teacher
-      setHackathons(hackData.filter((h: any) => h.assignedTeacherId === user?.id))
-      setInternships(intData.filter((i: any) => i.assignedTeacherId === user?.id))
-    } catch (err) {
-      console.error('Failed to load', err)
-    } finally {
-      setLoading(false)
-    }
-  }
+  // STATE-SYNC: external mutations (other tab/device) refresh without reload.
+  useEntitySync(['hackathon', 'internship'], loadData as any)
 
   const allItems = useMemo(() => {
     const items = [
@@ -49,14 +67,17 @@ export default function TeacherAssignedPage() {
   }, [hackathons, internships, typeFilter])
 
   const handleApprove = async (id: string, type: 'HACKATHON' | 'INTERNSHIP') => {
-    if (!confirm('Approve this opportunity?')) return
+    const ok = await confirmDialog({ title: 'Approve opportunity?', message: 'Approve this opportunity? It becomes visible to eligible students.', confirmLabel: 'Approve', danger: false })
+    if (!ok) return
     try {
       if (type === 'HACKATHON') {
         await hackathonAPI.approveStaging(id)
         setHackathons((prev) => prev.filter((h) => h.id !== id))
+        notifyEntityMutated('hackathon', { stagingId: id, action: 'approved' })
       } else {
         await internshipAPI.approveStaging(id)
         setInternships((prev) => prev.filter((i) => i.id !== id))
+        notifyEntityMutated('internship', { stagingId: id, action: 'approved' })
       }
       toast.success('Approved! Students can now see this.')
     } catch (err) {
@@ -65,14 +86,17 @@ export default function TeacherAssignedPage() {
   }
 
   const handleReject = async (id: string, type: 'HACKATHON' | 'INTERNSHIP') => {
-    if (!confirm('Reject this opportunity?')) return
+    const ok = await confirmDialog({ title: 'Reject opportunity?', message: 'Reject this opportunity?', confirmLabel: 'Reject' })
+    if (!ok) return
     try {
       if (type === 'HACKATHON') {
         await hackathonAPI.deleteStaging(id)
         setHackathons((prev) => prev.filter((h) => h.id !== id))
+        notifyEntityMutated('hackathon', { stagingId: id, action: 'rejected' })
       } else {
         await internshipAPI.deleteStaging(id)
         setInternships((prev) => prev.filter((i) => i.id !== id))
+        notifyEntityMutated('internship', { stagingId: id, action: 'rejected' })
       }
       toast.success('Rejected')
     } catch (err) {
@@ -97,8 +121,44 @@ export default function TeacherAssignedPage() {
     )
   }
 
+  // TOPBOTTOM F10: students have their own boards (/hackathons /internships) —
+  // the teacher review queue must not render as a confusing empty list.
+  if (user?.role === 'STUDENT') {
+    return (
+      <div className="min-h-screen bg-surface-50 dark:bg-night-800">
+        <h1 className="sr-only">Assigned to Me — Review opportunities assigned to you</h1>
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="rounded-2xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 p-8 text-center" role="alert">
+            <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Teachers only</h2>
+            <p className="text-sm text-surface-500 dark:text-night-400 mt-2">This review queue is for faculty. Browse open opportunities instead.</p>
+            <div className="mt-5 flex justify-center gap-2">
+              <Link to="/hackathons" className="px-4 py-2.5 rounded-xl bg-primary-600 text-white text-sm font-semibold">Browse hackathons</Link>
+              <Link to="/internships" className="px-4 py-2.5 rounded-xl border border-surface-200 dark:border-night-600 text-sm font-semibold">Browse internships</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-surface-50 dark:bg-night-800">
+        <h1 className="sr-only">Assigned to Me — Review opportunities assigned to you</h1>
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="rounded-2xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 p-8 text-center" role="alert">
+            <h2 className="text-lg font-bold text-surface-900 dark:text-night-50">Couldn&apos;t load assigned work</h2>
+            <p className="text-sm text-surface-500 dark:text-night-400 mt-2">{loadError}</p>
+            <button onClick={() => loadData()} className="mt-5 px-5 py-2.5 rounded-xl bg-surface-900 text-white text-sm font-semibold">Retry</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-night-800 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
+      <h1 className="sr-only">Assigned to Me — Review opportunities assigned to you</h1>
       <PageHeader
         title="Assigned to Me"
         subtitle="Review and approve/reject opportunities assigned to you"

@@ -3,7 +3,10 @@ import { timingSafeEqual } from 'crypto'
 import prisma from '../config/db'
 import { fetchAndStoreContests } from '../services/contestFetcher'
 import { syncAllUsers } from '../services/syncEngine'
-import { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging } from '../services/opportunityAgent'
+import { runContestRemindersJob } from '../services/contestReminderService'
+import { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging, listFetchAllPlatforms, platformTypeMap } from '../services/opportunityAgent'
+import { logger } from '../utils/logger'
+import { normalizeSource } from '../services/opportunities/dedup'
 
 const ENRICH_DELAY_MS = 12000
 
@@ -32,15 +35,32 @@ function requireCronSecret(req: Request, res: Response, next: () => void) {
 }
 
 export async function runContestsJob(): Promise<{ fetched: number; updated: number }> {
-  console.log('[Cron] Running contest fetch...')
+  logger.info('[Cron] Running contest fetch...')
   return fetchAndStoreContests()
 }
 
-export async function runProfileSyncJob(): Promise<{ totalUsers: number; totalSynced: number }> {
-  console.log('[CRON] Starting contest participation sync...')
+export async function runProfileSyncJob(): Promise<{ totalUsers: number; totalSynced: number; skippedRecent?: number; toSync?: number; failures?: number; durationMs?: number; skipped?: boolean; skipReason?: string }> {
+  logger.info('[CRON] Starting contest participation sync...')
+  const startedAt = new Date().toISOString()
   const result = await syncAllUsers()
-  console.log(`[CRON] Synced ${result.totalSynced} records from ${result.totalUsers} users`)
-  return result
+  // Per-run JSON line (mirrors syncEngine profile-sync-run; kept here so
+  // Render-cron HTTP logs also carry structured totals even if engine log is filtered).
+  logger.info(
+    JSON.stringify({
+      event: 'profile-sync-job',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      totalUsers: (result as any).totalUsers ?? 0,
+      toSync: (result as any).toSync ?? 0,
+      skippedRecent: (result as any).skippedRecent ?? 0,
+      totalSynced: (result as any).totalSynced ?? 0,
+      failures: (result as any).failures ?? 0,
+      durationMs: (result as any).durationMs ?? 0,
+      ...((result as any).skipped ? { skipped: true as const, skipReason: (result as any).skipReason } : {}),
+    })
+  )
+  logger.info(`[CRON] Synced ${result.totalSynced} records from ${result.totalUsers} users`)
+  return result as any
 }
 
 export interface OpportunitiesJobResult {
@@ -57,24 +77,31 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
   // OTHER_HACKATHON / OTHER_INTERNSHIP remain detached manual-only (POST /fetch/other/*).
   // Cron reads platform_settings (platform, type, enabled, fetchLimit): enabled=false → skip, fetchLimit → target (0=All, else 1-50), default 10.
   // Frontend Fetch All persists tick+target via PUT /fetch/:platform/limit {limit,type,enabled} and PUT /fetch/settings (bulk).
-  console.log('[Cron] Fetching opportunities from external sources (respecting PlatformSettings tick/target)...')
+  logger.info('[Cron] Fetching opportunities from external sources (respecting PlatformSettings tick/target)...')
 
-  // Find an admin to own the staging records
+  // SUPER_ADMIN-only feed (fix: tenant lottery). BEFORE: findFirst SUPER_ADMIN
+  // or COLLEGE_ADMIN in arbitrary order stamped admin.collegeId! onto every
+  // row — whichever college's admin happened to sort first owned the global
+  // feed (lottery). AFTER: prefer a SUPER_ADMIN owner and stamp collegeId
+  // null (global shared feed). Per-college visibility lives in the decisions
+  // tables; @@unique(title,source) stays global so every college can still
+  // decide the same opp independently. Explicit CRON_COLLEGE_ID remains for
+  // single-tenant debug (documents the only non-global path).
+  const explicitCronCollege = (process.env.CRON_COLLEGE_ID || '').trim() || null
   const admin = await prisma.user.findFirst({
-    where: { role: { in: ['SUPER_ADMIN', 'COLLEGE_ADMIN'] } },
+    where: { role: 'SUPER_ADMIN' },
+    select: { id: true, collegeId: true },
   })
   if (!admin) {
-    console.log('[Cron] No admin user found, skipping opportunity fetch')
+    logger.info('[Cron] No super admin user found, skipping opportunity fetch')
     return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 }
   }
+  const cronCollegeId: string | null = explicitCronCollege
 
   // Build limits from PlatformSettings — tick (enabled) + target (fetchLimit) — so cron respects Fetch All selection
-  const ALL_PLATFORMS = ['DEVFOLIO', 'DEVPOST', 'MLH', 'UNSTOP', 'HACK2SKILL', 'DORAHACKS', 'HACKEREARTH', 'INTERNSHALA', 'UNSTOP_INTERNSHIP', 'WELLFOUND'] as const
-  const PLATFORM_TYPE: Record<string, string> = {
-    DEVFOLIO: 'HACKATHON', DEVPOST: 'HACKATHON', MLH: 'HACKATHON', UNSTOP: 'HACKATHON',
-    HACK2SKILL: 'HACKATHON', DORAHACKS: 'HACKATHON', HACKEREARTH: 'HACKATHON',
-    INTERNSHALA: 'INTERNSHIP', UNSTOP_INTERNSHIP: 'INTERNSHIP', WELLFOUND: 'INTERNSHIP',
-  }
+  // SSOT: registry owns platform keys + types (1-file adds). No local copy.
+  const ALL_PLATFORMS = listFetchAllPlatforms()
+  const PLATFORM_TYPE: Record<string, string> = platformTypeMap() as Record<string, string>
   let limits: Record<string, number | undefined> = {}
   let disabledSkipped: string[] = []
   try {
@@ -91,16 +118,16 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
         limits[p] = raw === 0 ? undefined : raw
       }
       if (Object.keys(limits).length === 0) {
-        console.log(`[Cron] All platforms disabled via PlatformSettings (skipped: ${disabledSkipped.join(', ')}) — skipping fetch`)
+        logger.info(`[Cron] All platforms disabled via PlatformSettings (skipped: ${disabledSkipped.join(', ')}) — skipping fetch`)
         return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 }
       }
-      console.log(`[Cron] PlatformSettings limits: ${Object.entries(limits).map(([k, v]) => `${k}:${v === undefined ? 'All' : v}`).join(', ')}${disabledSkipped.length ? ` (skipped disabled: ${disabledSkipped.join(', ')})` : ''}`)
+      logger.info(`[Cron] PlatformSettings limits: ${Object.entries(limits).map(([k, v]) => `${k}:${v === undefined ? 'All' : v}`).join(', ')}${disabledSkipped.length ? ` (skipped disabled: ${disabledSkipped.join(', ')})` : ''}`)
     } else {
       for (const p of ALL_PLATFORMS) limits[p] = 10
-      console.log('[Cron] No PlatformSettings found — defaulting to 10 each for all 10 platforms')
+      logger.info('[Cron] No PlatformSettings found — defaulting to 10 each for all 10 platforms')
     }
   } catch (e: any) {
-    console.warn('[Cron] PlatformSettings read failed, defaulting to 10 each:', e?.message || e)
+    logger.warn({ err: e?.message || e }, '[Cron] PlatformSettings read failed, defaulting to 10 each:')
     limits = {}
     for (const p of ALL_PLATFORMS) limits[p] = 10
   }
@@ -111,84 +138,166 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
   const hackathonIdsToEnrich: string[] = []
   const internshipIdsToEnrich: string[] = []
 
-  // Process hackathons
+  // Batched staging save (DB write N+1 fix, ranked cause #2).
+  // BEFORE: per-opp findFirst + create (2N round-trips; N=30 → 60 queries).
+  // AFTER: 2 prefetch queries (existing title|source sets) + 2 createMany
+  // batches with skipDuplicates (+ 2 post-fetch ID lookups for enrichment)
+  // = 6 round-trips total regardless of N. Pattern mirrors save.ts
+  // filterExisting + createMany (SRP/DIP exemplar). In-memory dedupe +
+  // date coercion identical to save.ts; enrichment IDs resolved via post-fetch
+  // findMany (createMany returns count only).
   const hackathons = allOpps.filter(o => o.type === 'HACKATHON')
+  const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
+
+  function coerceDateOrNull(v: unknown): Date | null {
+    if (!v) return null
+    const d = v instanceof Date ? v : new Date(v as any)
+    return isNaN(d.getTime()) ? null : d
+  }
+
+  // --- Hackathons: in-memory dedupe + row building ---
+  // Order 2 V-24 NULL-safe: normalizeSource (missing/blank → 'MANUAL').
+  const hackSeen = new Set<string>()
+  const hackRows: any[] = []
   for (const opp of hackathons) {
     if (!opp.url || !opp.title) { hackathonSkipped++; continue }
-    try {
-      const existing = await prisma.hackathonStaging.findFirst({
-        where: { title: opp.title, source: opp.source },
-      })
-      if (existing) { hackathonSkipped++; continue }
-
-      const created = await prisma.hackathonStaging.create({
-        data: {
-          title: opp.title,
-          description: opp.description || null,
-          url: opp.url,
-          organizer: opp.organizer || null,
-          deadline: opp.deadline ? new Date(opp.deadline) : null,
-          startDate: opp.startDate ? new Date(opp.startDate) : null,
-          duration: opp.duration || null,
-          location: opp.location || null,
-          mode: opp.mode || null,
-          prizePool: opp.prizePool || null,
-          themes: JSON.stringify(opp.themes || []),
-          website: opp.website || null,
-          discord: opp.discord || null,
-          participantsCount: opp.participantsCount || 0,
-          inviteOnly: opp.inviteOnly || false,
-          status: 'DRAFT',
-          source: opp.source,
-          creatorId: admin.id,
-          collegeId: admin.collegeId!,
-        },
-      })
-      hackathonFetched++
-      hackathonIdsToEnrich.push(created.id)
-    } catch { hackathonSkipped++ }
+    const hackSource = normalizeSource((opp as { source?: unknown }).source)
+    const dedupeKey = `HACKATHON|${String(opp.title).trim().toLowerCase()}|${hackSource}`
+    if (hackSeen.has(dedupeKey)) { hackathonSkipped++; continue }
+    hackSeen.add(dedupeKey)
+    hackRows.push({
+      title: opp.title,
+      description: opp.description || null,
+      url: opp.url,
+      organizer: opp.organizer || null,
+      deadline: coerceDateOrNull(opp.deadline),
+      startDate: coerceDateOrNull(opp.startDate),
+      duration: opp.duration || null,
+      location: opp.location || null,
+      mode: opp.mode || null,
+      prizePool: opp.prizePool || null,
+      // Order 3: canonical Json array (was JSON-stringified String).
+      themes: (Array.isArray(opp.themes) ? opp.themes : []) as any,
+      website: opp.website || null,
+      discord: opp.discord || null,
+      participantsCount: opp.participantsCount || 0,
+      inviteOnly: opp.inviteOnly || false,
+      status: 'DRAFT',
+      source: hackSource,
+      creatorId: admin.id,
+      collegeId: cronCollegeId,
+    })
   }
 
-  // Process internships
-  const internships = allOpps.filter(o => o.type === 'INTERNSHIP')
+  // --- Internships: in-memory dedupe + row building ---
+  const internSeen = new Set<string>()
+  const internRows: any[] = []
   for (const opp of internships) {
     if (!opp.url || !opp.title) { internshipSkipped++; continue }
-    try {
-      const existing = await prisma.internshipStaging.findFirst({
-        where: { title: opp.title, source: opp.source },
-      })
-      if (existing) { internshipSkipped++; continue }
-
-      const created = await prisma.internshipStaging.create({
-        data: {
-          title: opp.title,
-          description: opp.description || 'No description available',
-          company: opp.company || opp.organizer || 'Unknown',
-          role: opp.role || opp.title,
-          url: opp.url,
-          stipend: opp.stipend || null,
-          duration: opp.duration || null,
-          mode: opp.mode || 'REMOTE',
-          deadline: opp.deadline || null,
-          startDate: opp.startDate || null,
-          status: 'ACTIVE',
-          source: opp.source,
-          creatorId: admin.id,
-          collegeId: admin.collegeId!,
-        },
-      })
-      internshipFetched++
-      internshipIdsToEnrich.push(created.id)
-    } catch { internshipSkipped++ }
+    const internSource = normalizeSource((opp as { source?: unknown }).source)
+    const dedupeKey = `INTERNSHIP|${String(opp.title).trim().toLowerCase()}|${internSource}`
+    if (internSeen.has(dedupeKey)) { internshipSkipped++; continue }
+    internSeen.add(dedupeKey)
+    internRows.push({
+      title: opp.title,
+      description: opp.description || 'No description available',
+      company: opp.company || opp.organizer || 'Unknown',
+      role: opp.role || opp.title,
+      url: opp.url,
+      stipend: opp.stipend || null,
+      duration: opp.duration || null,
+      mode: opp.mode || 'REMOTE',
+      deadline: opp.deadline || null,
+      startDate: opp.startDate || null,
+      status: 'ACTIVE',
+      source: internSource,
+      creatorId: admin.id,
+      collegeId: cronCollegeId,
+    })
   }
 
-  console.log(`[Cron] Opportunities: ${hackathonFetched} hackathons + ${internshipFetched} internships fetched, ${hackathonSkipped + internshipSkipped} skipped`)
+  async function filterExistingStaging(rows: any[], model: 'hackathonStaging' | 'internshipStaging'): Promise<any[]> {
+    if (rows.length === 0) return []
+    try {
+      const titles = [...new Set(rows.map((r) => r.title))]
+      const sources = [...new Set(rows.map((r) => normalizeSource((r as { source?: unknown }).source)))]
+      const existing: any[] = await (prisma as any)[model].findMany({
+        where: { title: { in: titles }, source: { in: sources } },
+        select: { title: true, source: true },
+      })
+      const existingKeys = new Set(existing.map((e: any) => `${String(e.title).trim().toLowerCase()}|${normalizeSource((e as { source?: unknown }).source)}`))
+      return rows.filter((r) => !existingKeys.has(`${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`))
+    } catch (e: any) {
+      logger.warn({ err: e?.message || e }, `[Cron] pre-fetch dedupe failed for ${model}, falling back to full insert:`)
+      return rows
+    }
+  }
+
+  const [hackFiltered, internFiltered] = await Promise.all([
+    filterExistingStaging(hackRows, 'hackathonStaging'),
+    filterExistingStaging(internRows, 'internshipStaging'),
+  ])
+  hackathonSkipped += hackRows.length - hackFiltered.length
+  internshipSkipped += internRows.length - internFiltered.length
+
+  try {
+    if (hackFiltered.length > 0) {
+      const res = await prisma.hackathonStaging.createMany({ data: hackFiltered, skipDuplicates: true })
+      hackathonFetched = res.count
+      hackathonSkipped += hackFiltered.length - res.count
+      try {
+        const createdRows: any[] = await prisma.hackathonStaging.findMany({
+          where: {
+            title: { in: [...new Set(hackFiltered.map((r) => r.title))] },
+            source: { in: [...new Set(hackFiltered.map((r) => normalizeSource((r as { source?: unknown }).source)))] },
+          },
+          select: { id: true, title: true, source: true },
+        })
+        const wanted = new Set(hackFiltered.map((r) => `${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`))
+        for (const row of createdRows) {
+          if (wanted.has(`${String(row.title).trim().toLowerCase()}|${normalizeSource((row as { source?: unknown }).source)}`)) hackathonIdsToEnrich.push(row.id)
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message || e }, '[Cron] hackathon post-fetch IDs failed (enrichment skipped):')
+      }
+    }
+  } catch (e: any) {
+    logger.warn({ err: e?.message || e }, '[Cron] hackathonStaging.createMany failed:')
+    hackathonSkipped += hackFiltered.length
+  }
+  try {
+    if (internFiltered.length > 0) {
+      const res = await prisma.internshipStaging.createMany({ data: internFiltered, skipDuplicates: true })
+      internshipFetched = res.count
+      internshipSkipped += internFiltered.length - res.count
+      try {
+        const createdRows: any[] = await prisma.internshipStaging.findMany({
+          where: {
+            title: { in: [...new Set(internFiltered.map((r) => r.title))] },
+            source: { in: [...new Set(internFiltered.map((r) => normalizeSource((r as { source?: unknown }).source)))] },
+          },
+          select: { id: true, title: true, source: true },
+        })
+        const wanted = new Set(internFiltered.map((r) => `${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`))
+        for (const row of createdRows) {
+          if (wanted.has(`${String(row.title).trim().toLowerCase()}|${normalizeSource((row as { source?: unknown }).source)}`)) internshipIdsToEnrich.push(row.id)
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message || e }, '[Cron] internship post-fetch IDs failed (enrichment skipped):')
+      }
+    }
+  } catch (e: any) {
+    logger.warn({ err: e?.message || e }, '[Cron] internshipStaging.createMany failed:')
+    internshipSkipped += internFiltered.length
+  }
+
+  logger.info(`[Cron] Opportunities: ${hackathonFetched} hackathons + ${internshipFetched} internships fetched, ${hackathonSkipped + internshipSkipped} skipped`)
 
   // Enrich sequentially with delay between each to avoid rate limits
   async function enrichSequentially(ids: string[], enrichFn: (id: string) => Promise<void>, label: string) {
     let enriched = 0
     for (let i = 0; i < ids.length; i++) {
-      console.log(`[Cron] Enriching ${label} ${i + 1}/${ids.length}`)
+      logger.info(`[Cron] Enriching ${label} ${i + 1}/${ids.length}`)
       try {
         await enrichFn(ids[i])
         enriched++
@@ -213,8 +322,15 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
   }
 }
 
-export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; internshipsDeleted: number }> {
-  console.log('[Cron] Cleaning up old rejected items...')
+export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number }> {
+  logger.info('[Cron] Running contest-reminder fan-out...')
+  const result = await runContestRemindersJob()
+  logger.info(`[Cron] Contest reminders: checked=${result.checked} notified=${result.notified} failed=${result.failed}`)
+  return result
+}
+
+export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; internshipsDeleted: number; registrationsExpired: number; notificationsDeleted: number; roomNotificationsDeleted: number }> {
+  logger.info('[Cron] Cleaning up old rejected items...')
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 30)
 
@@ -224,8 +340,40 @@ export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; inte
   const intDeleted = await prisma.internshipStaging.deleteMany({
     where: { status: 'REJECTED', updatedAt: { lt: cutoff } },
   })
-  console.log(`[Cron] Cleanup: deleted ${hackDeleted.count} hackathons, ${intDeleted.count} internships older than 30 days`)
-  return { hackathonsDeleted: hackDeleted.count, internshipsDeleted: intDeleted.count }
+  logger.info(`[Cron] Cleanup: deleted ${hackDeleted.count} hackathons, ${intDeleted.count} internships older than 30 days`)
+
+  // Auto-expire (moved from GET /hackathons/:id — GETs must never write):
+  // revert SELECTED registrations to REGISTERED after 3 days of no update.
+  const threeDaysAgo = new Date()
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+  const expired = await prisma.hackathonRegistration.updateMany({
+    where: { status: 'SELECTED', updatedAt: { lt: threeDaysAgo } },
+    data: { status: 'REGISTERED', currentRound: 0 },
+  })
+  if (expired.count > 0) {
+    logger.info(`[Cron] Expired ${expired.count} stale SELECTED registrations → REGISTERED`)
+  }
+
+  // 90-day TTL for notifications (both legacy + room tables) — prevents unbounded growth.
+  const ttlCutoff = new Date()
+  ttlCutoff.setDate(ttlCutoff.getDate() - 90)
+  const notifDeleted = await prisma.notification.deleteMany({
+    where: { createdAt: { lt: ttlCutoff } },
+  })
+  const roomNotifDeleted = await prisma.roomNotification.deleteMany({
+    where: { createdAt: { lt: ttlCutoff } },
+  })
+  if (notifDeleted.count + roomNotifDeleted.count > 0) {
+    logger.info(`[Cron] TTL: deleted ${notifDeleted.count} notifications + ${roomNotifDeleted.count} room-notifications older than 90d`)
+  }
+
+  return {
+    hackathonsDeleted: hackDeleted.count,
+    internshipsDeleted: intDeleted.count,
+    registrationsExpired: expired.count,
+    notificationsDeleted: notifDeleted.count,
+    roomNotificationsDeleted: roomNotifDeleted.count,
+  }
 }
 
 const router = Router()
@@ -239,7 +387,7 @@ const handleJob = (job: string, runner: JobRunner) => async (_req: Request, res:
     const result = await runner()
     res.json({ ok: true, job, startedAt, finishedAt: new Date().toISOString(), ...result })
   } catch (err) {
-    console.error(`[Cron] ${job} job failed:`, err)
+    logger.error({ err: err }, `[Cron] ${job} job failed:`)
     // Generic error only - raw messages can embed Prisma/DB internals; full error stays in server logs
     res.status(500).json({
       ok: false,
@@ -252,6 +400,7 @@ const handleJob = (job: string, runner: JobRunner) => async (_req: Request, res:
 }
 
 router.post('/contests', handleJob('contests', runContestsJob))
+router.post('/contest-reminders', handleJob('contest-reminders', runContestRemindersJobCron))
 router.post('/profile-sync', handleJob('profile-sync', runProfileSyncJob))
 router.post('/opportunities', handleJob('opportunities', runOpportunitiesJob))
 router.post('/cleanup', handleJob('cleanup', runCleanupJob))

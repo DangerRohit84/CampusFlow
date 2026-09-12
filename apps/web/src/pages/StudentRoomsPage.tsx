@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { motion } from 'framer-motion'
 import {
   BookOpen, Users, FileText, ChevronRight, Loader2, DoorOpen
@@ -19,15 +22,20 @@ export default function StudentRoomsPage() {
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
 
+  // STATE-SYNC: reactive scope — college switches change the key.
+  const overrideScope = useCollegeScope()
   const { data: roomsData, isLoading: loading } = useQuery({
-    queryKey: ['rooms', 'student'],
+    queryKey: qk.rooms('student', (user as any)?.collegeId || overrideScope),
     queryFn: ({ signal }) => roomAPI.getAll({ signal } as any),
     staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
   const rooms = (roomsData as any[]) ?? []
 
   const loadRooms = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['rooms'] })
+    notifyEntityMutated('room')
   }
 
   const handleJoin = async () => {

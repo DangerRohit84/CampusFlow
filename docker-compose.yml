@@ -1,3 +1,4 @@
+# LOCAL-ONLY: postgres campusflow/campusflow + JWT 1d are dev defaults bound to 127.0.0.1 — never use in prod (see .env.example + ROTATE-SECRETS).
 services:
   db:
     image: postgres:16-alpine
@@ -24,11 +25,16 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
+      - NODE_ENV=development
       - DATABASE_URL=postgresql://campusflow:campusflow@db:5432/campusflow
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRES_IN=7d
+      - DIRECT_URL=${DIRECT_URL:-postgresql://campusflow:campusflow@db:5432/campusflow}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - copy .env.example or see docs/ROTATE-SECRETS.md}
+      - JWT_EXPIRES_IN=1d
+      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET is required - copy .env.example or see docs/ROTATE-SECRETS.md}
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:?AI_ENCRYPTION_KEY is required - copy .env.example or see docs/ROTATE-SECRETS.md}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - FRONTEND_URL=http://localhost:3000
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - DISABLE_EMBEDDED_CRON=false
     depends_on:
       db:
         condition: service_healthy
@@ -53,3 +59,5 @@ services:
 
 volumes:
   postgres-data:
+
+

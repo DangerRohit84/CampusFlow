@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import { assignmentHubAPI } from '../../lib/api'
-import { queryClient } from '../../lib/queryClient'
+import { notifyEntityMutated } from '../../lib/entitySync'
 import toast from 'react-hot-toast'
 import { File as FileIcon, X, UploadCloud } from 'lucide-react'
 
@@ -21,9 +21,7 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
       await assignmentHubAPI.submit(hub.id, { content: content||undefined, files: files.length? files: undefined });
       toast.success('Submitted');
       setContent(''); setFiles([])
-      queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
-      queryClient.invalidateQueries({ queryKey: ['hubs'] })
-      queryClient.invalidateQueries({ queryKey: ['mySubmissions'] })
+      notifyEntityMutated('assignment', { hubId: hub.id, action: 'submitted' })
       if (onClose) onClose()
       if (onSubmitted) onSubmitted()
     } catch(e:any){ toast.error(e.response?.data?.error||'Submit failed')} finally{ setSubmitting(false)}

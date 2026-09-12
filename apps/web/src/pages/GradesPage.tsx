@@ -9,6 +9,7 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { gradesAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 
 interface Course {
   id: string
@@ -65,24 +66,49 @@ export default function GradesPage() {
   const [parsing, setParsing] = useState(false)
   const [parsedResults, setParsedResults] = useState<any[]>([])
   const [activeSemester, setActiveSemester] = useState<string>('all')
+  const [offlineOcrLoading, setOfflineOcrLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    gradesAPI.getData()
-      .then((data) => {
-        setCourses(data.subjects?.map((s: any, i: number) => ({
-          id: s.id || `c-${i}`,
-          name: s.name || '',
-          code: s.code || '',
-          credits: s.credits || 0,
-          grade: s.grade || '',
-          semester: s.semester || 1,
-        })) || [])
-        if (data.scale) setScale(data.scale)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+  // Offline OCR fallback — tesseract.js on demand (see AttendancePage).
+  const handleOfflineOcr = async () => {
+    if (!uploadImage || offlineOcrLoading) return
+    setOfflineOcrLoading(true)
+    try {
+      const { offlineOcrFallback } = await import('../lib/heavyLazy')
+      const text = await offlineOcrFallback(uploadImage)
+      const lines = String(text || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 20)
+      if (!lines.length) toast.error('Offline OCR found no text — try a clearer photo')
+      else toast.success(`Offline OCR captured ${lines.length} lines (see console)`)
+      // eslint-disable-next-line no-console
+      console.debug('[grades][offline-ocr]', lines)
+    } catch {
+      toast.error('Offline OCR unavailable — check connection and retry')
+    } finally {
+      setOfflineOcrLoading(false)
+    }
+  }
+
+  // STATE-SYNC: single loader for mount + external mutations (no stale copy).
+  const loadGrades = useCallback(async () => {
+    try {
+      const data = await gradesAPI.getData()
+      setCourses(data.subjects?.map((s: any, i: number) => ({
+        id: s.id || `c-${i}`,
+        name: s.name || '',
+        code: s.code || '',
+        credits: s.credits || 0,
+        grade: s.grade || '',
+        semester: s.semester || 1,
+      })) || [])
+      if (data.scale) setScale(data.scale)
+    } catch (e) { console.error(e) } finally { setLoading(false) }
   }, [])
+
+  useEntitySync('grade', loadGrades)
+
+  useEffect(() => {
+    loadGrades()
+  }, [loadGrades])
 
   const updateCourse = (id: string, field: keyof Course, value: any) => {
     setCourses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
@@ -138,6 +164,7 @@ export default function GradesPage() {
     setSaving(true)
     try {
       await gradesAPI.saveData(courses, scale)
+      notifyEntityMutated('grade', { action: 'saved' })
       toast.success('Grades saved!')
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Failed to save')
@@ -385,7 +412,7 @@ export default function GradesPage() {
                           value={course.name}
                           onChange={(e) => updateCourse(course.id, 'name', e.target.value)}
                           placeholder="Course name"
-                          className="flex-1 min-w-0 text-lg font-bold text-surface-900 dark:text-night-50 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-surface-400 dark:placeholder:text-night-200"
+                          className="flex-1 min-w-0 text-lg font-bold text-surface-900 dark:text-night-50 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-[#6b7280] dark:placeholder:text-night-200"
                         />
                         <button
                           onClick={() => deleteCourse(course.id)}
@@ -402,7 +429,7 @@ export default function GradesPage() {
                           value={course.code}
                           onChange={(e) => updateCourse(course.id, 'code', e.target.value)}
                           placeholder="Course code (optional)"
-                          className="flex-1 min-w-0 text-sm text-surface-600 dark:text-night-200 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-surface-400 dark:placeholder:text-night-200"
+                          className="flex-1 min-w-0 text-sm text-surface-600 dark:text-night-200 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-[#6b7280] dark:placeholder:text-night-200"
                         />
                         <span className="text-xs px-1.5 py-0.5 rounded bg-surface-100 dark:bg-night-600 text-surface-500 dark:text-night-200 shrink-0">
                           Sem {course.semester}
@@ -527,7 +554,7 @@ export default function GradesPage() {
               ) : parsedResults.length > 0 ? (
                 <div className="space-y-3">
                   <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
-                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                    <img src={uploadImage} alt="Grades preview" loading="lazy" decoding="async" width={800} height={320} className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
                   </div>
                   <p className="text-sm font-medium text-surface-700 dark:text-night-50">Parsed {parsedResults.length} courses:</p>
                   <div className="max-h-40 overflow-y-auto space-y-1">
@@ -550,11 +577,16 @@ export default function GradesPage() {
               ) : (
                 <div className="space-y-3">
                   <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
-                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                    <img src={uploadImage} alt="Grades preview" loading="lazy" decoding="async" width={800} height={320} className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
                   </div>
-                  <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
-                    Choose different image
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
+                      Choose different image
+                    </Button>
+                    <Button variant="secondary" onClick={handleOfflineOcr} loading={offlineOcrLoading} disabled={offlineOcrLoading}>
+                      {offlineOcrLoading ? 'Reading offline…' : 'Try offline OCR'}
+                    </Button>
+                  </div>
                 </div>
               )}
             </motion.div>

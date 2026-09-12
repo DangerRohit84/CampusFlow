@@ -1,0 +1,41 @@
+# Gitleaks config — CampusFlow prod hardening.
+# CI runs `gitleaks/gitleaks-action@v2` (see .github/workflows/ci.yml).
+# Local: `gitleaks detect --source . --verbose` (see docs/ROTATE-SECRETS.md §0).
+# DO NOT rotate live creds from chat — this file only PREVENTS new leaks.
+title = "CampusFlow gitleaks"
+
+[extend]
+useDefault = true
+
+# Allowlist REPLACE_ME_ placeholders in .env.example + docs (64-char but safe).
+[[allowlist]]
+description = "REPLACE_ME placeholders (docs + .env.example)"
+paths = [
+  '''\.env\.example$''',
+  '''docs/.*\.md$''',
+  '''render\.yaml$''',
+  '''\.gitleaks\.toml$''',
+]
+regexes = [
+  '''REPLACE_ME_[A-Za-z0-9_]+''',
+]
+
+# Allowlist example Neon URLs (USER:PASSWORD@ep-example — not live).
+[[allowlist]]
+description = "Example Neon URLs in .env.example"
+paths = ['''\.env\.example$''']
+regexes = [
+  '''ep-example(-pooler)?''',
+  '''USER:PASSWORD''',
+]
+
+# Standard ignores: lockfiles, dist, local env (gitignored but double-safe).
+[allowlist]
+description = "Global ignores"
+paths = [
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+  '''^packages/backend/dist/''',
+  '''^apps/web/dist/''',
+  '''^\.turbo/''',
+]

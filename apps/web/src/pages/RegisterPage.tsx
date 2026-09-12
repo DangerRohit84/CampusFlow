@@ -23,6 +23,7 @@ import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/authStore'
+import { resolvePostLoginDest } from '../lib/authRedirect'
 import { collegeAPI } from '../lib/api'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 
@@ -74,12 +75,10 @@ export default function RegisterPage() {
   if (!form.department.trim()) errors.department = 'Department required'
   if (!form.incomingYear) errors.incomingYear = 'Select year'
   if (!vPass) errors.password = 'Password required'
-  else if (vPass.length < 6) errors.password = 'Minimum 6 characters'
-  else if (vPass.length < 8) {
-    // warn but not block — nudge to stronger
-  }
+  else if (vPass.length < 8) errors.password = 'Minimum 8 characters'
+  else if (vPass.length > 72) errors.password = 'Maximum 72 characters'
   const passScore =
-    !vPass ? 0 : vPass.length < 6 ? 1 : vPass.length < 8 ? 2 : /[A-Z]/.test(vPass) && /[0-9]/.test(vPass) && /[^A-Za-z0-9]/.test(vPass) ? 4 : 3
+    !vPass ? 0 : vPass.length < 8 ? 1 : vPass.length < 12 ? 2 : /[A-Z]/.test(vPass) && /[0-9]/.test(vPass) && /[^A-Za-z0-9]/.test(vPass) ? 4 : 3
 
   const visibleErrors = Object.fromEntries(Object.entries(errors).filter(([k]) => touched[k])) as typeof errors
   const isValid = Object.keys(errors).length === 0
@@ -99,7 +98,19 @@ export default function RegisterPage() {
       const payload = { ...form, email: vEmail, name: vName, incomingYear: form.incomingYear ? parseInt(form.incomingYear, 10) : undefined }
       await register(payload as any)
       toast.success('Account created — welcome to the quad!')
-      navigate('/dashboard')
+      // WHY login parity (topbottom F5): honor 401 intent but drop stale
+      // superadmin routes for a new STUDENT (else /superadmin/* → /403 bounce
+      // that looks like "stuck on /register"). replace:true keeps /register
+      // out of history.
+      let dest = '/dashboard'
+      try {
+        const saved = sessionStorage.getItem('postLoginRedirect')
+        dest = resolvePostLoginDest(saved, 'STUDENT')
+        sessionStorage.removeItem('postLoginRedirect')
+      } catch {
+        dest = resolvePostLoginDest(null, 'STUDENT')
+      }
+      navigate(dest, { replace: true })
     } catch (err: any) {
       toast.error(err?.message || 'Registration failed — try a different email')
     }
@@ -107,7 +118,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-[#f6f6f6] dark:bg-black selection:bg-[#1ed760]/30 selection:text-black dark:selection:text-white">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap');`}</style>
+      {/* Fonts from index.html — no inline @import. */}
 
       {/* ── LEFT — Form bento (mirrored: Login has form right, Register has form left) ── */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-10 relative overflow-hidden bg-[#f6f6f6] dark:bg-black min-h-[100dvh] lg:min-h-screen">
@@ -165,7 +176,7 @@ export default function RegisterPage() {
               </div>
               <div className="flex items-center gap-3 py-1">
                 <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-                <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-400 dark:text-zinc-500">or register with email</span>
+                <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-500 dark:text-zinc-400">or register with email</span>
                 <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
               </div>
 
@@ -208,13 +219,15 @@ export default function RegisterPage() {
 
               {/* College — searchable */}
               <div className="relative">
-                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5">
+                <label htmlFor="register-college-search" className="block text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5">
                   College <span className="text-[#ff4b5c]">*</span>
                 </label>
                 <div className="relative">
                   <Building2 size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
                   <input
+                    id="register-college-search"
                     type="text"
+                    role="combobox"
                     placeholder={selectedCollege ? selectedCollege.name : 'Search your college...'}
                     value={collegeOpen ? collegeSearch : selectedCollege ? selectedCollege.name : ''}
                     onFocus={() => {
@@ -228,6 +241,7 @@ export default function RegisterPage() {
                     }}
                     onBlur={() => window.setTimeout(() => setCollegeOpen(false), 180)}
                     aria-expanded={collegeOpen}
+                    aria-controls="college-listbox"
                     aria-autocomplete="list"
                     className={`w-full pl-11 pr-10 h-11 rounded-xl border bg-white dark:bg-[#000] text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 text-sm transition-colors ${
                       visibleErrors.collegeId ? 'border-[#ff4b5c] focus:border-[#ff4b5c] focus:ring-[#ff4b5c]/20' : 'border-zinc-200 dark:border-zinc-800 focus:border-[#1ed760]/30 focus:ring-[#1ed760]/15'
@@ -245,6 +259,9 @@ export default function RegisterPage() {
                 <AnimatePresence>
                   {collegeOpen && (
                     <motion.div
+                      id="college-listbox"
+                      role="listbox"
+                      aria-label="College options"
                       initial={shouldReduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={shouldReduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
@@ -296,12 +313,14 @@ export default function RegisterPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5">
+                  <label htmlFor="register-year" className="block text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5">
                     Year <span className="text-[#ff4b5c]">*</span>
                   </label>
                   <div className="relative">
                     <GraduationCap size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
                     <select
+                      id="register-year"
+                      aria-label="Year"
                       value={form.incomingYear}
                       onChange={update('incomingYear')}
                       onBlur={() => setTouched((p) => ({ ...p, incomingYear: true }))}
@@ -325,7 +344,7 @@ export default function RegisterPage() {
                 <Input
                   label="Password"
                   type="password"
-                  placeholder="Create a strong password"
+                  placeholder="Create a strong password (min 8 characters)"
                   icon={<Lock size={18} />}
                   value={form.password}
                   onChange={update('password')}
@@ -333,6 +352,9 @@ export default function RegisterPage() {
                   error={visibleErrors.password}
                   autoComplete="new-password"
                   required
+                  minLength={8}
+                  maxLength={72}
+                  hint="Minimum 8 characters, maximum 72 (backend bcrypt limit)."
                 />
                 {/* strength meter */}
                 {form.password.length > 0 && (
@@ -346,7 +368,7 @@ export default function RegisterPage() {
                       ))}
                     </div>
                     <p className={`mt-1 text-[11px] font-semibold ${passScore <= 1 ? 'text-[#ff4b5c]' : passScore === 2 ? 'text-amber-600 dark:text-amber-400' : 'text-[#0a7a3a] dark:text-[#1ed760]'}`}>
-                      {passScore <= 1 ? 'Weak — add more characters' : passScore === 2 ? 'Fair — add uppercase, number, symbol' : passScore === 3 ? 'Good — add a symbol for stronger' : 'Strong password ✓'}
+                      {passScore <= 1 ? 'Weak — minimum 8 characters' : passScore === 2 ? 'Fair — 8+ chars, add uppercase, number, symbol' : passScore === 3 ? 'Good — add a symbol for stronger' : 'Strong password ✓'}
                     </p>
                   </div>
                 )}
@@ -354,13 +376,13 @@ export default function RegisterPage() {
 
               <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 By creating an account you agree to our{' '}
-                <a href="#" onClick={(e) => { e.preventDefault(); toast('Terms — coming soon') }} className="font-semibold text-zinc-700 dark:text-zinc-300 hover:text-[#1ed760] underline underline-offset-4">
+                <Link to="/terms" className="font-semibold text-zinc-700 dark:text-zinc-300 hover:text-[#1ed760] underline underline-offset-4">
                   Terms
-                </a>{' '}
+                </Link>{' '}
                 and{' '}
-                <a href="#" onClick={(e) => { e.preventDefault(); toast('Privacy — coming soon') }} className="font-semibold text-zinc-700 dark:text-zinc-300 hover:text-[#1ed760] underline underline-offset-4">
+                <Link to="/privacy" className="font-semibold text-zinc-700 dark:text-zinc-300 hover:text-[#1ed760] underline underline-offset-4">
                   Privacy
-                </a>
+                </Link>
                 . Tenant-isolated · JWT · No cross-college leak.
               </p>
 
@@ -398,7 +420,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <p className="mt-4 text-center text-xs text-zinc-500 dark:text-zinc-500">
+          <p className="mt-4 text-center text-xs text-zinc-600 dark:text-zinc-400">
             Free for students · ~60s intake ·{' '}
             <Link to="/" className="underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-300">
               Back to landing
@@ -449,10 +471,16 @@ export default function RegisterPage() {
           <div className="absolute inset-0 opacity-[0.07] mix-blend-soft-light">
             <img
               src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1600&q=80&auto=format&fit=crop"
+              srcSet="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&q=70&auto=format&fit=crop 800w, https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1600&q=80&auto=format&fit=crop 1600w"
+              sizes="(min-width: 1024px) 50vw, 100vw"
               alt=""
-              aria-hidden
+              aria-hidden="true"
+              width={1600}
+              height={900}
+              fetchPriority="low"
               className="w-full h-full object-cover"
               loading="eager"
+              decoding="async"
             />
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/[0.18]" />
@@ -490,7 +518,8 @@ export default function RegisterPage() {
               <span className="hidden sm:inline-flex ml-1 rounded-full bg-white text-black text-[10px] font-extrabold px-2 py-0.5">CF-ADM-01</span>
             </motion.div>
 
-            <motion.h1
+            <motion.p
+              aria-hidden="true"
               initial={shouldReduce ? undefined : { opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.56, ease: [0.22, 1, 0.36, 1], delay: 0.07 }}
@@ -500,7 +529,7 @@ export default function RegisterPage() {
               One card,
               <br />
               <span className="text-white/80">every door opens.</span>
-            </motion.h1>
+            </motion.p>
 
             <motion.p
               initial={shouldReduce ? undefined : { opacity: 0, y: 10 }}
@@ -560,9 +589,13 @@ export default function RegisterPage() {
             <div className="rounded-[20px] bg-white/[0.07] backdrop-blur-xl border border-white/10 p-4 flex items-center gap-3">
               <img
                 src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80&auto=format&fit=crop&crop=face"
-                alt=""
+                srcSet="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80&auto=format&fit=crop&crop=face 1x, https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80&auto=format&fit=crop&crop=face 2x"
+                alt="Aarav Singh, 3rd Year CSE student"
+                width={36}
+                height={36}
                 className="w-9 h-9 rounded-full object-cover border border-white/15"
                 loading="lazy"
+                decoding="async"
               />
               <div>
                 <p className="text-xs font-bold leading-none text-white">Aarav Singh · 3rd Year CSE</p>

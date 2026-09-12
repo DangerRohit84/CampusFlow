@@ -1,6 +1,6 @@
 import Card from '../ui/Card'
 import Badge from '../ui/Badge'
-import { Upload, Building, Layers, Users, EyeOff, Clock, CheckCircle2, Award, AlertTriangle, Hourglass } from 'lucide-react'
+import { Upload, Building, Layers, Users, EyeOff, Clock, CheckCircle2, Award, AlertTriangle, Hourglass, Pencil, X } from 'lucide-react'
 
 export default function AssignmentHubCard({ hub, onClick, onEdit, onDelete }: any) {
   const daysUntil = (d:string)=> { const diff=Math.ceil((new Date(d).getTime()-Date.now())/(86400000)); if(diff<0) return 'Overdue'; if(diff===0) return 'Today'; if(diff===1) return 'Tomorrow'; return `${diff} days` }
@@ -77,7 +77,10 @@ export default function AssignmentHubCard({ hub, onClick, onEdit, onDelete }: an
             {hasMySubmissionField && mySub?.grade && <span className="text-xs px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 border border-primary-200 dark:border-primary-700 font-bold">Grade: {mySub.grade}</span>}
           </div>
         </div>
-        {(onEdit||onDelete) && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity self-start"><button aria-label="Edit assignment" onClick={e=>{e.stopPropagation(); onEdit?.(hub)}} className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-surface-900 dark:text-night-50 dark:bg-[#1e1e1e]">✎</button><button aria-label="Delete assignment" onClick={e=>{e.stopPropagation(); onDelete?.(hub)}} className="p-2 rounded-lg hover:bg-danger-50 text-danger-500">✕</button></div>}
+        {/* WHY: actions are always visible (never hover-only) so keyboard, touch
+            and screen-reader users get the same affordances as mouse users (audit F24).
+            44px minimum touch targets. */}
+        {(onEdit||onDelete) && <div className="flex gap-1 opacity-100 self-start"><button aria-label={`Edit assignment ${hub.title}`} onClick={e=>{e.stopPropagation(); onEdit?.(hub)}} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-night-700 text-surface-500 hover:text-surface-900 dark:text-night-50 dark:bg-[#1e1e1e]"><Pencil size={16} aria-hidden="true" /></button><button aria-label={`Delete assignment ${hub.title}`} onClick={e=>{e.stopPropagation(); onDelete?.(hub)}} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-2 rounded-lg hover:bg-danger-50 text-danger-500"><X size={16} aria-hidden="true" /></button></div>}
       </div>
     </Card>
   )

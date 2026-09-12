@@ -1,9 +1,41 @@
 import { Router, Request, Response } from 'express'
+import rateLimit from 'express-rate-limit'
+import jwt from 'jsonwebtoken'
 import prisma from '../config/db'
+import { config } from '../config'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { getGithubCalendar } from '../services/githubActivity'
+import { toApiPlatform } from '../lib/platform'
+import { getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
+import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
+import { maskEmail } from '../utils/roles'
+import { logger } from '../utils/logger'
 
 const router = Router()
+
+// P0 SECURITY (F05/W7): public profiles are scrape targets. 60 req/h per IP
+// slows email/history harvesting (Classroom/Canvas parity). General limiter
+// in index.ts adds a second 500/15m baseline layer.
+const publicProfileLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many profile requests, please try again later' },
+})
+
+/** Optional auth: returns userId when a valid Bearer token is present, else null. Never throws. */
+function optionalAuthUserId(req: Request): string | null {
+  try {
+    const h = req.headers.authorization
+    if (!h || !h.startsWith('Bearer ')) return null
+    const token = h.split(' ')[1]
+    if (!token) return null
+    const decoded = jwt.verify(token, config.jwtSecret) as { userId: string }
+    return decoded?.userId ?? null
+  } catch {
+    return null
+  }
+}
 
 // helper to generate activity for calendar if needed (mirrors frontend deterministic)
 function generateCalendarContribs(seed: string, days = 364) {
@@ -101,9 +133,126 @@ router.get('/suggest/one', async (req: Request, res: Response) => {
   }
 })
 
+// GET /api/u/:username/activity -> public unified-heatmap daily activity.
+// WHY feat-public-heatmap: PublicProfilePage shows the SAME unified heatmap
+// (contests+coding+git, toggles, year filter, streaks) as CodingProfilePage.
+// Mirrors GET /coding-profile/activity scoping for the VIEWED user so the
+// frontend reuses the same merge code verbatim (stored + live github; contests
+// come from the main profile payload, never duplicated here).
+// Privacy: public handles only — returns per-day COUNTS (leetcode/codeforces/
+// github) + live GitHub days derived from the already-public githubUsername.
+// No email, no private cols, no edit/sync. Same 60/h limiter + noindex.
+// Pre-migration safe: missing CodingActivity table returns stored: [] with
+// live GitHub still served (never 500 for a missing table).
+// Must be before /:username (single-segment match would not swallow the slash,
+// but explicit ordering keeps intent clear alongside /check + /suggest above).
+router.get('/:username/activity', publicProfileLimiter, async (req: Request, res: Response) => {
+  try {
+    const raw = String(req.params.username || '').toLowerCase().trim()
+    if (!raw || !/^[a-z0-9._-]{3,30}$/.test(raw)) {
+      res.status(400).json({ error: 'Invalid username' })
+      return
+    }
+    let target: { id: string } | null
+    try {
+      target = await (prisma as any).user.findFirst({
+        where: { username: raw },
+        select: { id: true },
+      })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('username') || msg.includes('Unknown argument')) {
+        res.status(503).json({ error: 'Username feature not yet migrated. Please run prisma migrate.' })
+        return
+      }
+      throw e
+    }
+    if (!target) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    const daysParam = parseInt(String(req.query.days || String(ACTIVITY_WINDOW_DAYS)), 10)
+    const days = Number.isFinite(daysParam) ? Math.min(365, Math.max(30, daysParam)) : ACTIVITY_WINDOW_DAYS
+    const since = new Date()
+    since.setUTCDate(since.getUTCDate() - (days - 1))
+    since.setUTCHours(0, 0, 0, 0)
+
+    let stored: Array<{ date: string; source: string; count: number }> = []
+    try {
+      const delegate = (prisma as any)?.codingActivity
+      if (delegate) {
+        const rows: any[] = await delegate.findMany({
+          where: { userId: target.id, date: { gte: since } },
+          select: { date: true, source: true, count: true },
+          orderBy: { date: 'asc' },
+          take: 2000,
+        })
+        stored = (rows || [])
+          .map((r: any) => {
+            const d = r?.date instanceof Date ? r.date : new Date(r?.date)
+            if (!Number.isFinite(d.getTime())) return null
+            const key = d.toISOString().slice(0, 10)
+            const count = Math.floor(Number(r?.count))
+            if (!['leetcode', 'codeforces', 'github'].includes(String(r?.source))) return null
+            if (!Number.isFinite(count) || count <= 0) return null
+            return { date: key, source: String(r.source), count }
+          })
+          .filter(Boolean) as Array<{ date: string; source: string; count: number }>
+      }
+    } catch {
+      // Pre-migration (or stale client): serve live GitHub only, never 500.
+      stored = []
+    }
+
+    // Live GitHub overlay (cached 10min, best-effort): fresher than the last
+    // sync snapshot; the frontend prefers live days when present.
+    let github: Array<{ date: string; count: number; level: number }> = []
+    let githubLive = false
+    try {
+      const profile = await (prisma as any).codingProfile.findUnique({ where: { userId: target.id } })
+      const username = (profile as any)?.githubUsername as string | null | undefined
+      if (username && isValidGithubUsername(username)) {
+        const cal = await getGithubCalendar(username, days)
+        if (cal && cal.length > 0) {
+          github = cal
+          githubLive = true
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: (err as any)?.message || err }, 'public activity github overlay failed (best-effort)')
+      github = []
+    }
+
+    res.set('X-Robots-Tag', 'noindex, nofollow')
+    res.set('Cache-Control', 'private, max-age=60')
+    res.json({
+      stored,
+      github,
+      githubLive,
+      windowDays: days,
+      // Honest source ledger (same shape as the private endpoint so the
+      // frontend merge stays verbatim): what the heatmap can/cannot show.
+      sources: {
+        leetcode: true,
+        codeforces: true,
+        github: true,
+        contests: true,
+      },
+      omitted: ['codechef', 'hackerrank', 'gfg'],
+      omittedReason: 'No public per-day activity API — totals are shown in platform cards, never faked into the heatmap.',
+    })
+  } catch (e) {
+    logger.error({ err: e }, 'public activity error')
+    res.status(500).json({ error: 'Failed to fetch activity' })
+  }
+})
+
 // GET /api/u/:username  -> public profile (no auth required)
 // Also mounted at /api/users/u/:username for legacy, but primary is /api/u/:username
-router.get('/:username', async (req: Request, res: Response) => {
+// P0 SECURITY (F05): unauthenticated callers get a MASKED email (j***@domain);
+// authenticated callers get the full address. 60/h limiter + noindex (W7).
+router.get('/:username', publicProfileLimiter, async (req: Request, res: Response) => {
   try {
     const raw = String(req.params.username || '').toLowerCase().trim()
     if (!raw || !/^[a-z0-9._-]{3,30}$/.test(raw)) {
@@ -112,9 +261,22 @@ router.get('/:username', async (req: Request, res: Response) => {
     }
     let user: any
     try {
+      // NARROW-READ (fan-out #3): was findFirst full row (incl. passwordHash/
+      // preferences) + double include. AFTER: select display cols only +
+      // minimal college/department selects — same response shape, no secret cols.
       user = await (prisma as any).user.findFirst({
         where: { username: raw },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          email: true,
+          role: true,
+          avatar: true,
+          portfolioUrl: true,
+          incomingYear: true,
+          outgoingYear: true,
+          createdAt: true,
           college: { select: { id: true, name: true, code: true } },
           department: { select: { id: true, name: true } },
         },
@@ -132,6 +294,9 @@ router.get('/:username', async (req: Request, res: Response) => {
       return
     }
 
+    // Promise.all parallelism KEPT (was already parallel — good pattern from
+    // codingProfile.ts:322-330). Participations NARROW: select display cols only
+    // (was full row); take:100 kept (bounded, feeds stats/calendar/list identically).
     const [codingProfile, hackathonRegs, internshipRegs, participations] = await Promise.all([
       prisma.codingProfile.findUnique({ where: { userId: user.id } }).catch(() => null),
       prisma.hackathonRegistration.findMany({
@@ -155,8 +320,10 @@ router.get('/:username', async (req: Request, res: Response) => {
           },
         },
       }) as any).catch(() => []),
+      // Order 7 snapshot contract: include contestId+syncedAt (asOf); display prefers canonical when linked (see resolveContestDisplay).
       prisma.contestParticipation.findMany({
         where: { userId: user.id },
+        select: { id: true, platform: true, contestName: true, contestUrl: true, contestId: true, syncedAt: true, rank: true, rating: true, ratingChange: true, problemsSolved: true, participatedAt: true },
         orderBy: { participatedAt: 'desc' },
         take: 100,
       }).catch(() => []),
@@ -167,7 +334,7 @@ router.get('/:username', async (req: Request, res: Response) => {
     let totalSolved = 0
     let bestRating: number | null = null
     try {
-      const parsed = codingProfile?.platformStats ? JSON.parse(codingProfile.platformStats) : []
+      const parsed = Array.isArray((codingProfile as any)?.platformStats) ? (codingProfile as any).platformStats : (typeof (codingProfile as any)?.platformStats === 'string' ? JSON.parse((codingProfile as any).platformStats || '[]') : [])
       if (Array.isArray(parsed)) {
         platformStats = parsed.filter((s: any) => s.valid)
         totalSolved = platformStats.reduce((sum: number, s: any) => sum + (s.problemsSolved || 0), 0)
@@ -228,19 +395,25 @@ router.get('/:username', async (req: Request, res: Response) => {
       if (c.level > 0) { cur++; bestStreak = Math.max(bestStreak, cur) } else cur = 0
     }
 
+    res.set('X-Robots-Tag', 'noindex, nofollow')
+    res.set('Cache-Control', 'private, max-age=60')
+    const requesterId = optionalAuthUserId(req)
+    const isAuthed = !!requesterId
+    const visibleEmail = isAuthed ? user.email : maskEmail(user.email)
+
     res.json({
       user: {
         id: user.id,
         name: user.name,
         username: user.username,
-        email: user.email,
+        email: visibleEmail,
         role: user.role,
         avatar: user.avatar,
         portfolioUrl: (user as any).portfolioUrl || null,
         college: (user as any).college || null,
         department: (user as any).department || null,
-        collegeName: user.collegeName,
-        departmentName: user.departmentName,
+        collegeName: (user as any).college?.name ?? null,
+        departmentName: (user as any).department?.name ?? null,
         incomingYear: user.incomingYear,
         outgoingYear: user.outgoingYear,
         createdAt: user.createdAt,
@@ -285,11 +458,17 @@ router.get('/:username', async (req: Request, res: Response) => {
         createdAt: r.reportedAt || r.createdAt || null,
         internship: r.internship,
       })),
+      // Order 7: snapshot rows carry contestId+syncedAt (asOf); display prefers canonical when linked.
+      // Order 4: DB platform is UPPERCASE enum — map back to lowercase for the
+      // stable API shape (frontend PlatformLogo/history keys on lowercase).
       participations: participations.map((p: any) => ({
         id: p.id,
-        platform: p.platform,
+        platform: toApiPlatform(p.platform),
         contestName: p.contestName,
         contestUrl: p.contestUrl,
+        contestId: p.contestId ?? null,
+        syncedAt: p.syncedAt ?? null,
+        asOf: p.syncedAt ?? null,
         rank: p.rank,
         rating: p.rating,
         ratingChange: p.ratingChange,
@@ -298,7 +477,7 @@ router.get('/:username', async (req: Request, res: Response) => {
       })),
     })
   } catch (e) {
-    console.error('public profile error', e)
+    logger.error({ err: e }, 'public profile error')
     res.status(500).json({ error: 'Failed to fetch profile' })
   }
 })

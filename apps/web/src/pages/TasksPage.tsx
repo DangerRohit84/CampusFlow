@@ -4,6 +4,10 @@ import { Plus, Sparkles, Trash2, Check, Clock, Calendar as CalIcon,
   ChevronDown, Loader2, ListTodo, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { taskAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { useRaceGuard, isAbortError } from '../hooks/useRaceGuard'
+import { useConfirm } from '../components/ui/ConfirmModal'
+import { showUndoToast } from '../lib/undoToast'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
 type Task = {
@@ -48,6 +52,7 @@ function formatDate(dateStr: string) {
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const { confirm: confirmDialog } = useConfirm()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'today' | 'upcoming' | 'all' | 'completed'>('today')
   const [newTitle, setNewTitle] = useState('')
@@ -74,29 +79,62 @@ export default function TasksPage() {
 
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Fetch tasks
-  const fetchTasks = useCallback(async () => {
-    setLoading(true)
+  // TAB-NOREFRESH: single stable cache for ALL tabs (today/upcoming/all/completed
+  // filter client-side like Rooms/Hackathons). Previously fetchTasks depended on
+  // activeTab and refetched getToday vs getAll on every switch with a full
+  // loader. Now: ONE getAll fetch, tabs never hit the network. Manual-page
+  // equivalents of RQ staleTime (60s) + gcTime (state lives while mounted) +
+  // keepPreviousData (cached list stays visible, background revalidate silent) +
+  // AbortController signal (stale switches cancelled, no overwrite).
+  const lastFetchRef = useRef(0)
+  const tasksRef = useRef<Task[]>([])
+  tasksRef.current = tasks
+  const TASKS_STALE_TIME = 60 * 1000
+  const { newRequest, isCurrent } = useRaceGuard()
+
+  // Fetch tasks — silent background revalidate when cache exists (no loader
+  // flash on tab switch / window focus). force:true bypasses staleTime (used
+  // after local creates/restores where counts must be exact).
+  const fetchTasks = useCallback(async (opts?: { force?: boolean; silent?: boolean }) => {
+    const hasCache = tasksRef.current.length > 0 || lastFetchRef.current > 0
+    const fresh = Date.now() - lastFetchRef.current < TASKS_STALE_TIME
+    if (!opts?.force && hasCache && fresh) return
+    const { signal, seq } = newRequest()
+    const silent = opts?.silent ?? hasCache
+    if (!silent) setLoading(true)
     try {
-      if (activeTab === 'today') {
-        const data = await taskAPI.getToday()
-        setTasks(Array.isArray(data) ? data : data.tasks || [])
-      } else {
-        const data = await taskAPI.getAll()
-        setTasks(Array.isArray(data) ? data : data.tasks || [])
-      }
-    } catch {
-      toast.error('Failed to load tasks')
+      const data = await taskAPI.getAll({ signal } as any)
+      if (!isCurrent(seq) || signal.aborted) return
+      setTasks(Array.isArray(data) ? data : data.tasks || [])
+      lastFetchRef.current = Date.now()
+    } catch (e: any) {
+      if (isAbortError(e, signal)) return
+      if (!silent) toast.error('Failed to load tasks')
     } finally {
-      setLoading(false)
+      if (isCurrent(seq) && !signal.aborted) setLoading(false)
     }
-  }, [activeTab])
+  }, [newRequest, isCurrent])
+
+  // Prefetch adjacent tab on hover: tabs are client-side, so this only ensures
+  // the single list is loaded (no-op when cached) — hover→click never flashes.
+  const prefetchTasks = () => {
+    if (tasksRef.current.length === 0 && lastFetchRef.current === 0) void fetchTasks({ silent: true })
+  }
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    void fetchTasks({ silent: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // STATE-SYNC: same-tab + cross-tab + cross-device task freshness. Background
+  // silent (no loader); staleTime above collapses focus storms — window focus
+  // within 60s of the last fetch is a no-op, never a visible reload.
+  useEntitySync(['task', 'schedule'], () => { void fetchTasks({ silent: true }) })
 
   // Filtered tasks
+  // L-3 NOTE (intentional divergence, not a bug): 'today' list includes
+  // completed-today as history (strikethrough), while tabCounts.today below
+  // counts only actionable (!completed). Badge = remaining, list = history.
   const filteredTasks = tasks.filter((t) => {
     if (activeTab === 'today') return t.date === todayISO()
     if (activeTab === 'completed') return t.completed
@@ -117,6 +155,8 @@ export default function TasksPage() {
       return
     }
     setCreating(true)
+    // Capture request order: slow create must not be overwritten by a later
+    // fast list fetch. We re-fetch AFTER the POST resolves (never fire-and-forget).
     try {
       await taskAPI.create({
         title: newTitle.trim(),
@@ -136,7 +176,8 @@ export default function TasksPage() {
       setNewPriority('MEDIUM')
       setNewCategory('other')
       setShowAdvanced(false)
-      fetchTasks()
+      notifyEntityMutated('task', { action: 'created' })
+      await fetchTasks({ force: true, silent: true })
     } catch {
       toast.error('Failed to create task')
     } finally {
@@ -144,25 +185,42 @@ export default function TasksPage() {
     }
   }
 
-  // Toggle task
+  // Toggle task — optimistic with rollback on failure (no stale checkbox).
   const handleToggle = async (id: string) => {
+    const prev = tasks
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t))
     try {
       await taskAPI.toggle(id)
-      setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t))
+      notifyEntityMutated('task', { taskId: id, action: 'toggled' })
       toast.success('Task updated')
     } catch {
+      setTasks(prev)
       toast.error('Failed to update task')
     }
   }
 
-  // Delete task
+  // Delete task — optimistic with rollback + undo re-create notifies.
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this task?')) return
+    const doomed = tasks.find((t) => t.id === id)
+    const ok = await confirmDialog({ title: 'Delete task?', message: `Delete "${doomed?.title || 'this task'}"? You can undo right after.`, confirmLabel: 'Delete' })
+    if (!ok) return
+    const prev = tasks
     try {
       await taskAPI.delete(id)
       setTasks(prev => prev.filter(t => t.id !== id))
-      toast.success('Task deleted')
+      notifyEntityMutated('task', { taskId: id, action: 'deleted' })
+      if (doomed) {
+        const { id: _id, ...snapshot } = doomed
+        showUndoToast('Task deleted', async () => {
+          const restored = await taskAPI.create(snapshot)
+          setTasks(prev => [restored, ...prev])
+          notifyEntityMutated('task', { action: 'restored' })
+        })
+      } else {
+        toast.success('Task deleted')
+      }
     } catch {
+      setTasks(prev)
       toast.error('Failed to delete task')
     }
   }
@@ -213,12 +271,15 @@ export default function TasksPage() {
         startTime: item.startTime,
         endTime: item.endTime,
       })
+      notifyEntityMutated('task', { action: 'created' })
+      await fetchTasks({ force: true, silent: true })
       toast.success('Added!')
     } catch {
       toast.error('Failed to add task')
     }
   }
 
+  // L-3: badge = actionable remaining (excludes completed-today); see list note above.
   const tabCounts = {
     today: tasks.filter(t => t.date === todayISO() && !t.completed).length,
     upcoming: tasks.filter(t => !t.completed && t.date > todayISO()).length,
@@ -399,8 +460,9 @@ export default function TasksPage() {
         </AnimatePresence>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex gap-1 bg-surface-100 dark:bg-night-800 rounded-xl p-1 w-fit">
+      {/* Filter Tabs — client-side only (no fetch on switch). onMouseEnter warms
+          the single list cache so hover→click never flashes a loader. */}
+      <div className="flex gap-1 bg-surface-100 dark:bg-night-800 rounded-xl p-1 w-fit" role="tablist" aria-label="Filter tasks">
         {[
           { key: 'today', label: 'Today' },
           { key: 'upcoming', label: 'Upcoming' },
@@ -409,7 +471,11 @@ export default function TasksPage() {
         ].map(tab => (
           <button
             key={tab.key}
+            role="tab"
+            aria-selected={activeTab === tab.key}
             onClick={() => setActiveTab(tab.key as any)}
+            onMouseEnter={prefetchTasks}
+            onFocus={prefetchTasks}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'bg-white dark:bg-night-650 text-primary-600 dark:text-brass-400 shadow-sm'

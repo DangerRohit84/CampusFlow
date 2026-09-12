@@ -2,16 +2,23 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { toApiParticipations, toPlatformEnum } from '../lib/platform'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
 import { emitToUser, broadcastContestMutation, broadcastCodingProfileMutation } from '../services/socket'
 import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
+import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
+import { checkAndClaimSyncThrottle, clearSyncThrottleStore } from '../services/syncThrottleStore'
+import { logger } from '../utils/logger'
 
 const router = Router()
 
-// Per-user manual-sync throttle for POST /sync (in-memory; resets on server
-// restart, which is acceptable for abuse prevention). Allows at most one
-// background scrape job per user per 5-minute window.
-const SYNC_THROTTLE_MS = 5 * 60 * 1000
+// Per-user manual-sync throttle for POST /sync (60s window).
+// Upgrade 3b: DB-backed via SyncThrottle table (multi-instance safe, survives
+// restart) with the in-memory Map below as fast-path + fallback until the
+// 20260910000000_sync_upgrades migration is applied. DB is authoritative:
+// memory says throttled → 429 immediately; else DB is checked; claim writes
+// both. Allows at most one background scrape job per user per 1-minute window.
+const SYNC_THROTTLE_MS = 60 * 1000
 const syncThrottle = new Map<string, number>()
 
 // Github throttle for calendar fetches — per IP or per user
@@ -63,7 +70,7 @@ router.get('/github-calendar', authenticate, async (req: AuthRequest, res: Respo
     }
     res.json(calendar)
   } catch (error) {
-    console.error('github-calendar error', error)
+    logger.error({ err: error }, 'github-calendar error')
     res.status(500).json({ error: 'Failed to fetch GitHub calendar' })
   }
 })
@@ -100,8 +107,92 @@ router.get('/github/:githubUsername', authenticate, async (req: AuthRequest, res
     }
     res.json(calendar)
   } catch (error) {
-    console.error('github fetch error', error)
+    logger.error({ err: error }, 'github fetch error')
     res.status(500).json({ error: 'Failed to fetch GitHub calendar' })
+  }
+})
+
+// GET /coding-profile/activity — unified-heatmap daily activity.
+// Returns the trailing-window CodingActivity snapshot (leetcode/codeforces
+// per-day solves persisted by sync) + live GitHub days (cached, best-effort).
+// Contests are NOT duplicated here — the frontend merges ContestParticipation
+// dates (authoritative) with this payload. CodeChef/HackerRank/GFG have NO
+// daily API and are honestly reported in `omitted` (totals stay in cards).
+// Pre-migration safe: missing CodingActivity table returns stored: [] with
+// live GitHub still served (never 500 for a missing table).
+router.get('/activity', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const daysParam = parseInt(String(req.query.days || String(ACTIVITY_WINDOW_DAYS)), 10)
+    const days = Number.isFinite(daysParam) ? Math.min(365, Math.max(30, daysParam)) : ACTIVITY_WINDOW_DAYS
+    const since = new Date()
+    since.setUTCDate(since.getUTCDate() - (days - 1))
+    since.setUTCHours(0, 0, 0, 0)
+
+    let stored: Array<{ date: string; source: string; count: number }> = []
+    try {
+      const delegate = (prisma as any)?.codingActivity
+      if (delegate) {
+        const rows: any[] = await delegate.findMany({
+          where: { userId: req.userId!, date: { gte: since } },
+          select: { date: true, source: true, count: true },
+          orderBy: { date: 'asc' },
+          take: 2000,
+        })
+        stored = (rows || [])
+          .map((r: any) => {
+            const d = r?.date instanceof Date ? r.date : new Date(r?.date)
+            if (!Number.isFinite(d.getTime())) return null
+            const key = d.toISOString().slice(0, 10)
+            const count = Math.floor(Number(r?.count))
+            if (!['leetcode', 'codeforces', 'github'].includes(String(r?.source))) return null
+            if (!Number.isFinite(count) || count <= 0) return null
+            return { date: key, source: String(r.source), count }
+          })
+          .filter(Boolean) as Array<{ date: string; source: string; count: number }>
+      }
+    } catch {
+      // Pre-migration (or stale client): serve live GitHub only, never 500.
+      stored = []
+    }
+
+    // Live GitHub overlay (cached 10min, best-effort): fresher than the last
+    // sync snapshot; the frontend prefers live days when present.
+    let github: Array<{ date: string; count: number; level: number }> = []
+    let githubLive = false
+    try {
+      const profile = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
+      const username = (profile as any)?.githubUsername as string | null | undefined
+      if (username && isValidGithubUsername(username)) {
+        const cal = await getGithubCalendar(username, days)
+        if (cal && cal.length > 0) {
+          github = cal
+          githubLive = true
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: (err as any)?.message || err }, 'activity github overlay failed (best-effort)')
+      github = []
+    }
+
+    res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=120')
+    res.json({
+      stored,
+      github,
+      githubLive,
+      windowDays: days,
+      // Honest source ledger: what the heatmap can and cannot show per day.
+      sources: {
+        leetcode: true,
+        codeforces: true,
+        github: true,
+        contests: true,
+      },
+      omitted: ['codechef', 'hackerrank', 'gfg'],
+      omittedReason: 'No public per-day activity API — totals are shown in platform cards, never faked into the heatmap.',
+    })
+  } catch (error) {
+    logger.error({ err: error }, 'activity fetch error')
+    res.status(500).json({ error: 'Failed to fetch daily activity' })
   }
 })
 
@@ -147,6 +238,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     const existing = await (prisma as any).codingProfile.findUnique({ where: { userId: req.userId! } })
     let cleanedStats: any[] | undefined
+    let changedPlatforms: string[] = []
 
     if (existing) {
       const oldHandles: Record<string, string | null> = {
@@ -159,13 +251,18 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
       const changed = Object.keys(handles).filter(
         (p) => (oldHandles[p] || null) !== handles[p] && !!oldHandles[p]
       )
+      changedPlatforms = changed
 
       if (changed.length > 0) {
+        // Order 4: ContestParticipation.platform is the native Platform enum
+        // (UPPERCASE). `changed` holds lowercase handle keys ('leetcode') —
+        // normalize at the Prisma boundary (no `as any` cast).
+        const changedEnums = changed.map((p) => toPlatformEnum(p))
         await prisma.contestParticipation.deleteMany({
-          where: { userId: req.userId!, platform: { in: changed } },
+          where: { userId: req.userId!, platform: { in: changedEnums } },
         })
         let stats: any[] = []
-        try { stats = JSON.parse(existing.platformStats || '[]') } catch { stats = [] }
+        try { const _ps: any = (existing as any).platformStats; stats = Array.isArray(_ps) ? _ps : JSON.parse(typeof _ps === 'string' ? (_ps || '[]') : '[]') } catch { stats = [] }
         cleanedStats = stats.filter((s: any) => !changed.includes(s.platform))
       }
     }
@@ -179,7 +276,7 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
         hackerrankHandle: handles.hackerrank,
         gfgHandle: handles.gfg,
         githubUsername,
-        ...(cleanedStats !== undefined && { platformStats: JSON.stringify(cleanedStats) }),
+        ...(cleanedStats !== undefined && { platformStats: cleanedStats as any }),
       },
       create: {
         userId: req.userId!,
@@ -191,10 +288,21 @@ router.put('/', authenticate, async (req: AuthRequest, res: Response) => {
         githubUsername,
       },
     })
+    // Handle change invalidates the prior sync run: clear the per-user throttle
+    // so an immediate re-sync for the NEW handles is not rejected as 429.
+    // First-add (changedPlatforms empty) is unaffected — delete on a missing
+    // key is a no-op — and Sync still reads the freshly saved handles.
+    // Upgrade 3b: clear DB-backed throttle too (multi-instance).
+    if (changedPlatforms.length > 0) {
+      syncThrottle.delete(req.userId!)
+      try {
+        await clearSyncThrottleStore(req.userId!)
+      } catch {}
+    }
     try { broadcastCodingProfileMutation({ userId: req.userId, action: 'handles:updated' }) } catch {}
     res.json(profile)
   } catch (error) {
-    console.error('Update coding profile error:', error)
+    logger.error({ err: error }, 'Update coding profile error:')
     res.status(500).json({ error: 'Failed to update coding profile' })
   }
 })
@@ -237,17 +345,42 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
 
     // Per-user throttle (checked after auto-skip and no-handles guards): reject
     // if this user already started a sync within the throttle window.
+    // WHY: remaining seconds are returned so the UI can render a live
+    // "Sync in Ns" countdown instead of a generic failure toast.
+    // Upgrade 3b: in-memory fast-path first (no DB hit on spam), then DB
+    // authoritative check+claim (multi-instance safe). 429 shape unchanged:
+    // status 429 + Retry-After header + retryAfterSec body.
     const userId = req.userId!
     const lastStart = syncThrottle.get(userId)
     if (lastStart !== undefined && Date.now() - lastStart < SYNC_THROTTLE_MS) {
-      res.status(429).json({ error: 'Sync already started recently. Try again in a few minutes.' })
+      const retryAfterSec = Math.max(
+        1,
+        Math.ceil((SYNC_THROTTLE_MS - (Date.now() - lastStart)) / 1000)
+      )
+      res.set('Retry-After', String(retryAfterSec))
+      res.status(429).json({ error: `Sync already started recently. Try again in ${retryAfterSec}s.`, retryAfterSec })
       return
+    }
+
+    // DB-backed throttle (authoritative across replicas). Falls back to
+    // memory when the SyncThrottle table is missing (pre-migration).
+    try {
+      const dbThrottle = await checkAndClaimSyncThrottle(userId, { windowMs: SYNC_THROTTLE_MS })
+      if (!dbThrottle.allowed) {
+        res.set('Retry-After', String(dbThrottle.retryAfterSec))
+        res.status(429).json({ error: `Sync already started recently. Try again in ${dbThrottle.retryAfterSec}s.`, retryAfterSec: dbThrottle.retryAfterSec })
+        return
+      }
+    } catch (e) {
+      logger.warn({ err: (e as any)?.message || e }, '[sync] throttle DB check failed, using in-memory only')
     }
 
     // Record the start timestamp only after all guards pass, so rejected/skipped
     // requests never consume the user's throttle slot.
     syncThrottle.set(userId, Date.now())
-    syncUserContests(userId)
+    // Throttle-collapse: reuse the profile already fetched above (line 227) so
+    // syncUserContests skips its own findUnique (3 pre-hits → 2).
+    syncUserContests(userId, { profile })
       .then((result) => {
         try {
           emitToUser(userId, 'profile-sync', {
@@ -261,57 +394,90 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
           broadcastCodingProfileMutation({ userId, action: 'sync:completed' })
         } catch { /* socket.io not initialized — push is best-effort */ }
       })
-      .catch((err) => console.error(`Background coding-profile sync failed for ${userId}:`, err))
+      .catch((err) => logger.error({ err: err }, `Background coding-profile sync failed for ${userId}:`))
     res.status(202).json({ message: 'Sync started', userId, startedAt: new Date().toISOString() })
   } catch (error) {
     res.status(500).json({ error: 'Failed to sync' })
   }
 })
 
-// GET /coding-profile/participations — get own participation history (paginated)
+// GET /coding-profile/participations — get own participation history (take:50 + count)
+// 10k scale: take capped 50 (was 200), count exposed via X-Total-Count header
+// + envelope when paged. Array body kept for backward compat.
 router.get('/participations', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
-    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || '100'), 10) || 100))
-    const platform = req.query.platform ? String(req.query.platform).toLowerCase() : null
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || '50'), 10) || 50))
+    const rawPlatform = req.query.platform ? String(req.query.platform) : null
     const where: any = { userId: req.userId! }
-    if (platform) where.platform = platform
-    const participations = await prisma.contestParticipation.findMany({
-      where,
-      orderBy: [{ participatedAt: 'desc' }, { syncedAt: 'desc' }],
-      skip: (page - 1) * limit,
-      take: limit,
-    })
-    // Add pagination headers for clients that paginate
-    const total = await prisma.contestParticipation.count({ where })
+    // Order 4: platform is the native enum (UPPERCASE). Accept lowercase from
+    // the query (frontend sends 'codechef') and normalize at the boundary.
+    // 400 on unknown (mirrors contests.ts isValidPlatform); 'all' = no filter.
+    if (rawPlatform && rawPlatform.toLowerCase() !== 'all') {
+      try {
+        where.platform = toPlatformEnum(rawPlatform)
+      } catch {
+        res.status(400).json({ error: `Invalid platform. Allowed: CODEFORCES, CODECHEF, LEETCODE, ATCODER, HACKERRANK, GFG, OTHER` })
+        return
+      }
+    }
+    const [rows, total] = await Promise.all([
+      prisma.contestParticipation.findMany({
+        where,
+        orderBy: [{ participatedAt: 'desc' }, { syncedAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.contestParticipation.count({ where }),
+    ])
+    // API shape stable: frontend keys on lowercase ('codechef',
+    // PlatformLogo/history filter/platformColors) — map DB UPPERCASE back.
+    const participations = toApiParticipations(rows as any)
     res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+    res.set('X-Total-Count', String(total))
+    const wantsPaged = req.query.page != null || req.query.limit != null
+    if (wantsPaged) {
+      res.json({ data: participations, pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+      return
+    }
     res.json(participations)
-    // Note: total available via count if client needs; keeping response as array for backward compat
-    void total
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch participations' })
   }
 })
 
 // GET /coding-profile/leaderboard — overall leaderboard (college-scoped, paginated)
+// 10k scale: DB GROUP BY (not in-memory agg over 1M participations).
+// BEFORE: findMany(all participations + include user+department) → JS Map → sort → slice.
+//   10k users × 100 contests = 1M rows with includes → OOM.
+// AFTER: single groupBy(userId) with _count/_avg/_max at DB → fetch user
+//   details for the page slice only (≤50 rows). Total = groups length
+//   (≤10k small rows, no includes). Same response shape (API compat).
 router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { platform, departmentId, year } = req.query as Record<string, string | undefined>
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
     const limitParam = parseInt(String(req.query.limit || '50'), 10)
-    const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(1, limitParam)) : 50
-    const requester = await prisma.user.findUnique({ where: { id: req.userId } })
+    const limit = Number.isFinite(limitParam) ? Math.min(50, Math.max(1, limitParam)) : 50
+    // NARROW-READ: leaderboard auth needs id/role/collegeId only (was full row).
+    const requester = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!requester) { res.status(404).json({ error: 'User not found' }); return }
 
-    // Build DB-level filters to avoid loading all rows into memory
     const where: any = {}
-    if (platform && platform !== 'all') where.platform = String(platform).toLowerCase()
-    // College scoping: only same college unless SUPER_ADMIN
+    // Order 4: platform is the native enum (UPPERCASE). Frontend sends
+    // lowercase ids ('codeforces') — normalize at the boundary, 400 on ghost.
+    if (platform && platform !== 'all') {
+      try {
+        where.platform = toPlatformEnum(platform)
+      } catch {
+        res.status(400).json({ error: `Invalid platform. Allowed: CODEFORCES, CODECHEF, LEETCODE, ATCODER, HACKERRANK, GFG, OTHER` })
+        return
+      }
+    }
     const collegeFilter: any = {}
     if (requester.role !== 'SUPER_ADMIN' && requester.collegeId) {
       collegeFilter.collegeId = requester.collegeId
     }
-    // Department / year filters are on user relation — push to DB via relation filter
     const userFilter: any = { ...collegeFilter }
     if (departmentId && departmentId !== 'all') userFilter.departmentId = departmentId
     if (year && year !== 'all') {
@@ -320,57 +486,57 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
     }
     if (Object.keys(userFilter).length) where.user = userFilter
 
-    // Only fetch needed fields — limit to last 90 days? but keep all for ranking accuracy
-    // Add pagination at DB level would require aggregation. For now fetch filtered set but with pagination after aggregation.
-    const participations = await prisma.contestParticipation.findMany({
+    // Single DB aggregation — GROUP BY userId (replaces in-memory Map over all rows).
+    const groups: any[] = await prisma.contestParticipation.groupBy({
+      by: ['userId'],
       where,
-      include: { user: { include: { department: true } } },
-      orderBy: { participatedAt: 'desc' },
+      _count: { _all: true },
+      _avg: { rank: true },
+      _max: { rating: true },
+    } as any)
+
+    // Sort at DB-equivalent order (totalContests desc, bestRating desc).
+    // groupBy orderBy on aggregates varies by provider; sort in JS over
+    // ≤10k small group rows (not 1M full rows) for deterministic output.
+    groups.sort((a: any, b: any) => {
+      const ca = a._count?._all ?? 0
+      const cb = b._count?._all ?? 0
+      if (cb !== ca) return cb - ca
+      return (b._max?.rating ?? 0) - (a._max?.rating ?? 0)
     })
 
-    const userStats = new Map<string, {
-      userId: string; name: string; department: string; departmentId: string | null; incomingYear: number | null; avatar: string | null
-      totalContests: number; ranks: number[]; bestRating: number
-    }>()
-
-    for (const p of participations) {
-      const existing = userStats.get(p.userId)
-      if (existing) {
-        existing.totalContests++
-        if (p.rank) existing.ranks.push(p.rank)
-        if (p.rating && p.rating > existing.bestRating) existing.bestRating = p.rating
-      } else {
-        userStats.set(p.userId, {
-          userId: p.userId,
-          name: p.user.name,
-          department: p.user.department?.name || '',
-          departmentId: (p.user as any).departmentId || null,
-          incomingYear: (p.user as any).incomingYear ?? null,
-          avatar: p.user.avatar,
-          totalContests: 1,
-          ranks: p.rank ? [p.rank] : [],
-          bestRating: p.rating || 0,
-        })
-      }
-    }
-
-    const leaderboardRaw = Array.from(userStats.values()).map(v => ({
-      userId: v.userId,
-      name: v.name,
-      department: v.department,
-      departmentId: v.departmentId,
-      incomingYear: v.incomingYear,
-      avatar: v.avatar,
-      totalContests: v.totalContests,
-      avgRank: v.ranks.length ? Math.round(v.ranks.reduce((a, b) => a + b, 0) / v.ranks.length) : 0,
-      bestRating: v.bestRating,
-    })).sort((a, b) => b.totalContests - a.totalContests || b.bestRating - a.bestRating)
-
-    // Server-side pagination after aggregation
-    const total = leaderboardRaw.length
+    const total = groups.length
     const pages = Math.ceil(total / limit)
     const start = (page - 1) * limit
-    const paged = leaderboardRaw.slice(start, start + limit)
+    const pageGroups = groups.slice(start, start + limit)
+
+    // Participant details for the page only (single lookup, not N+1).
+    // NARROW-READ: was include:{department:true} (full user incl. passwordHash +
+    // full department). AFTER: select display cols only — same mapped payload
+    // {name,department,departmentId,incomingYear,avatar} (sensitive cols dropped).
+    const userIds = pageGroups.map((g: any) => g.userId)
+    const users: any[] = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } },
+        })
+      : []
+    const userMap = new Map(users.map((u: any) => [u.id, u]))
+
+    const paged = pageGroups.map((g: any) => {
+      const u = userMap.get(g.userId) as any
+      return {
+        userId: g.userId,
+        name: u?.name ?? '',
+        department: u?.department?.name || '',
+        departmentId: u?.departmentId || null,
+        incomingYear: u?.incomingYear ?? null,
+        avatar: u?.avatar ?? null,
+        totalContests: g._count?._all ?? 0,
+        avgRank: g._avg?.rank != null ? Math.round(g._avg.rank) : 0,
+        bestRating: g._max?.rating ?? 0,
+      }
+    })
 
     res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
     // Backward compat: if client didn't request pagination, return array directly; else return paginated object
@@ -381,42 +547,83 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
       res.json(paged)
     }
   } catch (error) {
-    console.error('Leaderboard error:', error)
+    logger.error({ err: error }, 'Leaderboard error:')
     res.status(500).json({ error: 'Failed to fetch leaderboard' })
   }
 })
 
 // GET /coding-profile/contest/:contestId/participants — per-contest participants
+// 10k scale: cursor/offset pagination (take:50 max) + count via _count/groupBy.
+// BEFORE: unbounded findMany with includes (could ship 10k rows).
+// AFTER: take:50 + total count in parallel; array shape kept when no
+// pagination query (compat, capped 50), envelope when paged.
 router.get('/contest/:contestId/participants', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const contestId = String(req.params.contestId)
+    const wantsPaged = req.query.page != null || req.query.limit != null || req.query.cursor != null
+    const limitParam = parseInt(String(req.query.limit || '50'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.min(50, Math.max(1, limitParam)) : 50
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const skip = (page - 1) * limit
+    const cursorId = req.query.cursor ? String(req.query.cursor) : null
+    const cursorClause: any = cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}
 
-    // First try direct contestId lookup
-    let participations: any[] = await prisma.contestParticipation.findMany({
+    // First try direct contestId lookup (paginated + counted in parallel)
+    // NARROW-READ: was include:{user:{include:{department:true}}} (full user incl.
+    // passwordHash + full department per row). AFTER: select display cols only —
+    // same functional payload (id/name/avatar/dept), sensitive cols dropped.
+    // PARALLEL (keeps 322-330 pattern): page + count via ONE Promise.all (was sequential).
+    const narrowUserSelect = { id: true, name: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } } as const
+    const pageArgs: any = {
       where: { contestId },
-      include: { user: { include: { department: true } } },
-      orderBy: { rank: 'asc' },
-    })
+      include: { user: { select: narrowUserSelect } },
+      orderBy: [{ rank: 'asc' }, { id: 'asc' }],
+      take: limit,
+      ...cursorClause,
+      ...(cursorId ? {} : { skip }),
+    }
+    let participations: any[]
+    let total: number | null = null
+    if (wantsPaged) {
+      const [pageRows, pageTotal] = await Promise.all([
+        prisma.contestParticipation.findMany(pageArgs),
+        prisma.contestParticipation.count({ where: { contestId } }),
+      ])
+      participations = pageRows as any[]
+      total = pageTotal
+    } else {
+      participations = await prisma.contestParticipation.findMany(pageArgs)
+    }
 
     // Fallback: if no results via contestId, try matching by platform + contestName or URL (college-scoped)
+    // 10k guard: cap scan to 50 best-ranked rows (was 1000) with pagination slice —
+    // fuzzy match needs in-memory normalize, but bounded input keeps it O(50) not O(1000).
+    // PARALLEL: contest + requester are independent (was 2 sequential awaits).
     if (participations.length === 0) {
-      const contest = await prisma.codingContest.findUnique({ where: { id: contestId } })
+      const [contest, requester] = await Promise.all([
+        prisma.codingContest.findUnique({ where: { id: contestId } }),
+        prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      ])
       if (contest) {
-        const requester = await prisma.user.findUnique({ where: { id: req.userId } })
-        const platformWhere: any = { platform: contest.platform.toLowerCase() }
+        // Order 4: contest.platform is already the native enum (UPPERCASE) —
+        // use it directly at the Prisma boundary (never .toLowerCase(), which
+        // reintroduces the live enum-rejection bug).
+        const platformWhere: any = { platform: toPlatformEnum(contest.platform) }
         // College scoping for fallback
         if (requester?.role !== 'SUPER_ADMIN' && requester?.collegeId) {
           platformWhere.user = { collegeId: requester.collegeId }
         }
         const allForPlatform = await prisma.contestParticipation.findMany({
           where: platformWhere,
-          include: { user: { include: { department: true } } },
-          orderBy: { rank: 'asc' },
+          include: { user: { select: narrowUserSelect } },
+          orderBy: [{ rank: 'asc' }, { id: 'asc' }],
+          take: 50,
         })
         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
         const normUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase()
         const cTitle = normalize(contest.title)
         const cUrl = normUrl(contest.url)
+        // Order 7 snapshot contract: exact URL/title (canonical CodingContest) outranks fuzzy snapshot includes — mirrors resolveContestDisplay().
         // Rank exact matches first, then includes, to avoid false positives from substring
         const exact: any[] = []
         const fuzzy: any[] = []
@@ -425,11 +632,24 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
           if (pName === cTitle || (p.contestUrl && normUrl(p.contestUrl) === cUrl)) exact.push(p)
           else if (pName.includes(cTitle) || cTitle.includes(pName)) fuzzy.push(p)
         }
-        participations = exact.length ? exact : fuzzy
+        const matched = exact.length ? exact : fuzzy
+        if (wantsPaged) total = matched.length
+        participations = cursorId
+          ? matched.slice(0, limit)
+          : matched.slice(skip, skip + limit)
       }
     }
 
-    res.json(participations)
+    if (wantsPaged) {
+      const pages = total != null ? Math.ceil(total / limit) : 1
+      const nextCursor =
+        participations.length === limit ? participations[participations.length - 1]?.id ?? null : null
+      res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+      // API shape stable: map DB UPPERCASE back to lowercase for the client.
+      res.json({ data: toApiParticipations(participations as any), pagination: { page, limit, total: total ?? participations.length, pages, nextCursor } })
+      return
+    }
+    res.json(toApiParticipations(participations as any))
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch participants' })
   }
@@ -438,7 +658,8 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
 // POST /coding-profile/sync-all — sync all students (teacher only)
 router.post('/sync-all', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId! } })
+    // NARROW-READ: role check needs id/role only (was full row).
+    const user = await prisma.user.findUnique({ where: { id: req.userId! }, select: { id: true, role: true } })
     if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Only teachers can sync all users' })
       return

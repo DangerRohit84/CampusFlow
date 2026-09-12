@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Flag, Bug, AlertTriangle, Zap, Shield, Lightbulb, Building2, Globe, Send, Image as ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { reportAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import clsx from 'clsx'
 
 type Props = { open: boolean; onClose: () => void; onCreated?: () => void }
@@ -34,6 +35,23 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
   const [description, setDescription] = useState('')
   const [attachmentUrl, setAttachmentUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // WHY: custom modal — trap focus + restore on close like shared Modal (F24).
+  useFocusTrap(dialogRef, open)
+
+  // ESC closes (shared Modal parity).
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    }
+    document.addEventListener('keydown', onKey, true)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.body.style.overflow = ''
+    }
+  }, [open, onClose])
 
   // Auto-sync collegeId with user's collegeId — no dropdown needed for COLLEGE scope
   useEffect(() => {
@@ -89,7 +107,13 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-[640px] max-h-[92vh] overflow-hidden rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-[0_24px_64px_rgba(0,0,0,0.3)] flex flex-col">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Report an issue"
+        className="relative w-full max-w-[640px] max-h-[92vh] overflow-hidden rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-[0_24px_64px_rgba(0,0,0,0.3)] flex flex-col"
+      >
         {/* Header — premium gradient */}
         <div className="relative overflow-hidden px-6 py-5 border-b border-surface-100 dark:border-white/10 shrink-0">
           <div className="absolute inset-0 bg-gradient-to-br from-primary-500/[0.08] via-transparent to-emerald-500/[0.06]" />
@@ -104,8 +128,8 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
                 <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">College or website — design, bug, crash, performance, security, feature request</p>
               </div>
             </div>
-            <button onClick={onClose} className="w-9 h-9 rounded-full bg-surface-50 dark:bg-white/10 hover:bg-surface-100 dark:hover:bg-white/15 flex items-center justify-center text-surface-500 dark:text-white transition-colors shrink-0">
-              <X size={16} />
+            <button onClick={onClose} aria-label="Close report dialog" className="w-11 h-11 rounded-full bg-surface-50 dark:bg-white/10 hover:bg-surface-100 dark:hover:bg-white/15 flex items-center justify-center text-surface-500 dark:text-white transition-colors shrink-0">
+              <X size={16} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -209,7 +233,7 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
               onChange={e => setTitle(e.target.value)}
               placeholder={issueType === 'DESIGN' ? 'e.g., Button overlaps on mobile — Hackathon detail' : issueType === 'BUG' ? 'e.g., Attendance save fails with 500' : 'e.g., Page crashes when opening Reports'}
               maxLength={200}
-              className="mt-1 w-full px-4 h-11 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              className="mt-1 w-full px-4 h-11 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
             />
             <p className="mt-1 text-[11px] font-medium text-surface-400 dark:text-night-400">{title.length}/200 · Keep it specific like a GitHub issue title.</p>
           </div>
@@ -222,7 +246,7 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
               onChange={e => setDescription(e.target.value)}
               placeholder={`Steps to reproduce:\n1. Go to ...\n2. Click ...\n3. See error\n\nExpected: ...\nActual: ...\nBrowser / device:\nURL:`}
               rows={5}
-              className="mt-1 w-full px-4 py-3 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
+              className="mt-1 w-full px-4 py-3 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
             />
             <p className="mt-1 text-[11px] font-medium text-surface-400 dark:text-night-400">Include expected vs actual, URL, and browser. For design, mention viewport.</p>
           </div>
@@ -234,7 +258,7 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
               value={attachmentUrl}
               onChange={e => setAttachmentUrl(e.target.value)}
               placeholder="https://... (upload to imgbb/cloudinary and paste link)"
-              className="mt-1 w-full px-4 h-11 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              className="mt-1 w-full px-4 h-11 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
             />
             <p className="mt-1 text-[11px] font-medium text-surface-400 dark:text-night-400">Pro tip: Drag screenshot to a host like Imgur/ImgBB and paste URL. College/Super Admin can open it from the report detail.</p>
           </div>

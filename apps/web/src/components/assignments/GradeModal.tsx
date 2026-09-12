@@ -3,6 +3,7 @@ import Modal from '../ui/Modal'
 import Input from '../ui/Input'
 import Button from '../ui/Button'
 import { assignmentHubAPI } from '../../lib/api'
+import { notifyEntityMutated } from '../../lib/entitySync'
 import { getSubmissionChannel, channelBadgeClasses } from '../../lib/assignments'
 import toast from 'react-hot-toast'
 
@@ -27,6 +28,7 @@ export default function GradeModal({ submission, hub, open, onClose, onGraded }:
     try {
       const updated = await assignmentHubAPI.grade(submission.id, { points: points===''?undefined:Number(points), grade: grade||undefined, feedback: feedback||undefined });
       toast.success('Graded');
+      notifyEntityMutated('assignment', { hubId: hub?.id, submissionId: submission.id, action: 'graded' });
       // pass enriched submission to parent for optimistic patch — fallback to local merge if API returns minimal
       const enriched = updated?.id ? updated : { ...submission, points: points===''?submission.points:Number(points), grade: grade||submission.grade, feedback: feedback||submission.feedback, status: 'GRADED' }
       if (updated && !enriched.student && submission.student) enriched.student = submission.student

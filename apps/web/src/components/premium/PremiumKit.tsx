@@ -260,7 +260,7 @@ export function SectionCard({
               {icon && <div className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center">{icon}</div>}
               <div>
                 {title && <h2 className="font-display text-[18px] font-[800] tracking-[-0.02em] leading-none text-[#0a0a0a] dark:text-white">{title}</h2>}
-                {subtitle && <p className="text-[11px] font-semibold tracking-wide uppercase text-surface-400 dark:text-night-400 mt-1">{subtitle}</p>}
+                {subtitle && <p className="text-[11px] font-semibold tracking-wide uppercase text-surface-500 dark:text-night-300 mt-1">{subtitle}</p>}
               </div>
             </div>
             {action}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -6,23 +6,21 @@ import {
   Award, BarChart3, ExternalLink, ArrowLeft, Copy, Check, Share2, Star, Target, Medal, GraduationCap, Building2, Users, TrendingUp, Layers, Github, Globe
 } from 'lucide-react'
 import { publicProfileAPI } from '../lib/api'
+import { Seo } from '../components/Seo'
 import { useAuthStore } from '../store/authStore'
 import { PlatformLogo } from '../components/PlatformLogos'
+import ActivityHeatmap from '../components/coding/ActivityHeatmap'
+import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBreakdown, unifiedActiveByDay, filterUnifiedDaysByYear, getAvailableHeatmapYears, getHeatmapYearOptions, formatHeatmapRangeLabel, parseStoredHeatmapYear, ALL_SOURCES_ON, HEATMAP_RANGE_LAST_6, HEATMAP_YEAR_STORAGE_KEY, type SourceToggles, type ActivitySource } from '../lib/codingStreak'
 import toast from 'react-hot-toast'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
 
-const GREEN_LEVELS = [
-  { bg: '#EBF5EC', darkBg: '#161B22' },
-  { bg: '#ACD5B1', darkBg: '#0E4429' },
-  { bg: '#7BC47F', darkBg: '#006D32' },
-  { bg: '#4FA652', darkBg: '#26A641' },
-  { bg: '#2D6A4F', darkBg: '#39D353' },
-]
-function levelColor(level: number, isDark?: boolean) {
-  const l = Math.max(0, Math.min(4, level))
-  return isDark ? GREEN_LEVELS[l].darkBg : GREEN_LEVELS[l].bg
-}
+// Full trailing window for the unified heatmap (feat-public-heatmap). Matches
+// CodingProfilePage HEATMAP_FULL_WINDOW_DAYS + backend GET /u/:username/activity
+// ?days= cap (365) so year slices + All filter the widest available history
+// client-side (no extra backend round-trips).
+const HEATMAP_FULL_WINDOW_DAYS = 365
+
 function cfColor(rating: number | null | undefined): string {
   if (!rating) return '#9CA3AF'
   if (rating < 1200) return '#808080'
@@ -43,15 +41,83 @@ export default function PublicProfilePage() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [retryTick, setRetryTick] = useState(0)
+  // Epoch guard (same pattern as HackathonDetailPage, PERPAGE-HALF2): rapid
+  // /u/:a → /u/:b switches must never let slow A's response overwrite B.
+  const loadSeq = useRef(0)
+  // Unified heatmap: persisted CodingActivity snapshot + live GitHub for the
+  // VIEWED user (GET /u/:username/activity). Best-effort (null until loaded /
+  // on any fetch failure — the grid falls back to contests-only so a missing
+  // table or offline GitHub never blanks the page). Shape mirrors the private
+  // GET /coding-profile/activity so the merge below stays verbatim.
+  // Privacy: public handles only — no edit/sync buttons on this page.
+  const [activity, setActivity] = useState<{
+    stored: { date: string; source: string; count: number }[];
+    github: { date: string; count: number; level: number }[];
+    githubLive: boolean;
+    omitted: string[];
+  } | null>(null)
+  // Per-source heatmap toggles (Contests/Coding/Git). Same storage key as
+  // CodingProfilePage so the reader's filter survives reloads across pages;
+  // intensity + streaks recompute from the enabled set (streaks stay COMBINED
+  // by design — see codingStreak.ts).
+  const [toggles, setToggles] = useState<SourceToggles>(() => {
+    try {
+      const raw = localStorage.getItem('cf-heatmap-toggles')
+      if (raw) {
+        const p = JSON.parse(raw) as Partial<SourceToggles>
+        return {
+          contests: p.contests ?? ALL_SOURCES_ON.contests,
+          coding: p.coding ?? ALL_SOURCES_ON.coding,
+          git: p.git ?? ALL_SOURCES_ON.git,
+        }
+      }
+    } catch { /* corrupted storage — fall through to defaults */ }
+    return { ...ALL_SOURCES_ON }
+  })
+  const handleToggleSource = (s: ActivitySource) => {
+    setToggles((prev) => {
+      const next = { ...prev, [s]: !prev[s] }
+      try { localStorage.setItem('cf-heatmap-toggles', JSON.stringify(next)) } catch { /* private-mode — toggles still work in-memory */ }
+      return next
+    })
+  }
+  // Year filter for the activity heatmap (Last 6 months default + calendar
+  // years + All). Same storage key as CodingProfilePage; validated against
+  // the years actually present once days are built (stale years fall back to
+  // the default — see parseStoredHeatmapYear).
+  const [heatmapYear, setHeatmapYear] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(HEATMAP_YEAR_STORAGE_KEY)
+      if (typeof raw === 'string' && raw) return raw
+    } catch { /* corrupted storage — fall through to default */ }
+    return HEATMAP_RANGE_LAST_6
+  })
+  const handleYearChange = (v: string) => {
+    setHeatmapYear(v)
+    try { localStorage.setItem(HEATMAP_YEAR_STORAGE_KEY, v) } catch { /* private-mode — filter still works in-memory */ }
+  }
 
   useEffect(() => {
     if (!username) return
+    const seq = ++loadSeq.current
     setLoading(true); setErr(null)
-    publicProfileAPI.get(username).then(d => { setData(d); setLoading(false) }).catch((e: any) => {
+    // Profile + activity join the same round (activity best-effort:
+    // catch → null → contests-only grid, same as CodingProfilePage).
+    Promise.all([
+      publicProfileAPI.get(username),
+      // WHY feat-public-heatmap: fetch the backend max trailing window (365)
+      // so year slices + All have history to filter client-side.
+      publicProfileAPI.getActivity(username, { days: HEATMAP_FULL_WINDOW_DAYS }).catch(() => null),
+    ]).then(([d, a]) => {
+      if (seq !== loadSeq.current) return
+      setData(d); setActivity(a as any); setLoading(false)
+    }).catch((e: any) => {
+      if (seq !== loadSeq.current) return
       setErr(e.response?.data?.error || 'Profile not found')
       setLoading(false)
     })
-  }, [username])
+  }, [username, retryTick])
 
   const isOwn = viewer && data?.user && (viewer.id === data.user.id || (viewer.username && viewer.username.toLowerCase() === String(username).toLowerCase()))
   const portfolioUrl: string | null = (data?.user as any)?.portfolioUrl || null
@@ -66,53 +132,130 @@ export default function PublicProfilePage() {
     try { await navigator.clipboard.writeText(portfolioUrl); toast.success('Portfolio link copied')} catch {}
   }
 
-  const calendar = data?.calendar as { date: string; count: number; level: number }[] | undefined
-  const weeks = useMemo(() => {
-    if (!calendar) return []
-    const ws: typeof calendar[] = []
-    for (let i = 0; i < calendar.length; i += 7) ws.push(calendar.slice(i, i+7))
-    return ws
-  }, [calendar])
-
-  const monthLabels = useMemo(() => {
-    if (!weeks.length) return []
-    const labels: { label: string; col: number }[] = []
-    let lastM = -1
-    weeks.forEach((w, ci) => {
-      const first = w[0]
-      if (!first) return
-      const m = new Date(first.date).getMonth()
-      if (m !== lastM) { labels.push({ label: new Date(first.date).toLocaleDateString('en-US', { month: 'short' }), col: ci }); lastM = m }
-    })
-    return labels.slice(0, 8)
-  }, [weeks])
+  // Unified heatmap: contests (participations, authoritative) + coding
+  // solves (CodingActivity leetcode/codeforces from sync) + git (live GitHub
+  // overlay preferred, stored snapshot fallback). Toggles filter intensity +
+  // streaks; raw per-source counts stay honest in tooltips. Streaks are
+  // COMBINED across enabled sources by design (documented in codingStreak.ts).
+  // CodeChef/HackerRank/GFG have no daily API — omitted, never faked.
+  // Year filter: the page builds the FULL trailing window (backend max 365
+  // days — matches GET /u/:username/activity ?days= cap) and slices it
+  // client-side to Last 6 months (default) / YYYY / All. Breakdown + streaks
+  // recompute over the VISIBLE range and stay combined across enabled sources
+  // (documented). Year slices show the available trailing history only —
+  // never fabricated zeros outside the backend window.
+  // Same merge as CodingProfilePage (shared helpers — no duplication).
+  const participations: any[] = data?.participations ?? []
+  const contestsByDay = useMemo(() => bucketParticipationsByDay(participations), [participations])
+  const codingByDay = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const r of activity?.stored ?? []) {
+      if (r.source !== 'leetcode' && r.source !== 'codeforces') continue
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue
+      const n = Math.floor(Number(r.count))
+      if (!Number.isFinite(n) || n <= 0) continue
+      out[r.date] = (out[r.date] ?? 0) + n
+    }
+    return out
+  }, [activity])
+  const gitByDay = useMemo(() => {
+    const out: Record<string, number> = {}
+    // Live overlay wins when the backend served it (fresher than last sync).
+    const live = activity?.github ?? []
+    if (activity?.githubLive && live.length > 0) {
+      for (const d of live) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) continue
+        const n = Math.floor(Number(d.count))
+        if (!Number.isFinite(n) || n <= 0) continue
+        out[d.date] = n
+      }
+      return out
+    }
+    // Fallback: stored github snapshot from the last sync.
+    for (const r of activity?.stored ?? []) {
+      if (r.source !== 'github') continue
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue
+      const n = Math.floor(Number(r.count))
+      if (!Number.isFinite(n) || n <= 0) continue
+      out[r.date] = (out[r.date] ?? 0) + n
+    }
+    return out
+  }, [activity])
+  const fullHeatmapDays = useMemo(
+    () => buildUnifiedHeatmapDays(
+      { contests: contestsByDay, coding: codingByDay, git: gitByDay },
+      { toggles, windowDays: HEATMAP_FULL_WINDOW_DAYS },
+    ),
+    [contestsByDay, codingByDay, gitByDay, toggles],
+  )
+  const availableHeatmapYears = useMemo(() => getAvailableHeatmapYears(fullHeatmapDays), [fullHeatmapDays])
+  const heatmapYearOptions = useMemo(() => getHeatmapYearOptions(fullHeatmapDays), [fullHeatmapDays])
+  // Validated selection: stale persisted years (data window shrank) fall back
+  // to the Last 6 months default; the dropdown always receives a valid value.
+  const activeHeatmapYear = parseStoredHeatmapYear(heatmapYear, availableHeatmapYears)
+  const heatmapRangeLabel = formatHeatmapRangeLabel(activeHeatmapYear)
+  const heatmapDays = useMemo(
+    () => filterUnifiedDaysByYear(fullHeatmapDays, activeHeatmapYear),
+    [fullHeatmapDays, activeHeatmapYear],
+  )
+  const heatmapBreakdown = useMemo(() => sumBreakdown(heatmapDays), [heatmapDays])
+  const streaks = useMemo(() => calcStreaks(unifiedActiveByDay(heatmapDays)), [heatmapDays])
 
   const platformStats: any[] = data?.codingProfile?.platformStats || []
   const statsMap: Record<string, any> = {}
   for (const s of platformStats) statsMap[s.platform] = s
 
   if (loading) return (
-    <CenteredLoader fullScreen text={`Loading @${username}...`} />
+    <><Seo title={username ? `@${username}` : 'Profile'} noindex />
+    <CenteredLoader fullScreen text={`Loading @${username}...`} /></>
   )
   if (err || !data) return (
+    <><Seo title="Profile not found" noindex />
     <div className="max-w-3xl mx-auto px-4 py-12">
       <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium text-surface-600 hover:text-surface-900 dark:text-night-50 mb-6"><ArrowLeft size={16}/> Back</button>
-      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm p-8 text-center">
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm p-8 text-center" role="alert">
         <AtSign size={32} className="mx-auto text-surface-300" />
         <h2 className="mt-3 text-xl font-bold text-surface-900 dark:text-night-50">@{username} not found</h2>
         <p className="text-sm text-surface-500 dark:text-night-400 mt-1">{err || 'This profile does not exist.'}</p>
-        <Link to="/dashboard" className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold text-sm">Go to dashboard</Link>
+        <div className="mt-6 flex justify-center gap-2">
+          <button onClick={() => setRetryTick((t) => t + 1)} className="inline-flex items-center gap-2 px-5 py-2.5 bg-surface-900 dark:bg-white text-white dark:text-surface-900 rounded-xl font-semibold text-sm">Retry</button>
+          <Link to="/dashboard" className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold text-sm">Go to dashboard</Link>
+        </div>
       </div>
     </div>
+    </>
   )
 
   const u = data.user
   const stats = data.stats
   const totalContribs = stats?.totalContribs ?? 0
-  const curStreak = stats?.curStreak ?? 0
-  const bestStreak = stats?.bestStreak ?? 0
+  // WHY feat-public-heatmap: streaks come from the SAME unified calc as
+  // CodingProfilePage (combined across enabled sources over the VISIBLE year
+  // range) — not the backend deterministic-calendar streaks. The backend
+  // stats.curStreak/bestStreak describe the legacy github-or-fake calendar;
+  // the heatmap + Stats tiles below use `streaks` so public and private pages
+  // tell one story. totalContribs stays backend (stable last-year tile).
+  const curStreak = streaks.current
+  const bestStreak = streaks.longest
+  // WHY: index public profiles for recruiter discovery, but noindex private/
+  // restricted ones (backend `visibility`/`isPrivate` when present) — RouteSeo
+  // skips /u/* so this tag is the single robots source here.
+  const profileName = u?.name || username || 'Profile'
+  const isPrivateProfile =
+    (data as any)?.visibility === 'PRIVATE' ||
+    (data as any)?.isPrivate === true ||
+    u?.visibility === 'PRIVATE' ||
+    (u as any)?.isPrivate === true ||
+    (u as any)?.isPublic === false
 
   return (
+    <>
+    <Seo
+      title={`@${u?.username || username} · ${profileName}`}
+      description={`${profileName}${u?.collegeName ? ` · ${u.collegeName}` : ''} — coding profile, ratings and portfolio on CampusFlow.`}
+      noindex={isPrivateProfile}
+      canonicalPath={`/u/${u?.username || username}`}
+    />
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       {/* top bar */}
       <div className="flex items-center justify-between">
@@ -136,7 +279,7 @@ export default function PublicProfilePage() {
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex gap-4 flex-1 min-w-0">
               <div className="w-20 h-20 rounded-2xl bg-primary-600 dark:bg-success-300 flex items-center justify-center text-white font-bold text-2xl shrink-0 overflow-hidden">
-                {u.avatar ? <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
+                {u.avatar ? <img src={u.avatar} alt={u.name} width={80} height={80} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -235,48 +378,22 @@ export default function PublicProfilePage() {
       <div className="grid grid-cols-12 gap-6">
         {/* left 8 */}
         <div className="col-span-12 lg:col-span-8 space-y-6">
-          {/* contributions calendar */}
-          <div className="bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-surface-900 dark:text-night-50 inline-flex items-center gap-2"><BarChart3 size={16} className="text-primary-600 dark:text-success-300"/> Activity
-                {data?.calendarSource === 'github' ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] leading-none px-2 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-surface-900 dark:text-night-50 border"><Github size={10}/> GitHub-synced</span>
-                ) : (
-                  <span className="text-[10px] leading-none px-2 py-1 rounded-full bg-surface-100 dark:bg-night-700 text-surface-500 dark:text-night-300 border border-surface-200 dark:border-night-600">Estimated</span>
-                )}
-              </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-surface-500 dark:text-night-300">{totalContribs} contributions in last year</span>
-                {data?.codingProfile?.githubUsername && (
-                  <a href={`https://github.com/${data.codingProfile.githubUsername}`} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center gap-1 text-xs text-primary-600 dark:text-success-300 hover:underline"><Github size={12}/> @{data.codingProfile.githubUsername} <ExternalLink size={10}/></a>
-                )}
-              </div>
-            </div>
-            {/* month labels */}
-            <div className="flex gap-[3px] mb-1 ml-[2px] text-[9px] font-medium text-surface-400 dark:text-night-300 select-none overflow-hidden">
-              {monthLabels.map((m, i) => (
-                <span key={i} style={{ marginLeft: i===0 ? 0 : `${(m.col - (monthLabels[i-1]?.col ?? 0) -1)*13}px`}} className="shrink-0">{m.label}</span>
-              ))}
-            </div>
-            <div className="flex gap-[3px] overflow-x-auto pb-2">
-              {weeks.map((week, wi) => (
-                <div key={wi} className="flex flex-col gap-[3px] shrink-0">
-                  {week.map((day, di) => {
-                    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-                    const bg = levelColor(day.level, isDark)
-                    const borderClass = day.level===0 ? (isDark ? 'border-night-700' : 'border-surface-200') : 'border-transparent'
-                    return <div key={di} title={`${day.count} on ${day.date}`} className={`w-[11px] h-[11px] rounded-[3px] border ${borderClass} hover:brightness-110 hover:scale-[1.08] transition-all cursor-pointer`}
-                      style={{ background: bg }} />
-                  })}
-                  {week.length < 7 && Array.from({ length: 7 - week.length }).map((_,k)=><div key={`p-${k}`} className="w-[11px] h-[11px]" />)}
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between mt-3 text-xs text-surface-500 dark:text-night-300">
-              <span className="inline-flex items-center gap-1.5"><Flame size={12} className="text-orange-500"/> {curStreak} day streak · Best {bestStreak} days</span>
-              <span className="flex items-center gap-1">Less <span className="flex gap-1 ml-1">{[0,1,2,3,4].map(l=> { const isD = typeof document !== 'undefined' && document.documentElement.classList.contains('dark'); return <span key={l} className={`w-[11px] h-[11px] rounded-[3px] border ${l===0 ? (isD ? 'border-night-700' : 'border-surface-200') : 'border-transparent'}`} style={{ background: levelColor(l, isD) }}/>})}</span> More</span>
-            </div>
-          </div>
+          {/* unified activity heatmap — SAME component + helpers as
+              CodingProfilePage (contests + coding solves + git, per-source
+              toggles + year filter, combined streaks). Read-only here:
+              public handles only, no edit/sync buttons by design. */}
+          <ActivityHeatmap
+            days={heatmapDays}
+            currentStreak={streaks.current}
+            longestStreak={streaks.longest}
+            toggles={toggles}
+            onToggle={handleToggleSource}
+            breakdown={heatmapBreakdown}
+            yearValue={activeHeatmapYear}
+            yearOptions={heatmapYearOptions}
+            onYearChange={handleYearChange}
+            rangeLabel={heatmapRangeLabel}
+          />
 
           {/* coding analysis — leetcode + github combined */}
           <div className="bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 p-5">
@@ -439,5 +556,6 @@ export default function PublicProfilePage() {
         </div>
       </div>
     </div>
+    </>
   )
 }

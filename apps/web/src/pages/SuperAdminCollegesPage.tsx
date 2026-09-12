@@ -1,8 +1,9 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
 import { adminAPI } from '../lib/api'
-import { getSocket } from '../lib/socket'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { useSuperAdminCollegeStore, syncLegacyStorage } from '../store/superAdminCollegeStore'
 import { Building2, Users, Trophy, Search, Shield, Filter, ArrowRight, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -10,31 +11,28 @@ import clsx from 'clsx'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { useConfirm } from '../components/ui/ConfirmModal'
 
 export default function SuperAdminCollegesPage() {
+  const { confirm: confirmDialog } = useConfirm()
   const navigate = useNavigate()
   const { setSelectedCollege } = useSuperAdminCollegeStore()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'APPROVED' | 'PENDING' | 'REJECTED'>('ALL')
 
   const { data: colleges = [], isLoading, refetch } = useQuery({
-    queryKey: ['admin-colleges'],
+    queryKey: qk.adminColleges(),
     queryFn: () => adminAPI.getColleges(),
     staleTime: 30_000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
 
-  // Realtime: college registry mutations
-  useEffect(() => {
-    const socket = getSocket()
-    const handler = () => refetch()
-    const evs = ['college:mutated','announcement:mutated','user:mutated']
-    if (socket) evs.forEach(ev=> socket.on(ev, handler))
-    evs.forEach(ev=> window.addEventListener(ev as any, handler as any))
-    return () => {
-      if (socket) evs.forEach(ev=> socket.off(ev, handler))
-      evs.forEach(ev=> window.removeEventListener(ev as any, handler as any))
-    }
-  }, [refetch])
+  // STATE-SYNC: single subscription covers same-tab + cross-tab + cross-device
+  // (college + user mutations both affect the registry). No custom socket
+  // effect — useEntitySync already bridges socket + window (no double-fetch).
+  useEntitySync(['college', 'user'], refetch as any)
 
   const filtered = useMemo(() => {
     let list = colleges as any[]
@@ -51,19 +49,23 @@ export default function SuperAdminCollegesPage() {
       toast.error(`College is ${college.status} — cannot open workspace`)
       return
     }
+    // WHY one-click fix: set scoped store BEFORE navigate so Layout scope header
+    // never renders empty and AdminPage hydrates detail on first paint (no re-list).
     setSelectedCollege(college.id, college.name, college.code)
     syncLegacyStorage(college.id, college.name)
     try { localStorage.setItem('superadmin_selectedCollegeId', college.id); localStorage.setItem('superadmin_selectedCollegeName', college.name) } catch {}
-    navigate(`/admin?collegeId=${college.id}&collegeName=${encodeURIComponent(college.name)}`)
+    // WHY: navigate directly to detail with default tab=analytics (single click).
+    // Previously AdminPage ignored ?collegeId and showed its own list → 2nd click required.
+    navigate(`/admin?collegeId=${college.id}&collegeName=${encodeURIComponent(college.name)}&tab=analytics`)
   }
 
   const handleDeleteCollege = async (id: string) => {
-    if (!confirm('Delete this college? All its data will be removed.')) return
+    const ok = await confirmDialog({ title: 'Delete college?', message: 'Delete this college? All its data will be removed. This cannot be undone.', confirmLabel: 'Delete college' })
+    if (!ok) return
     try {
       await adminAPI.deleteCollege(id)
       toast.success('College deleted')
-      window.dispatchEvent(new CustomEvent('college:mutated', { detail: { collegeId: id } }))
-      refetch()
+      notifyEntityMutated('college', { collegeId: id, action: 'deleted' })
     } catch {
       toast.error('Failed to delete college')
     }

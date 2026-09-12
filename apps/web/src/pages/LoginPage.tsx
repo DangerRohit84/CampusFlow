@@ -13,19 +13,26 @@ import {
   Sparkles,
   Layers,
   CheckCircle2,
-  Eye,
+  Github,
+  Chrome,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/authStore'
+import { resolvePostLoginDest } from '../lib/authRedirect'
 import { motion, useReducedMotion } from 'framer-motion'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
-  const { login, loading } = useAuthStore()
+  // WHY student race: whole-store subscribe re-renders this page on the
+  // user/token set inside login(), racing GuestRoute's <Navigate> with manual
+  // navigate() in the same tick (two replace:true from /login can cancel and
+  // leave URL on /login until refresh rehydrates). Selectors isolate renders.
+  const login = useAuthStore((s) => s.login)
+  const loading = useAuthStore((s) => s.loading)
   const navigate = useNavigate()
   const shouldReduce = useReducedMotion()
 
@@ -34,8 +41,9 @@ export default function LoginPage() {
     const vEmail = email.trim()
     if (!vEmail) e.email = 'Email is required'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(vEmail)) e.email = 'Enter a valid university email'
+    // WHY: backend loginSchema is min(1) (generic 401, no enumeration) — frontend must not block
+    // short/legacy passwords with min 6/8. Only require non-empty; server decides.
     if (!password) e.password = 'Password is required'
-    else if (password.length < 6) e.password = 'Minimum 6 characters'
     return e
   }
 
@@ -50,9 +58,36 @@ export default function LoginPage() {
     }
     setErrors({})
     try {
-      await login(email.trim(), password)
+      // Persist-then-navigate: login() dual-writes the new auth blob to
+      // localStorage BEFORE resolving, so navigate() below can never fire
+      // while the interceptor still reads a stale superadmin token (which
+      // 401-bounces straight back to /login). Use the FRESH login response
+      // role (not a possibly-stale store read) for the landing route.
+      const result = await login(email.trim(), password)
+      // Same-tick order: login() set memory + dual-wrote localStorage BEFORE
+      // resolving. Verify the same source guards read (memory isAuthenticated
+      // + user) BEFORE navigate() runs — never navigate on a half-persisted state.
+      const snap = useAuthStore.getState()
+      if (!snap.isAuthenticated || !snap.user) {
+        toast.error('Login saved incompletely — please retry')
+        return
+      }
+      const freshRole = (result as any)?.user?.role ?? snap.user?.role
       toast.success('Welcome back!')
-      navigate('/dashboard')
+      // Soft-redirect intent preservation (pairs with api.ts 401 handler):
+      // return to the page that triggered 401 instead of always role landing.
+      // resolvePostLoginDest drops stale superadmin routes after an account
+      // switch (COLLEGE_ADMIN must never land on /superadmin/* → /403 bounce
+      // that looks like "stayed on /login").
+      let dest: string
+      try {
+        const saved = sessionStorage.getItem('postLoginRedirect')
+        dest = resolvePostLoginDest(saved, freshRole)
+        sessionStorage.removeItem('postLoginRedirect')
+      } catch {
+        dest = resolvePostLoginDest(null, freshRole)
+      }
+      navigate(dest, { replace: true })
     } catch (err: any) {
       const msg = err?.message || 'Login failed — check credentials'
       toast.error(msg)
@@ -62,7 +97,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-[#f6f6f6] dark:bg-black selection:bg-[#1ed760]/30 selection:text-black dark:selection:text-white">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap');`}</style>
+      {/* Fonts come from index.html (2 families, display=swap) — no inline @import (render-blocking). */}
 
       {/* ── LEFT — Premium Dark Mesh Hero (Obsidian Minimalism) ── */}
       <div className="premium-hero hidden lg:flex flex-1 relative overflow-hidden bg-[#0a0a0a] lg:min-h-screen border-r border-white/[0.06] isolation-auto">
@@ -96,10 +131,16 @@ export default function LoginPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1600&q=80&auto=format&fit=crop"
+              srcSet="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=800&q=70&auto=format&fit=crop 800w, https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1600&q=80&auto=format&fit=crop 1600w"
+              sizes="(min-width: 1024px) 50vw, 100vw"
               alt=""
-              aria-hidden
+              aria-hidden="true"
+              width={1600}
+              height={900}
+              fetchPriority="low"
               className="w-full h-full object-cover"
               loading="eager"
+              decoding="async"
             />
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/[0.18]" />
@@ -140,7 +181,8 @@ export default function LoginPage() {
               <span className="hidden sm:inline-flex ml-1 rounded-full bg-white text-black text-[10px] font-extrabold px-2 py-0.5">WCAG AA</span>
             </motion.div>
 
-            <motion.h1
+            <motion.p
+              aria-hidden="true"
               initial={shouldReduce ? undefined : { opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.56, ease: [0.22, 1, 0.36, 1], delay: 0.07 }}
@@ -150,7 +192,7 @@ export default function LoginPage() {
               Welcome
               <br />
               <span className="text-white/80">back to the quad.</span>
-            </motion.h1>
+            </motion.p>
 
             <motion.p
               initial={shouldReduce ? undefined : { opacity: 0, y: 10 }}
@@ -203,9 +245,13 @@ export default function LoginPage() {
               <div className="mt-4 flex items-center gap-3 border-t border-white/10 pt-4">
                 <img
                   src="https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&q=80&auto=format&fit=crop&crop=face"
-                  alt="Prof. avatar"
+                  srcSet="https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&q=80&auto=format&fit=crop&crop=face 1x, https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&q=80&auto=format&fit=crop&crop=face 2x"
+                  alt="Prof. Meera Rao, Head of CSE"
+                  width={32}
+                  height={32}
                   className="w-8 h-8 rounded-full object-cover border border-white/15"
                   loading="lazy"
+                  decoding="async"
                 />
                 <div>
                   <p className="text-xs font-bold leading-none text-white">Prof. Meera Rao</p>
@@ -279,29 +325,29 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} noValidate className="px-6 sm:px-7 pb-7 space-y-4">
               {/* Social auth — glass outline (visual trust, disabled until OAuth wired) */}
+              {/* WHY: correct brand icons (was "G" text + Eye-as-GitHub, wrong). Lucide Chrome/Github are the Simple-Icons-equivalent glyphs. */}
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => toast('Google SSO coming soon — use email for now')}
-                  className="inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1a1a1a] hover:bg-zinc-50 dark:hover:bg-[#1f1f1f] text-sm font-semibold text-zinc-700 dark:text-zinc-200 transition-colors"
+                  aria-label="Continue with Google (coming soon)"
+                  className="inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1a1a1a] hover:bg-zinc-50 dark:hover:bg-[#1f1f1f] text-sm font-semibold text-zinc-700 dark:text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
                 >
-                  <span className="w-5 h-5 rounded-full bg-white border border-zinc-200 grid place-items-center text-[10px] font-black">G</span> Google
+                  <Chrome size={16} aria-hidden="true" /> Google
                 </button>
                 <button
                   type="button"
                   onClick={() => toast('GitHub SSO coming soon')}
-                  className="inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1a1a1a] hover:bg-zinc-50 dark:hover:bg-[#1f1f1f] text-sm font-semibold text-zinc-700 dark:text-zinc-200 transition-colors"
+                  aria-label="Continue with GitHub (coming soon)"
+                  className="inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1a1a1a] hover:bg-zinc-50 dark:hover:bg-[#1f1f1f] text-sm font-semibold text-zinc-700 dark:text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
                 >
-                  <span className="w-5 h-5 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black grid place-items-center">
-                    <Eye size={11} />
-                  </span>{' '}
-                  GitHub
+                  <Github size={16} aria-hidden="true" /> GitHub
                 </button>
               </div>
 
               <div className="flex items-center gap-3 py-1">
                 <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-                <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-400 dark:text-zinc-500">or continue with email</span>
+                <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-500 dark:text-zinc-400">or continue with email</span>
                 <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
               </div>
 
@@ -342,14 +388,16 @@ export default function LoginPage() {
               </div>
 
               <div className="flex items-center justify-between gap-4 text-sm">
-                <label className="inline-flex items-center gap-2 cursor-pointer select-none group">
+                {/* WHY: 44px label hit target (was 16px checkbox only, fails 2.5.8). */}
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none group min-h-[44px] py-2">
                   <input
                     type="checkbox"
-                    className="w-4 h-4 rounded-[6px] border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-[#1ed760] focus:ring-[#1ed760]/20 focus:ring-2"
+                    className="w-5 h-5 rounded-[6px] border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-[#1ed760] focus:ring-[#1ed760]/20 focus:ring-2 shrink-0"
                   />
                   <span className="text-zinc-600 dark:text-zinc-300 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors font-medium">Remember me</span>
                 </label>
-                <button type="button" onClick={() => toast('Password reset — contact registrar or try SSO')} className="font-semibold text-[#1ed760] hover:text-[#1db954] dark:text-[#1ed760] transition-colors">
+                {/* WHY: #1ed760 on white is 1.9:1 (fails AA) — body links use #0a7a3a (5.9:1). Dark keeps #1ed760. */}
+                <button type="button" onClick={() => toast('Password reset — contact registrar or try SSO')} className="font-semibold text-[#0a7a3a] hover:text-[#07622e] dark:text-[#1ed760] dark:hover:text-[#4be585] transition-colors min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded">
                   Forgot password?
                 </button>
               </div>
@@ -403,7 +451,7 @@ export default function LoginPage() {
           </div>
 
           {/* foot note */}
-          <p className="mt-4 text-center text-xs text-zinc-500 dark:text-zinc-500">
+          <p className="mt-4 text-center text-xs text-zinc-600 dark:text-zinc-400">
             Protected by campus SSO · WCAG AA · 14s pinned ·{' '}
             <Link to="/" className="underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-300">
               Back to landing

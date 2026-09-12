@@ -7,6 +7,7 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { attendanceAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 
 interface Subject {
   id: string
@@ -54,23 +55,48 @@ export default function AttendancePage() {
   const [uploadImage, setUploadImage] = useState<string | null>(null)
   const [parsing, setParsing] = useState(false)
   const [parsedResults, setParsedResults] = useState<any[]>([])
+  const [offlineOcrLoading, setOfflineOcrLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    attendanceAPI.getData()
-      .then((data) => {
-        setSubjects(data.subjects?.map((s: any, i: number) => ({
-          id: s.id || `s-${i}`,
-          name: s.name || '',
-          held: s.held || 0,
-          attended: s.attended || 0,
-          skip: 0,
-        })) || [])
-        if (data.requiredPct) setRequiredPct(data.requiredPct)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+  const loadAttendance = useCallback(async () => {
+    try {
+      const data = await attendanceAPI.getData()
+      setSubjects(data.subjects?.map((s: any, i: number) => ({
+        id: s.id || `s-${i}`,
+        name: s.name || '',
+        held: s.held || 0,
+        attended: s.attended || 0,
+        skip: 0,
+      })) || [])
+      if (data.requiredPct) setRequiredPct(data.requiredPct)
+    } catch (e) { console.error(e) } finally { setLoading(false) }
   }, [])
+
+
+  // STATE-SYNC: external mutations (other tab/device) refresh without reload.
+  useEntitySync('attendance', loadAttendance)
+  useEffect(() => {
+    loadAttendance()
+  }, [loadAttendance])
+
+  // Offline OCR fallback — tesseract.js loads on demand (not in bundle).
+  const handleOfflineOcr = async () => {
+    if (!uploadImage || offlineOcrLoading) return
+    setOfflineOcrLoading(true)
+    try {
+      const { offlineOcrFallback } = await import('../lib/heavyLazy')
+      const text = await offlineOcrFallback(uploadImage)
+      const lines = String(text || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 20)
+      if (!lines.length) toast.error('Offline OCR found no text — try a clearer photo')
+      else toast.success(`Offline OCR captured ${lines.length} lines (copied to console)`)
+      // eslint-disable-next-line no-console
+      console.debug('[attendance][offline-ocr]', lines)
+    } catch {
+      toast.error('Offline OCR unavailable — check connection and retry')
+    } finally {
+      setOfflineOcrLoading(false)
+    }
+  }
 
   const updateSubject = (id: string, field: keyof Subject, value: any) => {
     setSubjects(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s))
@@ -95,6 +121,7 @@ export default function AttendancePage() {
     try {
       const payload = subjects.map(({ skip, ...rest }) => rest)
       await attendanceAPI.saveData(payload, requiredPct)
+      notifyEntityMutated('attendance', { action: 'saved' })
       toast.success('Attendance saved!')
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Failed to save')
@@ -314,7 +341,7 @@ export default function AttendancePage() {
                           value={subject.name}
                           onChange={(e) => updateSubject(subject.id, 'name', e.target.value)}
                           placeholder="Subject name"
-                          className="flex-1 min-w-0 text-lg font-bold text-surface-900 dark:text-night-50 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-surface-400 dark:placeholder:text-night-200"
+                          className="flex-1 min-w-0 text-lg font-bold text-surface-900 dark:text-night-50 bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-[#6b7280] dark:placeholder:text-night-200"
                         />
                         <button
                           onClick={() => deleteSubject(subject.id)}
@@ -454,7 +481,7 @@ export default function AttendancePage() {
               ) : parsedResults.length > 0 ? (
                 <div className="space-y-3">
                   <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
-                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                    <img src={uploadImage} alt="Attendance preview" loading="lazy" decoding="async" width={800} height={320} className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
                   </div>
                   <p className="text-sm font-medium text-surface-700 dark:text-night-50">Parsed {parsedResults.length} subjects:</p>
                   <div className="max-h-40 overflow-y-auto space-y-1">
@@ -477,11 +504,17 @@ export default function AttendancePage() {
               ) : (
                 <div className="space-y-3">
                   <div className="relative rounded-xl overflow-hidden border border-surface-100 dark:border-night-600">
-                    <img src={uploadImage} alt="Preview" className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
+                    <img src={uploadImage} alt="Attendance preview" loading="lazy" decoding="async" width={800} height={320} className="w-full max-h-40 object-contain bg-surface-50 dark:bg-night-900" />
                   </div>
-                  <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
-                    Choose different image
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => { setUploadImage(null); setParsedResults([]) }}>
+                      Choose different image
+                    </Button>
+                    <Button variant="secondary" onClick={handleOfflineOcr} loading={offlineOcrLoading} disabled={offlineOcrLoading}>
+                      {offlineOcrLoading ? 'Reading offline…' : 'Try offline OCR'}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-surface-400 dark:text-night-400">Offline OCR loads on demand (no bundle cost) when the server parse fails.</p>
                 </div>
               )}
             </motion.div>

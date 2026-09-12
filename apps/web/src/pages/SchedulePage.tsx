@@ -10,7 +10,11 @@ import Button from '../components/ui/Button'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
 import CenteredLoader from '../components/ui/CenteredLoader'
-import { timetableAPI, taskAPI } from '../lib/api'
+import { timetableAPI, taskAPI, scheduleAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { useRaceGuard, isAbortError } from '../hooks/useRaceGuard'
+import { useConfirm } from '../components/ui/ConfirmModal'
+import { showUndoToast } from '../lib/undoToast'
 
 function getActiveProvider() {
   try {
@@ -41,22 +45,60 @@ export default function SchedulePage() {
   const [parsing, setParsing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const [offlineOcrLoading, setOfflineOcrLoading] = useState(false)
+  const { confirm: confirmDialog } = useConfirm()
+
+  // Offline OCR fallback — tesseract.js on demand (backend vision is primary).
+  const handleOfflineOcr = async () => {
+    if (!file || offlineOcrLoading) return
+    setOfflineOcrLoading(true)
+    try {
+      const url = URL.createObjectURL(file)
+      try {
+        const { offlineOcrFallback } = await import('../lib/heavyLazy')
+        const text = await offlineOcrFallback(url)
+        if (String(text || '').trim()) {
+          setUploadMode('text')
+          setTimetableText(String(text).slice(0, 8000))
+          toast.success('Offline OCR extracted text — review and Parse')
+        } else {
+          toast.error('Offline OCR found no text — try a clearer photo')
+        }
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    } catch {
+      toast.error('Offline OCR unavailable — check connection and retry')
+    } finally {
+      setOfflineOcrLoading(false)
+    }
+  }
 
   // Task modal
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
   const [taskForm, setTaskForm] = useState({ title: '', description: '', startTime: '09:00', endTime: '10:00', category: 'personal', priority: 'MEDIUM' })
 
+  const { newRequest, isCurrent } = useRaceGuard()
+
   const load = async () => {
+    const { signal, seq } = newRequest()
     try {
-      const [s, t] = await Promise.all([timetableAPI.getAll(), taskAPI.getToday()])
+      const [s, t] = await Promise.all([timetableAPI.getAll({ signal }), taskAPI.getToday(signal)])
+      if (!isCurrent(seq) || signal.aborted) return
       setSchedules(s)
       setTasks(t)
-    } catch {}
-    setLoading(false)
+    } catch (e: any) {
+      if (isAbortError(e, signal)) return
+    }
+    if (isCurrent(seq) && !signal.aborted) setLoading(false)
   }
 
   useEffect(() => { load() }, [])
+
+  // STATE-SYNC: timetable + task changes from any surface (planner, dashboard,
+  // other device) refresh the period grid without navigation.
+  useEntitySync(['schedule', 'task'], load)
 
   const dayClasses = useMemo(() => schedules.filter((s) => s.dayOfWeek === selectedDay).sort((a, b) => a.startTime.localeCompare(b.startTime)), [schedules, selectedDay])
   const dayTasks = useMemo(() => tasks.filter((t) => t.startTime && !t.completed), [tasks])
@@ -98,14 +140,37 @@ export default function SchedulePage() {
       await timetableAPI.save(parsedClasses, true)
       toast.success(`${parsedClasses.length} classes saved!`)
       setUploadModalOpen(false); setParsedClasses([]); setTimetableText(''); setFile(null)
-      load()
+      // LISTENER-OWNS-REFETCH (AssignmentDetailPage precedent): notify reloads
+      // the grid via useEntitySync(['schedule','task']) — a direct load() here
+      // would double-fetch (direct + listener).
+      notifyEntityMutated('schedule', { action: 'saved' })
     } catch { toast.error('Failed to save') }
     setUploading(false)
   }
 
-  const handleDeleteClass = async (id: string) => {
-    if (!confirm('Delete this class?')) return
-    try { await fetch(`http://localhost:4000/api/schedules/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('campusflow-auth') || '{}').state?.token}` } }); toast.success('Deleted'); load() } catch { toast.error('Failed') }
+  const handleDeleteClass = async (item: any) => {
+    const id = typeof item === 'string' ? item : item?.id
+    if (!id) return
+    // WHY: accessible ConfirmModal instead of native confirm() (F24), plus Undo.
+    const ok = await confirmDialog({ title: 'Delete class?', message: `Delete "${item?.title || 'this class'}" from your timetable? You can undo right after.`, confirmLabel: 'Delete' })
+    if (!ok) return
+    // Snapshot for Undo — backend whitelists fields on save, extra keys ignored.
+    const snapshot = typeof item === 'object' && item ? { ...item } : null
+    try {
+      // WHY: env-aware shared client (VITE_API_URL) — never hardcode localhost (F21).
+      await scheduleAPI.delete(id)
+      // Same listener-owns-refetch as handleSaveClasses (direct load = 2×).
+      notifyEntityMutated('schedule', { scheduleId: id, action: 'deleted' })
+      if (snapshot) {
+        showUndoToast('Class deleted', async () => {
+          const { id: _id, _type: _t, _colorClass: _c, _data: _d, ...rest } = snapshot
+          await timetableAPI.save([rest], false)
+          notifyEntityMutated('schedule', { action: 'restored' })
+        })
+      } else {
+        toast.success('Deleted')
+      }
+    } catch { toast.error('Failed') }
   }
 
   const formatTime = (t: string) => {
@@ -203,7 +268,7 @@ export default function SchedulePage() {
                                   {item.teacher && <p className="text-[11px] text-surface-400 dark:text-night-400 mt-1">{/^(Prof|Dr|Mr|Mrs|Ms|Sir|Ma'am)\./i.test(item.teacher) ? '' : 'Prof. '}{item.teacher}</p>}
                                 </div>
                                 {item._type === 'class' && (
-                                   <button onClick={() => handleDeleteClass(item.id)} className="p-1 rounded text-surface-400 dark:text-night-400 hover:text-danger-600 opacity-0 group-hover/item:opacity-100 transition-all"><Trash2 size={12} /></button>
+                                   <button onClick={() => handleDeleteClass(item)} aria-label={`Delete class ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 dark:text-night-400 hover:text-danger-600 opacity-100 focus-visible:opacity-100 transition-all"><Trash2 size={14} aria-hidden="true" /></button>
                                 )}
                               </div>
                             </motion.div>
@@ -312,6 +377,14 @@ export default function SchedulePage() {
           <Button onClick={handleParse} loading={parsing} className="w-full" variant="secondary">
             <Sparkles size={16} /> Parse Timetable
           </Button>
+          {uploadMode === 'image' && file && (
+            <div className="space-y-1.5">
+              <Button onClick={handleOfflineOcr} loading={offlineOcrLoading} disabled={offlineOcrLoading} className="w-full" variant="secondary">
+                {offlineOcrLoading ? 'Reading offline…' : 'Try offline OCR (no upload)'}
+              </Button>
+              <p className="text-[11px] text-surface-400 dark:text-night-400 text-center">Loads tesseract on demand — zero bundle cost until tapped.</p>
+            </div>
+          )}
 
           {/* Parsed Results */}
           {parsedClasses.length > 0 && (

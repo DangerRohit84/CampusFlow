@@ -1,4 +1,11 @@
 // packages/backend/src/services/platformFetchers.ts
+// Track 4: PlatformContestResult stays here for compat; OCP registry lives in
+// ./platforms/registry.ts. fetchAllPlatforms now delegates to the registry
+// (new platform = one registration line, zero orchestrator edits).
+
+import { PlatformRegistry } from './platforms/registry'
+import { fetchCodeforcesJson } from './codeforcesGate'
+import { logger } from '../utils/logger'
 
 export interface PlatformContestResult {
   platform: string
@@ -11,8 +18,33 @@ export interface PlatformContestResult {
   participatedAt: Date | null
 }
 
-// Tuned for speed — 5s is enough for healthy APIs and cuts worst-case tail by 37% vs 8s
-const FETCH_TIMEOUT_MS = 5000
+// 10k scale: 10s per-fetch timeout (spec) + p-limit 5 concurrency.
+// 10s covers cold Codeforces/LeetCode tails; longer would hold sync workers
+// under burst. Concurrency is bounded via pLimit(5) in fetchAllPlatforms
+// so 5 platform fetches overlap without bursting DB/socket pools.
+export const FETCH_TIMEOUT_MS = 10_000
+export const FETCH_CONCURRENCY = 5
+
+/** Minimal p-limit (no new dep): run tasks with max `concurrency` in flight. */
+export async function pLimit<T>(concurrency: number, tasks: Array<() => Promise<T>>): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length)
+  let next = 0
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++
+      if (i >= tasks.length) return
+      try {
+        const v = await tasks[i]()
+        results[i] = { status: 'fulfilled', value: v } as PromiseFulfilledResult<T>
+      } catch (e) {
+        results[i] = { status: 'rejected', reason: e } as PromiseRejectedResult
+      }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker())
+  await Promise.all(workers)
+  return results
+}
 
 // Per-process coalescing cache: avoid refetching same handle within TTL and
 // de-duplicate concurrent in-flight requests for the same handle (helps syncAllUsers batch)
@@ -44,12 +76,31 @@ async function _fetchCodeforces(handle: string): Promise<PlatformContestResult[]
   const sanitized = String(handle || '').trim()
   if (!sanitized || sanitized.length > 50 || !/^[a-zA-Z0-9._-]+$/.test(sanitized)) return results
   try {
-    const ratingResp = await fetch(`https://codeforces.com/api/user.rating?handle=${encodeURIComponent(sanitized)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-    const ratingData = await ratingResp.json() as { status: string; result?: Array<{ contestId: number; rank: number; newRating: number; oldRating: number; contestName: string }> }
-    if (ratingData.status !== 'OK') return results
+    // Upgrade 1: shared 2s gate + 1 jittered retry (honors Retry-After/429).
+    // Other platforms bypass the gate (no slowdown).
+    const { data: ratingData, stillRateLimited } = await fetchCodeforcesJson<{
+      status: string
+      comment?: string
+      result?: Array<{ contestId: number; rank: number; newRating: number; oldRating: number; contestName: string; ratingUpdateTimeSeconds?: number }>
+    }>(`https://codeforces.com/api/user.rating?handle=${encodeURIComponent(sanitized)}`, { timeoutMs: FETCH_TIMEOUT_MS })
+    if (stillRateLimited) {
+      logger.warn(`[codeforces] rate limit persisted after 1 retry for ${sanitized} (skipping, no further retry)`)
+      return results
+    }
+    if (!ratingData || ratingData.status !== 'OK') return results
 
     for (const entry of ratingData.result ?? []) {
       if (!entry.contestId || !entry.contestName) continue
+      // ratingUpdateTimeSeconds is the contest end instant (CF API). Prior code
+      // dropped it (participatedAt: null) → all CF rows had null dates →
+      // bucketParticipationsByDay skipped everything → streak 0/0 + empty
+      // heatmap despite 35-row history (danger_rohit84 repro). Map to Date
+      // when finite+positive, else null (preserves prior null contract).
+      const ts = (entry as any).ratingUpdateTimeSeconds
+      const participatedAt =
+        typeof ts === 'number' && Number.isFinite(ts) && ts > 0
+          ? new Date(ts * 1000)
+          : null
       results.push({
         platform: 'codeforces',
         contestName: String(entry.contestName).trim().slice(0, 300),
@@ -58,11 +109,11 @@ async function _fetchCodeforces(handle: string): Promise<PlatformContestResult[]
         score: null,
         rating: Number.isFinite(entry.newRating) ? Math.round(entry.newRating) : null,
         ratingChange: Number.isFinite(entry.newRating) && Number.isFinite(entry.oldRating) ? entry.newRating - entry.oldRating : null,
-        participatedAt: null,
+        participatedAt,
       })
     }
   } catch (err) {
-    console.error('Codeforces fetch error:', err)
+    logger.error({ err }, 'Codeforces fetch error')
   }
   return results
 }
@@ -121,7 +172,7 @@ async function _fetchLeetCode(handle: string): Promise<PlatformContestResult[]> 
       })
     }
   } catch (err) {
-    console.error('LeetCode fetch error:', err)
+    logger.error({ err }, 'LeetCode fetch error')
   }
   return results
 }
@@ -150,7 +201,7 @@ async function _fetchCodeChef(handle: string): Promise<PlatformContestResult[]> 
     // Extract rating history from embedded JS: var all_rating = [...];
     const match = html.match(/var\s+all_rating\s*=\s*(\[[\s\S]*?\])\s*;/)
     if (!match) {
-      console.warn(`CodeChef: no rating data found for ${sanitized}`)
+      logger.warn(`CodeChef: no rating data found for ${sanitized}`)
       return results
     }
 
@@ -188,7 +239,7 @@ async function _fetchCodeChef(handle: string): Promise<PlatformContestResult[]> 
       })
     }
   } catch (err) {
-    console.error('CodeChef fetch error:', err)
+    logger.error({ err }, 'CodeChef fetch error')
   }
   return results
 }
@@ -265,7 +316,7 @@ async function _fetchHackerRank(handle: string): Promise<PlatformContestResult[]
       }
     }
   } catch (err) {
-    console.error('HackerRank fetch error:', err)
+    logger.error({ err }, 'HackerRank fetch error')
   }
   return results
 }
@@ -310,7 +361,7 @@ async function _fetchGFG(handle: string): Promise<PlatformContestResult[]> {
       })
     }
   } catch (err) {
-    console.error('GFG fetch error:', err)
+    logger.error({ err }, 'GFG fetch error')
   }
   return results
 }
@@ -329,16 +380,24 @@ export async function fetchAllPlatforms(profile: {
   hackerrankHandle?: string | null
   gfgHandle?: string | null
 }): Promise<PlatformContestResult[]> {
-  const promises: Promise<PlatformContestResult[]>[] = []
-  
-  if (profile.codeforcesHandle) promises.push(fetchCodeforces(profile.codeforcesHandle))
-  if (profile.leetcodeHandle) promises.push(fetchLeetCode(profile.leetcodeHandle))
-  if (profile.codechefHandle) promises.push(fetchCodeChef(profile.codechefHandle))
-  if (profile.hackerrankHandle) promises.push(fetchHackerRank(profile.hackerrankHandle))
-  if (profile.gfgHandle) promises.push(fetchGFG(profile.gfgHandle))
-  
-  const results = await Promise.allSettled(promises)
+  // OCP Strategy registry: adding a platform registers one entry below.
+  // Behavior identical to the previous if-chain (lazy tasks + pLimit 5).
+  const registry = new PlatformRegistry<PlatformContestResult[]>()
+  registry.register({ profileKey: 'codeforcesHandle', code: 'codeforces', fetch: (h) => fetchCodeforces(h) })
+  registry.register({ profileKey: 'leetcodeHandle', code: 'leetcode', fetch: (h) => fetchLeetCode(h) })
+  registry.register({ profileKey: 'codechefHandle', code: 'codechef', fetch: (h) => fetchCodeChef(h) })
+  registry.register({ profileKey: 'hackerrankHandle', code: 'hackerrank', fetch: (h) => fetchHackerRank(h) })
+  registry.register({ profileKey: 'gfgHandle', code: 'gfg', fetch: (h) => fetchGFG(h) })
+  const tasks = registry.tasksFor(profile as Record<string, string | null | undefined>)
+
+  // Bounded concurrency (p-limit 5): same parallelism for typical ≤5 tasks,
+  // bounded tail when handles fan out. Each fetch already has 10s timeout.
+  const results = await pLimit(FETCH_CONCURRENCY, tasks)
+  const failed = results.filter((r) => r.status === 'rejected').length
+  if (failed > 0) logger.debug({ failed }, '[platforms] isolated fetch failures (non-critical)')
   return results
     .filter((r): r is PromiseFulfilledResult<PlatformContestResult[]> => r.status === 'fulfilled')
     .flatMap((r) => r.value)
 }
+
+export { PlatformRegistry }

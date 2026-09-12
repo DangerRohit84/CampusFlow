@@ -6,56 +6,85 @@ import ProviderCard from '../components/ai/ProviderCard'
 import ProviderModal from '../components/ai/ProviderModal'
 import RoutingTable from '../components/ai/RoutingTable'
 import AiGraph from '../components/ai/AiGraph'
+import AiUsagePanel from '../components/ai/AiUsagePanel'
+import { adminAPI } from '../lib/api/resources/admin'
 import type { AiProvider, AiRouting } from '../types/api'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { useConfirm } from '../components/ui/ConfirmModal'
 
 export default function AiManagerPage() {
+  const { confirm: confirmDialog } = useConfirm()
   const [providers, setProviders] = useState<AiProvider[]>([])
   const [routing, setRouting] = useState<AiRouting[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<AiProvider | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [colleges, setColleges] = useState<{ id: string; name: string; code: string }[]>([])
 
   const load = async () => {
     setLoading(true)
-    const [p, r] = await Promise.all([
-      api.get('/ai-manager/providers'),
-      api.get('/ai-manager/routing'),
-    ])
-    setProviders(p.data.providers)
-    setRouting(r.data.routing)
-    setLoading(false)
+    setLoadError(null)
+    try {
+      const [p, r, c] = await Promise.all([
+        api.get('/ai-manager/providers'),
+        api.get('/ai-manager/routing'),
+        adminAPI.getColleges().catch(() => [] as { id: string; name: string; code: string }[]),
+      ])
+      setProviders(p.data.providers || [])
+      setRouting(r.data.routing || [])
+      setColleges(Array.isArray(c) ? c : [])
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || 'Could not load AI providers.'
+      setLoadError(msg)
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
 
   const handleSave = async (data: any) => {
-    if (editing) {
-      const res = await api.put(`/ai-manager/providers/${editing.id}`, data)
-      setProviders(prev => prev.map(p => p.id === editing.id ? res.data.provider : p))
-    } else {
-      const res = await api.post('/ai-manager/providers', data)
-      setProviders(prev => [...prev, res.data.provider])
+    try {
+      if (editing) {
+        const res = await api.put(`/ai-manager/providers/${editing.id}`, data)
+        setProviders(prev => prev.map(p => p.id === editing.id ? res.data.provider : p))
+      } else {
+        const res = await api.post('/ai-manager/providers', data)
+        setProviders(prev => [...prev, res.data.provider])
+      }
+      setModalOpen(false)
+      setEditing(null)
+      toast.success('Provider saved')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to save provider')
     }
-    setModalOpen(false)
-    setEditing(null)
-    toast.success('Provider saved')
   }
 
   const handleToggle = async (id: string) => {
-    const res = await api.patch(`/ai-manager/providers/${id}/toggle`)
-    setProviders(prev => prev.map(p => p.id === id ? res.data.provider : p))
-    toast.success('Updated')
+    try {
+      const res = await api.patch(`/ai-manager/providers/${id}/toggle`)
+      setProviders(prev => prev.map(p => p.id === id ? res.data.provider : p))
+      toast.success('Updated')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to update provider')
+    }
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this provider?')) return
-    await api.delete(`/ai-manager/providers/${id}`)
-    setProviders(prev => prev.filter(p => p.id !== id))
-    setRouting(prev => prev.filter(r => r.providerId !== id))
-    toast.success('Provider deleted')
+    const ok = await confirmDialog({ title: 'Delete provider?', message: 'Delete this AI provider and its routing rules?', confirmLabel: 'Delete' })
+    if (!ok) return
+    try {
+      await api.delete(`/ai-manager/providers/${id}`)
+      setProviders(prev => prev.filter(p => p.id !== id))
+      setRouting(prev => prev.filter(r => r.providerId !== id))
+      toast.success('Provider deleted')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to delete provider')
+    }
   }
 
   const handleTest = async (id: string) => {
@@ -73,23 +102,42 @@ export default function AiManagerPage() {
 
   const handleTestAll = async () => {
     const enabled = providers.filter(p => p.enabled)
-    for (const p of enabled) {
+    // PARALLEL (PERPAGE-HALF2: was `for…await` — N sequential POSTs, one slow
+    // provider stalled the rest). Toast semantics identical (per-provider
+    // error, single completion toast); network errors stay silent as before.
+    await Promise.all(enabled.map(async (p) => {
       try {
         const res = await api.post(`/ai-manager/providers/${p.id}/test`)
         if (!res.data.success) toast.error(`${p.name}: ${res.data.error}`)
       } catch {}
-    }
+    }))
     toast.success('All tests complete')
   }
 
   const handleRoutingSave = async (feature: string, providerIds: (string | null)[]) => {
-    const res = await api.put('/ai-manager/routing', { feature, providerIds })
-    setRouting(res.data.routing)
-    toast.success('Routing saved')
+    try {
+      const res = await api.put('/ai-manager/routing', { feature, providerIds })
+      setRouting(res.data.routing)
+      toast.success('Routing saved')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to save routing')
+    }
   }
 
   if (loading) {
     return <CenteredLoader text="Loading AI managers..." />
+  }
+
+  if (loadError) {
+    return (
+      <div className="max-w-[1280px] mx-auto">
+        <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-8 text-center" role="alert">
+          <p className="font-bold text-surface-900 dark:text-night-50">Couldn&apos;t load AI Manager</p>
+          <p className="text-sm text-surface-500 dark:text-night-400 mt-1">{loadError}</p>
+          <button onClick={load} className="mt-4 px-5 py-2.5 rounded-xl bg-primary-600 text-white text-sm font-semibold">Retry</button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -151,6 +199,11 @@ export default function AiManagerPage() {
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-surface-900 dark:text-night-50 mb-4">Visual Graph</h2>
         <AiGraph providers={providers} routing={routing} />
+      </div>
+
+      {/* #11 AI metering: per-college usage counters + cost caps. */}
+      <div className="mb-8">
+        <AiUsagePanel colleges={colleges} />
       </div>
 
       {/* Modal */}

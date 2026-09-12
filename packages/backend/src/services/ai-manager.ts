@@ -13,20 +13,24 @@ export async function getProviders() {
 
 export async function createProvider(data: {
   name: string; baseUrl: string; apiKey: string; model: string
-  type?: string; headers?: string; collegeId?: string
+  type?: string; headers?: string | Record<string, string>; collegeId?: string
 }) {
   const encrypted = encryptApiKey(data.apiKey)
+  // Order 9: headers is Json — normalize String → object for DB.
+  const normHeaders: Record<string, string> | undefined = (data as any).headers === undefined ? undefined : (typeof (data as any).headers === 'string' ? (() => { try { return JSON.parse((data as any).headers || '{}') } catch { return {} } })() : (data as any).headers)
   const provider = await prisma.aiProvider.create({
-    data: { ...data, apiKey: encrypted },
+    data: { ...data, ...(normHeaders !== undefined ? { headers: normHeaders as any } : {}), apiKey: encrypted },
   })
   return { ...provider, apiKey: maskApiKey(provider.apiKey) }
 }
 
 export async function updateProvider(id: string, data: {
   name?: string; baseUrl?: string; apiKey?: string; model?: string
-  type?: string; headers?: string
+  type?: string; headers?: string | Record<string, string>
 }) {
   const updateData: any = { ...data }
+  // Order 9: normalize headers String → object for Json col.
+  if (typeof updateData.headers === 'string') { try { updateData.headers = JSON.parse(updateData.headers || '{}') } catch { updateData.headers = {} } }
   if (data.apiKey) updateData.apiKey = encryptApiKey(data.apiKey)
   const provider = await prisma.aiProvider.update({ where: { id }, data: updateData })
   return { ...provider, apiKey: maskApiKey(provider.apiKey) }
@@ -67,7 +71,7 @@ export async function testProvider(id: string) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        ...JSON.parse(provider.headers || '{}'),
+        ...(typeof (provider as any).headers === 'string' ? JSON.parse((provider as any).headers || '{}') : ((provider as any).headers ?? {})),
       },
       body: JSON.stringify({
         model: provider.model,
@@ -151,7 +155,7 @@ export async function getProvidersForFeature(feature: string): Promise<ManagedPr
     }
     let headers: Record<string, string>
     try {
-      headers = JSON.parse(provider.headers || '{}')
+      headers = (typeof (provider as any).headers === 'string' ? JSON.parse((provider as any).headers || '{}') : ((provider as any).headers ?? {}))
     } catch {
       continue
     }

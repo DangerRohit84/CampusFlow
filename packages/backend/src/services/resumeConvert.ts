@@ -16,6 +16,7 @@
 import { aiChatWithUserKey, visionCompletionWithUserKey } from '../ai/client'
 import { getProviderForFeature, getProvidersForFeature } from '../services/ai-manager'
 import { generateResumeLatex } from './resumeLatex'
+import { logger } from '../utils/logger'
 
 const NOT_CONFIGURED = 'AI provider not configured. Please set up a provider in AI Manager.'
 
@@ -251,7 +252,7 @@ async function tryAI(promptSystem: string, promptUser: string, userApiKey?: stri
     if (!res || res === NOT_CONFIGURED || res.includes('AI provider not configured')) return null
     return res
   } catch (e) {
-    console.warn('[resumeConvert ai] fallback', e)
+    logger.warn({ err: e }, '[resumeConvert ai] fallback')
     return null
   }
 }
@@ -268,7 +269,7 @@ async function extractTextFromBuffer(buffer: Buffer, originalName: string, mimet
       const result = await mod.extractRawText({ buffer })
       if (result.value?.trim()) return result.value
     } catch (e) {
-      console.warn('mammoth extract failed', e)
+      logger.warn({ err: e }, 'mammoth extract failed')
     }
     return buffer.toString('utf-8').slice(0, 15000)
   }
@@ -280,7 +281,7 @@ async function extractTextFromBuffer(buffer: Buffer, originalName: string, mimet
       const result = await parser.getText()
       if (result?.text?.trim()) return result.text
     } catch (e) {
-      console.warn('pdf-parse failed', (e as any)?.message || e)
+      logger.warn({ err: (e as any)?.message || e }, 'pdf-parse failed')
     } finally {
       try { await parser?.destroy() } catch {}
     }
@@ -369,10 +370,10 @@ async function aiVisionToLatex(base64: string, mimeType: string, userApiKey?: st
     const cleaned = sanitizeLatexOutput(res)
     if (isValidLatex(cleaned)) return cleaned
     if (cleaned.length > 200 && cleaned.includes('\\begin')) return cleaned
-    console.warn('[resumeConvert vision] invalid latex, preview:', cleaned.slice(0, 300))
+    logger.warn({ err: cleaned.slice(0, 300) }, '[resumeConvert vision] invalid latex, preview:')
     return null
   } catch (e) {
-    console.warn('[resumeConvert vision] failed', e)
+    logger.warn({ err: e }, '[resumeConvert vision] failed')
     return null
   }
 }
@@ -424,7 +425,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
       if (!hasGroq) return null
       const canvasOk = await isCanvasAvailable()
       if (!canvasOk) {
-        console.warn('[resumeConvert] canvas not available for scanned PDF vision — fallback to placeholder')
+        logger.warn('[resumeConvert] canvas not available for scanned PDF vision — fallback to placeholder')
         return null
       }
       let pdfjs: any = null
@@ -434,7 +435,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
         try {
           pdfjs = await import('pdfjs-dist')
         } catch (e) {
-          console.warn('[resumeConvert] pdfjs-dist not available', e)
+          logger.warn({ err: e }, '[resumeConvert] pdfjs-dist not available')
           return null
         }
       }
@@ -444,7 +445,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
         const canvasMod: any = await import('canvas')
         createCanvas = canvasMod.createCanvas || canvasMod.default?.createCanvas || canvasMod.Canvas
       } catch (e) {
-        console.warn('[resumeConvert] canvas not available for scanned PDF vision', (e as any)?.message || e)
+        logger.warn({ err: (e as any)?.message || e }, '[resumeConvert] canvas not available for scanned PDF vision')
         return null
       }
       if (!createCanvas) return null
@@ -471,7 +472,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
       const visionLatex = await aiVisionToLatex(base64, 'image/png', sanitizedKey)
       return visionLatex
     } catch (e) {
-      console.warn('[resumeConvert] tryScannedPdfVision failed', (e as any)?.message || e)
+      logger.warn({ err: (e as any)?.message || e }, '[resumeConvert] tryScannedPdfVision failed')
       return null
     }
   }
@@ -481,7 +482,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
   try {
     rawText = await extractTextFromBuffer(buffer, fileName, mimeType)
   } catch (e) {
-    console.warn('extractText failed', e)
+    logger.warn({ err: e }, 'extractText failed')
     rawText = ''
   }
 
@@ -498,7 +499,7 @@ export async function convertFileToLatex(buffer: Buffer, fileName: string, mimeT
           return { latex: visionLatex, rawText: previewText || `[Vision extracted ${fileName}]`, data: heuristicData, usedAI: true, method: 'vision', hasGroq, fileName, mimeType }
         }
       } catch (e) {
-        console.warn('[resumeConvert] scanned PDF vision fallback', e)
+        logger.warn({ err: e }, '[resumeConvert] scanned PDF vision fallback')
       }
       // Fallback placeholder if vision unavailable/failed — per spec, show placeholder when user key missing
       const canvasOk2 = await isCanvasAvailable().catch(()=>false)

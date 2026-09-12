@@ -35,22 +35,26 @@ export default function FilterTabs({ tabs, activeTab, onTabChange, accent = 'def
   const activeCls = activeMap[accent] || activeMap.default
   const countActiveCls = countActiveMap[accent] || countActiveMap.default
   return (
-    <div className="flex items-center gap-2 flex-wrap border-b border-surface-200 dark:border-night-600 pb-3">
+    <div role="tablist" aria-label="Filter results" className="flex items-center gap-2 flex-wrap border-b border-surface-200 dark:border-night-600 pb-3">
       {tabs.map(({ key, label, icon: Icon, count }) => (
         <button
           key={key}
+          role="tab"
+          aria-selected={activeTab === key}
+          aria-label={count !== undefined ? `${label}, ${count} items` : label}
           onClick={() => onTabChange(key)}
           className={clsx(
-            'flex items-center gap-1.5 px-4 min-h-[36px] rounded-full text-sm font-semibold transition-colors border',
+            // WHY: WCAG 2.5.8 — 44px minimum target (was min-h-36px, fails).
+            'flex items-center gap-1.5 px-4 min-h-[44px] min-w-[44px] rounded-full text-sm font-semibold transition-colors border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
             activeTab === key
               ? activeCls
               : 'bg-white dark:bg-night-700 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-600 hover:border-surface-300 dark:hover:border-night-500'
           )}
         >
-          <Icon size={14} />
+          <Icon size={14} aria-hidden="true" />
           {label}
           {count !== undefined && (
-            <span className={clsx(
+            <span aria-hidden="true" className={clsx(
               'ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold border',
               activeTab === key ? countActiveCls : 'bg-surface-100 dark:bg-night-600 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-500'
             )}>

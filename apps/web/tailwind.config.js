@@ -5,7 +5,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Primary — Spotify Green #1ed760 / #1db954 — WCAG AA on white/black
+        // Primary — single brand source (Spotify Green #1ed760 / #1db954). All green
+        // tints derive from here. Success reuses the same hue for feedback (semantic alias).
+        // WHY: one green source avoids drift (was primary/accent/success/brass/gold all duped).
         primary: {
           50: '#e8f8ee',
           100: '#c7eed0',
@@ -19,19 +21,20 @@ export default {
           900: '#0a5a2a',
           950: '#04311a',
         },
-        // Accent — Green alias (kept in sync with primary)
-        accent: {
-          50: '#e8f8ee',
-          100: '#c7eed0',
-          200: '#9be0ac',
-          300: '#6fd28a',
-          400: '#3ac567',
-          500: '#1ed760',
-          600: '#1db954',
-          700: '#169c46',
-          800: '#107a38',
-          900: '#0a5a2a',
-          950: '#04311a',
+        // Info — real blue (restored; was overwritten to green). Use for informational
+        // surfaces (internship blue boards, info badges) so info ≠ success.
+        info: {
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#0ea5e9',
+          600: '#0284c7',
+          700: '#0369a1',
+          800: '#075985',
+          900: '#0c4a6e',
+          950: '#082f49',
         },
         // Rose / Red — Spotify danger #ff4b5c (dark) / #ef4444 (light)
         danger: {
@@ -117,20 +120,18 @@ export default {
           900: '#121212',
           950: '#000000',
         },
-        // Brass / Gold — mapped to Spotify green (legacy compat, no blue clash)
+        // Brass — DEPRECATED alias to primary (kept for compat: FilterTabs/PageHeader/StatCard/Rooms use bg-brass-500).
+        // TODO(a11y-tokens): migrate brass-* usages to primary-* then delete this block (single green source).
         brass: {
           50: '#e8f8ee',100: '#c7eed0',200: '#9be0ac',300: '#6fd28a',400: '#3ac567',
           500: '#1ed760',600: '#1db954',700: '#169c46',800: '#107a38',900: '#0a5a2a',
         },
-        gold: {
-          50: '#e8f8ee',100: '#c7eed0',200: '#9be0ac',300: '#6fd28a',400: '#3ac567',
-          500: '#1ed760',600: '#1db954',700: '#169c46',800: '#107a38',900: '#0a5a2a',
-        }
       },
       fontFamily: {
+        // 2 web families only (Fraunces + DM Sans) — mono is system stack (0KB webfont).
         sans: ['DM Sans','system-ui','sans-serif'],
         display: ['Fraunces','DM Sans','serif'],
-        mono: ['JetBrains Mono','monospace'],
+        mono: ['ui-monospace','SFMono-Regular','Menlo','Consolas','monospace'],
       },
       maxWidth: {
         'campus': '1280px',

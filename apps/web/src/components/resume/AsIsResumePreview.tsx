@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { ResumeData } from '../../types/resume'
+import { sanitizeDocxHtml } from '../../lib/sanitize'
 
 type Props = {
   data: ResumeData
@@ -109,7 +110,9 @@ export default function AsIsResumePreview({ data, onChange, objectUrlOverride }:
         const mammoth: any = await import('mammoth')
         const mod = mammoth.default || mammoth
         const result = await mod.convertToHtml({ arrayBuffer: ab }, { includeDefaultStyleMap: true })
-        if (!cancelled) setDocxHtml(result.value || '<p class="text-sm text-surface-500">No preview available — download original to view.</p>')
+        // C1 fix: sanitize mammoth HTML on set (render path 1/2) — DOCX is a zip
+        // container, attacker text becomes inline HTML; strip on*/script/svg now.
+        if (!cancelled) setDocxHtml(sanitizeDocxHtml(result.value || '<p>No preview available — download original to view.</p>'))
       } catch (e: any) {
         if (!cancelled) setDocxHtml(`<p class="text-xs text-red-600">Preview failed: ${String(e?.message || e)}</p>`)
       }
@@ -538,7 +541,10 @@ export default function AsIsResumePreview({ data, onChange, objectUrlOverride }:
       const n = (asset!.fileName || '').toLowerCase()
       return n.endsWith('.docx') || n.endsWith('.doc')
     })()
-    const displayHtml = (data as any).docxEditedHtml || docxHtml
+    const rawDisplayHtml = (data as any).docxEditedHtml || docxHtml
+    // C1 fix: sanitize BOTH persisted edit + converted HTML on every render (2/2).
+    // Persisted docxEditedHtml survives reload/sync — must never render raw.
+    const displayHtml = sanitizeDocxHtml(rawDisplayHtml || '')
     return (
       <div className="bg-white rounded-xl border border-surface-200 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-surface-100 bg-surface-50/50">
@@ -560,11 +566,14 @@ export default function AsIsResumePreview({ data, onChange, objectUrlOverride }:
               suppressContentEditableWarning
               onBlur={(e) => {
                 if (!onChange || !editOverlay) return
-                const newHtml = e.currentTarget.innerHTML
+                const rawNewHtml = e.currentTarget.innerHTML
+                // C1 fix: sanitize persist path — contentEditable innerHTML may contain
+                // pasted <img onerror>/<svg onload>/style; clean before docxEditedHtml.
+                const newHtml = sanitizeDocxHtml(rawNewHtml)
                 const originalHtml = docxHtml || ''
                 // Only persist if changed from last persisted
                 const currentEdited = (data as any).docxEditedHtml
-                const baseline = currentEdited !== undefined ? currentEdited : originalHtml
+                const baseline = currentEdited !== undefined ? sanitizeDocxHtml(String(currentEdited)) : originalHtml
                 if (newHtml !== baseline) {
                   const next: ResumeData = {
                     ...(dataRef.current as any),

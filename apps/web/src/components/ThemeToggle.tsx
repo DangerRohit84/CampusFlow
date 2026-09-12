@@ -21,7 +21,7 @@ export default function ThemeToggle() {
   const [isDragging, setIsDragging] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLButtonElement>(null);
   const startXRef = useRef(0);
   const startYRef = useRef(0);
   const startTimeRef = useRef(0);
@@ -184,11 +184,10 @@ export default function ThemeToggle() {
   }, [isDragging, snapBack]);
 
   return (
-    <motion.div
+    <motion.button
       ref={rootRef as any}
-      role="button"
-      tabIndex={0}
-      aria-label={dark ? 'Pull cord to switch to light mode' : 'Pull cord to switch to dark mode'}
+      type="button"
+      aria-label={dark ? 'Switch to light mode (currently dark)' : 'Switch to dark mode (currently light)'}
       aria-pressed={dark}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
@@ -215,10 +214,16 @@ export default function ThemeToggle() {
           overflow: 'visible',
           // disable CSS transition while dragging/recoil to prevent cubic-bezier overshoot to 90deg
           transition: isDragging ? 'none' : undefined,
+          // WHY: WCAG 2.5.8 — 44px minimum touch target; focus-visible ring for keyboard users.
+          minWidth: 44,
+          minHeight: 44,
         } as any
       }
       title={dark ? 'Pull to switch to light' : 'Pull to switch to dark'}
+      data-tooltip={dark ? 'Light mode' : 'Dark mode'}
     >
+      {/* WHY: visible tooltip on hover/focus + sr-only label (was title-only, invisible to AT/keyboard). Scroll fallback: lamp stays in header flow (absolute top-full) + keyboard Enter/Space works without drag. */}
+      <span className="sr-only">{dark ? 'Activate for light mode' : 'Activate for dark mode'}</span>
       <motion.svg
         className="theme-lamp__cord"
         viewBox="0 0 4 60"
@@ -233,7 +238,8 @@ export default function ThemeToggle() {
             display: 'block',
           } as any
         }
-        aria-hidden
+        aria-hidden="true"
+        focusable="false"
       >
         {/* FIX: thread cutting — cord was clipping on stretch (overflow hidden / viewBox scaling).
             Use preserveAspectRatio="none" so line stretches full height without aspect letterbox,
@@ -248,8 +254,8 @@ export default function ThemeToggle() {
           strokeLinecap="round"
         />
       </motion.svg>
-      <div className="theme-lamp__bulb">
-        <svg viewBox="0 0 32 48" fill="none" className="theme-lamp__icon" style={{ transform: 'scaleY(-1)' }} aria-hidden>
+      <div className="theme-lamp__bulb" aria-hidden="true">
+        <svg viewBox="0 0 32 48" fill="none" className="theme-lamp__icon" style={{ transform: 'scaleY(-1)' }} aria-hidden="true" focusable="false">
           {dark ? (
             <>
               <path
@@ -281,6 +287,6 @@ export default function ThemeToggle() {
           )}
         </svg>
       </div>
-    </motion.div>
+    </motion.button>
   );
 }

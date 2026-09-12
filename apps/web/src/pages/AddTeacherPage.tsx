@@ -1,6 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { adminAPI, departmentAPI } from '../lib/api'
+import { adminAPI } from '../lib/api'
+import { notifyEntityMutated } from '../lib/entitySync'
+import { isValidEmail } from '../lib/validation'
+import { useDepartments } from '../hooks/useDepartments'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   UserPlus, Upload, Download, Loader2, CheckCircle, X, FileText
@@ -8,37 +12,66 @@ import {
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
+import { generateSecurePassword, isCommonPasswordLocal, checkPasswordBreachHook } from '../lib/password'
 
 export default function AddTeacherPage() {
   const { user } = useAuthStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'form' | 'csv'>('form')
   const [loading, setLoading] = useState(false)
-  const [defaultPassword, setDefaultPassword] = useState('password123')
-  const [departments, setDepartments] = useState<any[]>([])
+  const [defaultPassword, setDefaultPassword] = useState(() => generateSecurePassword(16))  // C3: random, never password123
+  // PERPAGE-MISSED: shared cached departments (was an uncached
+  // departmentAPI.getAll() mount GET, duplicated across admin pages with zero
+  // cross-page dedupe). Same array data via the shared 10-min RQ key
+  // (Forms/Hackathons precedent); warm navs = 0 GETs.
+  const { data: departmentsData } = useDepartments()
+  const departments: any[] = Array.isArray(departmentsData) ? departmentsData : []
   const [teacher, setTeacher] = useState({
     name: '', email: '', empNumber: '', departmentId: ''
   })
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvResults, setCsvResults] = useState<any>(null)
 
-  useEffect(() => {
-    departmentAPI.getAll().then(setDepartments).catch(() => {})
-  }, [])
+  if (user?.role === 'STUDENT') {
+    return (
+      <div className="max-w-[1280px] mx-auto">
+        <div className="rounded-2xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 p-8 text-center" role="alert">
+          <h1 className="text-xl font-bold text-surface-900 dark:text-night-50">Not available for students</h1>
+          <p className="text-sm text-surface-500 dark:text-night-400 mt-2">Only college admins can onboard faculty. Ask your registrar for access.</p>
+          <Link to="/dashboard" className="mt-5 inline-flex px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold">Back to dashboard</Link>
+        </div>
+      </div>
+    )
+  }
+
+  // Departments now come from the shared useDepartments() hook above —
+  // the old uncached mount useEffect was removed (PERPAGE-MISSED).
 
   const handleAddTeacher = async () => {
-    if (!teacher.name || !teacher.email || !teacher.empNumber || !teacher.departmentId) {
-      toast.error('All fields are required')
+    const fe: Record<string, string> = {}
+    if (!teacher.name.trim()) fe.name = 'Name is required.'
+    if (!teacher.email.trim()) fe.email = 'Email is required.'
+    else if (!isValidEmail(teacher.email)) fe.email = 'Enter a valid email.'
+    if (!teacher.empNumber.trim()) fe.empNumber = 'Employee number is required.'
+    if (!teacher.departmentId) fe.departmentId = 'Select a department.'
+    setFieldErrors(fe)
+    if (Object.keys(fe).length) {
+      toast.error(Object.values(fe)[0])
       return
     }
+    if (isCommonPasswordLocal(defaultPassword)) { toast.error('Temporary password is too common � click Regenerate'); return }
     setLoading(true)
     try {
+      const breach = await checkPasswordBreachHook(defaultPassword).catch(() => ({ breached: false, offline: true as const })); if (breach.breached) { toast.error('Generated password appears in a breach � click Regenerate'); setLoading(false); return }
       await adminAPI.addTeacher({
         ...teacher,
         password: defaultPassword
       })
-      toast.success('Teacher added successfully!')
-      setTeacher({ name: '', email: '', empNumber: '', departmentId: '' })
+      toast.success('Teacher added! Share the password once � they must change it on first login.')
+      setTeacher({ name: '', email: '', empNumber: '', departmentId: '' }); setDefaultPassword(generateSecurePassword(16))
+      setFieldErrors({})
+      notifyEntityMutated('user', { action: 'teacher-added' })
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to add teacher')
     } finally {
@@ -52,7 +85,7 @@ export default function AddTeacherPage() {
       return
     }
     if (!defaultPassword) {
-      toast.error('Please set a default password')
+      toast.error('Please set a Temporary Password \(auto-generated, show once\)')
       return
     }
 
@@ -82,6 +115,9 @@ export default function AddTeacherPage() {
           email: cols[emailIdx],
           empNumber: cols[empIdx],
           departmentId: dept?.id || '',
+          // Raw name so the backend can resolve case-insensitively / fail loudly
+          // on typos instead of silently creating a dept-less teacher.
+          department: deptName,
           password: defaultPassword
         }
       }).filter(t => t.name && t.email)
@@ -133,13 +169,13 @@ export default function AddTeacherPage() {
           className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 text-surface-500 dark:text-night-400" />
       </div>
 
-      {/* Default Password */}
+      {/* Temporary Password \(auto-generated, show once\) */}
       <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
-        <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Default Password</label>
+        <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Temporary Password \(auto-generated, show once\)</label>
         <input type="password" value={defaultPassword} onChange={(e) => setDefaultPassword(e.target.value)}
           className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
           placeholder="Password for all teachers" />
-        <p className="text-xs text-surface-400 dark:text-night-400 mt-1">This password will be used for all teachers added</p>
+        <p className="text-xs text-surface-400 dark:text-night-400 mt-1">Unique per teacher � share once over a secure channel. They must change it on first login \(min 8, HIBP-checked server-side\).</p>
       </div>
 
       {/* Tabs */}
@@ -167,18 +203,21 @@ export default function AddTeacherPage() {
               <input type="text" value={teacher.empNumber} onChange={(e) => setTeacher({ ...teacher, empNumber: e.target.value })}
                 className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="e.g., EMP001" />
+              {fieldErrors.empNumber && <p className="mt-1 text-xs text-danger-600">{fieldErrors.empNumber}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Name *</label>
               <input type="text" value={teacher.name} onChange={(e) => setTeacher({ ...teacher, name: e.target.value })}
                 className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="Full name" />
+              {fieldErrors.name && <p className="mt-1 text-xs text-danger-600">{fieldErrors.name}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Email *</label>
               <input type="email" value={teacher.email} onChange={(e) => setTeacher({ ...teacher, email: e.target.value })}
                 className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 placeholder="email@college.edu" />
+              {fieldErrors.email && <p className="mt-1 text-xs text-danger-600">{fieldErrors.email}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Department *</label>
@@ -189,6 +228,7 @@ export default function AddTeacherPage() {
                   <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
+              {fieldErrors.departmentId && <p className="mt-1 text-xs text-danger-600">{fieldErrors.departmentId}</p>}
             </div>
           </div>
           <button onClick={handleAddTeacher} disabled={loading}
@@ -266,3 +306,6 @@ export default function AddTeacherPage() {
     </div>
   )
 }
+
+
+

@@ -6,6 +6,8 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import { aiAPI } from '../lib/api'
 import { sanitizeMarkdown } from '../lib/sanitize'
+import { parseSubjects } from '../lib/validation'
+import toast from 'react-hot-toast'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
@@ -13,22 +15,43 @@ export default function InsightsPage() {
   const [insights, setInsights] = useState<string>('')
   const [studyPlan, setStudyPlan] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState<string | null>(null)
+  const [planError, setPlanError] = useState<string | null>(null)
   const [studyForm, setStudyForm] = useState({ subjects: '', daysLeft: 14, hoursPerDay: 4 })
   const [generatingPlan, setGeneratingPlan] = useState(false)
 
-  useEffect(() => {
+  const loadInsights = () => {
     setLoading(true)
-    aiAPI.getInsights().then((data) => setInsights(data.insights)).catch(console.error).finally(() => setLoading(false))
+    setInsightsError(null)
+    aiAPI.getInsights().then((data) => setInsights(data.insights || '')).catch((e: any) => {
+      const msg = e?.response?.data?.error || 'Could not load insights.'
+      setInsightsError(msg)
+      toast.error(msg)
+    }).finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadInsights()
   }, [])
 
   const generateStudyPlan = async () => {
-    const subjects = studyForm.subjects.split(',').map((s) => s.trim()).filter(Boolean)
-    if (subjects.length === 0) return
+    const subjects = parseSubjects(studyForm.subjects)
+    if (subjects.length === 0) {
+      setPlanError('Add at least one subject (comma-separated).')
+      toast.error('Add at least one subject first')
+      return
+    }
+    setPlanError(null)
     setGeneratingPlan(true)
     try {
       const data = await aiAPI.studyPlan(subjects, studyForm.daysLeft, studyForm.hoursPerDay)
-      setStudyPlan(data.plan)
-    } catch {}
+      setStudyPlan(data.plan || '')
+      toast.success('Study plan ready!')
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || 'Could not generate a study plan. Try again.'
+      setPlanError(msg)
+      toast.error(msg)
+    }
     setGeneratingPlan(false)
   }
 
@@ -58,10 +81,21 @@ export default function InsightsPage() {
           </div>
           {loading ? (
             <CenteredLoader text="Analyzing your performance..." minHeight="min-h-[160px]" />
-          ) : (
+          ) : insightsError ? (
+            <div className="text-center py-8" role="alert">
+              <p className="font-semibold text-surface-700 dark:text-night-200">Couldn&apos;t load insights</p>
+              <p className="text-sm text-surface-500 dark:text-night-400 mt-1">{insightsError}</p>
+              <Button onClick={loadInsights} className="mt-4">Retry</Button>
+            </div>
+          ) : insights ? (
             <div className="prose prose-sm max-w-none text-surface-700 dark:text-night-200 whitespace-pre-wrap leading-relaxed"
               dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(insights) }}
             />
+          ) : (
+            <div className="text-center py-8">
+              <p className="font-semibold text-surface-700 dark:text-night-200">No insights yet</p>
+              <p className="text-sm text-surface-500 dark:text-night-400 mt-1">Sync your coding profile or add grades/attendance — insights appear here.</p>
+            </div>
           )}
         </Card>
       </motion.div>
@@ -109,9 +143,12 @@ export default function InsightsPage() {
             </div>
           </div>
 
-          <Button onClick={generateStudyPlan} loading={generatingPlan} disabled={!studyForm.subjects.trim()}>
+          <Button onClick={generateStudyPlan} loading={generatingPlan} disabled={!studyForm.subjects.trim() || generatingPlan}>
             <Sparkles size={16} /> Generate Study Plan
           </Button>
+          {planError && (
+            <p role="alert" className="mt-3 text-sm text-danger-600">{planError}</p>
+          )}
 
           {studyPlan && (
             <div className="mt-6 p-4 bg-surface-50 dark:bg-night-850 rounded-xl border border-surface-200 dark:border-night-600">

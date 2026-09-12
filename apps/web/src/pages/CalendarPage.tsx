@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { ChevronLeft, ChevronRight, CalendarDays, CalendarPlus, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
 import { timetableAPI, assignmentAPI, taskAPI, codingContestAPI, hackathonAPI, formAPI } from '../lib/api'
+import { buildGoogleCalendarUrl } from '../lib/gcal'
+import { useEntitySync } from '../lib/entitySync'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
 type CalendarEvent = {
@@ -15,6 +17,11 @@ type CalendarEvent = {
   completed?: boolean
   platform?: string
   dayOfWeek?: string
+  // #6: contest GCal export needs the raw start + source URL (list rows only
+  // carry derived date/time; keep the source here so detail can link out).
+  url?: string
+  startTime?: string
+  durationMinutes?: number | null
 }
 
 type TimetableClass = {
@@ -63,6 +70,7 @@ function formatMonthYear(year: number, month: number) {
 }
 
 export default function CalendarPage() {
+  const shouldReduce = useReducedMotion()
   const today = new Date()
   const [currentYear, setCurrentYear] = useState(today.getFullYear())
   const [currentMonth, setCurrentMonth] = useState(today.getMonth())
@@ -70,6 +78,9 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [isDark, setIsDark] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const seqRef = useRef(0)
+
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.classList.contains('dark'))
     check()
@@ -83,10 +94,17 @@ export default function CalendarPage() {
     return isDark ? c.dark : c.light
   }
 
-  // Fetch all data sources
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true)
+  // Fetch all data sources — AbortController + sequence guard so rapid
+  // month switches / mutation bursts never resolve out of order (stale win).
+  // background:true skips the detail-panel loader for entity-sync revalidates
+  // (PERPAGE-HALF2: every external mutation reflashed "Loading calendar..."
+  // while refetching the same 6 GETs) — month switches still show it.
+  const fetchAll = useCallback(async (opts?: { background?: boolean }) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const seq = ++seqRef.current
+    if (!opts?.background) setLoading(true)
       const [classes, assignments, tasks, contests, hackathons, forms] = await Promise.all([
         timetableAPI.getAll().catch(() => []),
         assignmentAPI.getAll().catch(() => []),
@@ -151,18 +169,23 @@ export default function CalendarPage() {
         }
       }
 
-      // Process contests
+      // Process contests — CodingContest stores ISO in `startTime` (not
+      // `startDate`); accept both so calendar never silently drops contests.
       const contestList: any[] = Array.isArray(contests) ? contests : []
       for (const c of contestList) {
-        if (c.startDate) {
-          const dateStr = c.startDate.slice(0, 10)
+        const raw: string | undefined = c.startTime || c.startDate
+        if (raw) {
+          const dateStr = String(raw).slice(0, 10)
           allEvents.push({
             id: `contest-${c.id}`,
             type: 'contest',
             title: c.title || c.name || 'Contest',
             date: dateStr,
-            time: c.startDate.slice(11, 16),
+            time: String(raw).slice(11, 16),
             platform: c.platform,
+            url: c.url,
+            startTime: c.startTime || raw,
+            durationMinutes: typeof c.duration === 'number' ? c.duration : null,
           })
         }
       }
@@ -197,12 +220,22 @@ export default function CalendarPage() {
         }
       }
 
+      if (controller.signal.aborted) return
+      if (seq !== seqRef.current) return
       setEvents(allEvents)
       setLoading(false)
-    }
-
-    fetchAll()
   }, [currentYear, currentMonth])
+
+  useEffect(() => {
+    void fetchAll()
+    return () => abortRef.current?.abort()
+  }, [fetchAll])
+
+  // STATE-SYNC: external mutations (other tab/device) refresh without reload.
+  // Background silent — same 6-GET bundle, no loader flash per event (the
+  // microtask coalescing in useEntitySync already collapses same-tick bursts
+  // to one bundle).
+  useEntitySync(['schedule', 'hackathon', 'internship', 'contest', 'form', 'assignment', 'task'], () => { void fetchAll({ background: true }) })
 
   // Events grouped by date
   const eventsByDate = useMemo(() => {
@@ -251,9 +284,9 @@ export default function CalendarPage() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={shouldReduce ? undefined : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
+      transition={shouldReduce ? undefined : { duration: 0.4 }}
       className="space-y-6 max-w-[1280px] mx-auto"
     >
       {/* Header */}
@@ -471,6 +504,18 @@ export default function CalendarPage() {
                             <span className="text-surface-400 dark:text-night-400 italic">
                               Recurring every {evt.dayOfWeek.charAt(0) + evt.dayOfWeek.slice(1).toLowerCase()}
                             </span>
+                          )}
+                          {/* #6: per-contest GCal export — template URL, no OAuth */}
+                          {evt.type === 'contest' && evt.startTime && (
+                            <a
+                              href={(() => { try { return buildGoogleCalendarUrl({ title: evt.title, platform: evt.platform, url: evt.url, startTime: evt.startTime!, duration: evt.durationMinutes }) } catch { return '#' } })()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Add ${evt.title} to Google Calendar`}
+                              className="inline-flex items-center gap-1 font-medium text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+                            >
+                              <CalendarPlus size={12} /> Add to GCal
+                            </a>
                           )}
                         </div>
                       </div>

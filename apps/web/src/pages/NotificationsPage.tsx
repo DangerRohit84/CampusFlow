@@ -2,34 +2,73 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bell, BellOff, CheckCheck, Trash2, Users, Clock, Check } from 'lucide-react'
 import { notificationAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { applyMarkRead, applyMarkAllRead, applyDelete } from '../lib/notificationHelpers'
+import toast from 'react-hot-toast'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function NotificationsPage() {
   const [notifs, setNotifs] = useState<any[]>([])
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = () => {
+    setLoadError(null)
     notificationAPI.getAll().then((data: any[]) => {
-      setNotifs(data)
-    }).catch(console.error).finally(() => setLoading(false))
+      setNotifs(Array.isArray(data) ? data : [])
+    }).catch((e: any) => {
+      const msg = e?.response?.data?.error || 'Could not load notifications.'
+      setLoadError(msg)
+      toast.error(msg)
+    }).finally(() => setLoading(false))
   }
-  useEffect(() => { load() }, [filter])
+  // FILTER-NOREFETCH (PERPAGE-HALF2): All/Unread is a client-side filter over
+  // the single cached list (see `filtered` below) — depending on `filter`
+  // refetched GET /notifications on every tab toggle for the identical
+  // payload. Mount + entity-sync only; toggles never hit the network.
+  useEffect(() => { load() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  // STATE-SYNC: new pushes (socket) + reads/deletes elsewhere refresh here.
+  useEntitySync(['notification', 'announcement', 'room'], load)
 
   const filtered = filter === 'unread' ? notifs.filter(n => !n.isRead) : notifs
   const unreadCount = notifs.filter(n => !n.isRead).length
 
   const markRead = async (id: string) => {
-    await notificationAPI.markRead(id)
-    setNotifs(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n))
+    const prev = notifs
+    setNotifs((p) => applyMarkRead(p, id))
+    try {
+      await notificationAPI.markRead(id)
+      notifyEntityMutated('notification', { notificationId: id, action: 'read' })
+    } catch (e: any) {
+      setNotifs(prev)
+      toast.error(e?.response?.data?.error || 'Could not mark as read.')
+    }
   }
   const markAllRead = async () => {
-    await notificationAPI.markAllRead()
-    setNotifs(prev => prev.map(n => ({ ...n, isRead: true })))
+    const prev = notifs
+    setNotifs((p) => applyMarkAllRead(p))
+    try {
+      await notificationAPI.markAllRead()
+      notifyEntityMutated('notification', { action: 'read-all' })
+    } catch (e: any) {
+      setNotifs(prev)
+      toast.error(e?.response?.data?.error || 'Could not mark all read.')
+    }
   }
   const deleteNotif = async (id: string) => {
-    await notificationAPI.delete(id)
-    setNotifs(prev => prev.filter(n => n.id !== id))
+    const prev = notifs
+    setNotifs((p) => applyDelete(p, id))
+    try {
+      await notificationAPI.delete(id)
+      notifyEntityMutated('notification', { notificationId: id, action: 'deleted' })
+      toast.success('Notification deleted')
+    } catch (e: any) {
+      setNotifs(prev)
+      toast.error(e?.response?.data?.error || 'Could not delete notification.')
+    }
   }
 
   const getTimeAgo = (dateStr: string) => {
@@ -65,6 +104,12 @@ export default function NotificationsPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-3">
         {loading ? (
           <CenteredLoader text="Loading notifications..." minHeight="min-h-[320px]" />
+        ) : loadError ? (
+          <div className="text-center py-16 rounded-2xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800" role="alert">
+            <p className="font-semibold text-surface-700 dark:text-night-200">Couldn&apos;t load notifications</p>
+            <p className="text-sm text-surface-500 dark:text-night-400 mt-1">{loadError}</p>
+            <button onClick={load} className="mt-4 px-5 py-2.5 rounded-xl bg-surface-900 text-white text-sm font-semibold hover:bg-surface-800">Retry</button>
+          </div>
         ) : (
           <AnimatePresence>
             {filtered.map((notif: any) => (
@@ -110,7 +155,7 @@ export default function NotificationsPage() {
             ))}
           </AnimatePresence>
         )}
-        {!loading && filtered.length === 0 && (
+        {!loading && !loadError && filtered.length === 0 && (
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-surface-100 dark:bg-night-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <BellOff className="w-8 h-8 text-surface-400 dark:text-night-400" />

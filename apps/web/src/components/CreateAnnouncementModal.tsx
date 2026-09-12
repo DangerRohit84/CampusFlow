@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Modal from './ui/Modal'
 import { departmentAPI, announcementsAPI } from '../lib/api'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { useAuthStore } from '../store/authStore'
 import toast from 'react-hot-toast'
 
@@ -127,9 +128,11 @@ export default function CreateAnnouncementModal({ open, onClose, onCreated, anno
       if (isEdit) {
         await announcementsAPI.update(announcement!.id, payload)
         toast.success('Announcement updated!')
+        notifyEntityMutated('announcement', { announcementId: announcement!.id, action: 'updated' })
       } else {
-        await announcementsAPI.create(payload as any)
+        const created: any = await announcementsAPI.create(payload as any)
         toast.success(scheduleEnabled ? 'Announcement scheduled!' : 'Announcement posted!')
+        notifyEntityMutated('announcement', { announcementId: created?.id, action: 'created' })
       }
       reset()
       onCreated()

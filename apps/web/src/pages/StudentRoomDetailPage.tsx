@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { getSocket } from '../lib/socket'
 import { Loader2, DoorOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -12,6 +13,7 @@ import RoomHeader from '../components/room/RoomHeader'
 import RoomTabs, { type RoomTabKey } from '../components/room/RoomTabs'
 import RoomResourcesPanel from '../components/room/RoomResourcesPanel'
 import RoomMembersPanel from '../components/room/RoomMembersPanel'
+import { isRoomMutedLocal } from '../components/room/roomMute'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -33,18 +35,29 @@ export default function StudentRoomDetailPage() {
   const [leaving, setLeaving] = useState(false)
 
   const activeTabRef = useRef(activeTab)
+
   useEffect(() => { activeTabRef.current = activeTab }, [activeTab])
 
   useEffect(() => {
     if (id) {
       loadRoom()
-      roomAPI.markRead(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+      roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
     }
   }, [id])
 
+  // PERPAGE-HALF1: per-tab one-shot cache — same as RoomDetailPage (see note
+  // there). Mutations reload explicitly, so cached tabs stay correct.
+  const loadedTabs = useRef<{ membersFor: string | null; resourcesFor: string | null }>({ membersFor: null, resourcesFor: null })
   useEffect(() => {
-    if (id && activeTab === 'members') loadMembers()
-    if (id && activeTab === 'resources') loadResources()
+    if (!id) return
+    if (activeTab === 'members' && loadedTabs.current.membersFor !== id) {
+      loadedTabs.current.membersFor = id
+      loadMembers()
+    }
+    if (activeTab === 'resources' && loadedTabs.current.resourcesFor !== id) {
+      loadedTabs.current.resourcesFor = id
+      loadResources()
+    }
   }, [id, activeTab])
 
   // Chat badge dot: flag incoming messages that arrive while another tab is open
@@ -54,6 +67,8 @@ export default function StudentRoomDetailPage() {
     const handler = (message: any) => {
       if (message.roomId !== id) return
       if (message.senderId === user?.id) return
+      // Threads-lite: muted channels never raise the chat dot.
+      if (id && isRoomMutedLocal(id)) return
       if (activeTabRef.current !== 'chat') setUnreadChat(true)
     }
     socket.on('room:message:new', handler)
@@ -64,7 +79,7 @@ export default function StudentRoomDetailPage() {
     setActiveTab(tab)
     if (tab === 'chat') {
       setUnreadChat(false)
-      if (id) roomAPI.markRead(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
+      if (id) roomAPI.markReadDeduped(id).then(() => window.dispatchEvent(new CustomEvent('room:read', { detail: { roomId: id } }))).catch(() => {})
     }
   }
 
@@ -91,6 +106,10 @@ export default function StudentRoomDetailPage() {
       setMembersLoading(false)
     }
   }
+
+  // STATE-SYNC: room METADATA only — same per-message getOne fix as
+  // RoomDetailPage (PERPAGE-HALF1).
+  useEntitySync(['room'], loadRoom as any)
 
   const loadResources = async () => {
     setResourcesLoading(true)
@@ -139,6 +158,8 @@ export default function StudentRoomDetailPage() {
 
   // Derived from room state so optimistic settings updates reflect instantly
   const canManageSettings = !!room?.canManageSettings
+  // Threads-lite: CR students may pin even without settings access.
+  const canPin = canManageSettings || members.some((m: any) => m.id === user?.id && m.isCR)
   const effectiveCanChat = room
     ? canManageSettings ||
       room.chatMode === 'EVERYONE' ||
@@ -166,6 +187,7 @@ export default function StudentRoomDetailPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
+      <h1 className="sr-only">My Room Detail</h1>
       {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
       <PremiumHero
         icon={<DoorOpen size={18} />}
@@ -202,6 +224,7 @@ export default function StudentRoomDetailPage() {
           canChat={effectiveCanChat}
           chatMode={room.chatMode || 'EVERYONE'}
           currentUserId={user.id}
+          canPin={canPin}
           canDeleteForEveryone={
             room.teacherId === user.id ||
             user.role === 'SUPER_ADMIN' ||

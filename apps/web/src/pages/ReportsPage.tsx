@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { reportAPI, collegeAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { useAuthStore } from '../store/authStore'
 import { Flag, Building2, Globe, Bug, AlertTriangle, Zap, Shield, Lightbulb, Filter, Search, ChevronDown, Eye, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useConfirm } from '../components/ui/ConfirmModal'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import clsx from 'clsx'
 
@@ -31,6 +33,7 @@ function statusBadge(s: string) {
 
 export default function ReportsPage() {
   const { user } = useAuthStore()
+  const { confirm: confirmDialog } = useConfirm()
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   // For superadmin this page is not used; but keep generic so it works if routed
   const [reports, setReports] = useState<any[]>([])
@@ -43,8 +46,18 @@ export default function ReportsPage() {
   const [colleges, setColleges] = useState<any[]>([])
   const [collegeFilter, setCollegeFilter] = useState('ALL')
   const [selected, setSelected] = useState<any | null>(null)
+  // PERPAGE-MISSED: epoch guard + AbortSignal — rapid filter switches fired
+  // overlapping list GETs with last-write-wins races (CodingProfile/
+  // InternshipDetail precedent). Only the latest filter generation commits;
+  // the previous in-flight request is aborted. Same data when current.
+  const loadSeq = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
 
   const load = async () => {
+    const seq = ++loadSeq.current
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     setLoading(true)
     try {
       const params: any = {}
@@ -54,13 +67,20 @@ export default function ReportsPage() {
       if (priority !== 'ALL') params.priority = priority
       if (search.trim()) params.search = search.trim()
       if (isSuperAdmin && collegeFilter !== 'ALL') params.collegeId = collegeFilter
-      const res = await reportAPI.list(params)
+      const res = await reportAPI.list({ ...params, signal: ctrl.signal } as any)
+      if (seq !== loadSeq.current) return
       const data = Array.isArray(res) ? res : res.data || []
       setReports(data)
     } catch (e: any) {
+      if (seq !== loadSeq.current) return
+      // Aborted superseded generations are silent (a newer filter already loading).
+      if (ctrl.signal.aborted) return
       toast.error(e?.response?.data?.error || 'Failed to load reports')
-    } finally { setLoading(false) }
+    } finally { if (seq === loadSeq.current) setLoading(false) }
   }
+
+  // STATE-SYNC: external mutations (other tab/device) refresh without reload.
+  useEntitySync('report', load as any)
 
   useEffect(() => { load() }, [scope, status, issueType, priority, collegeFilter])
   useEffect(() => {
@@ -70,11 +90,21 @@ export default function ReportsPage() {
   }, [isSuperAdmin])
 
   const handleSearch = () => load()
-  const handleStatusChange = async (id: string, newStatus: string) => {
-    try {
+  const handleDeleteReport = async (id: string) => {
+    const ok = await confirmDialog({ title: 'Delete report?', message: 'Delete this report? This cannot be undone.', confirmLabel: 'Delete' })
+    if (!ok) return
+    // PERPAGE-MISSED: notify-only (was bare load()). The useEntitySync('report')
+    // listener above owns the single reload, and notify busts RQ lists
+    // (super-dashboard/dashboard) so counts stay fresh cross-page.
+    try { await reportAPI.delete(id); toast.success('Deleted'); notifyEntityMutated('report', { id } as any) } catch (e: any) { toast.error(e?.response?.data?.error || 'Failed') }
+  }
+
+  const handleStatusChange = async (id: string, newStatus: string) => {    try {
       await reportAPI.updateStatus(id, newStatus)
       toast.success('Status updated')
-      load()
+      // PERPAGE-MISSED: notify-only (was bare load()) — same single-path
+      // rationale as delete above; listener reloads the list once.
+      notifyEntityMutated('report', { id } as any)
       if (selected?.id === id) setSelected((prev: any) => prev ? { ...prev, status: newStatus } : prev)
     } catch (e: any) { toast.error(e?.response?.data?.error || 'Failed to update status') }
   }
@@ -87,6 +117,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
+      <h1 className="sr-only">{isSuperAdmin ? 'Platform Reports — Triage all tenants' : 'College Reports — Issues tracked to resolution'}</h1>
       <PremiumHero
         icon={<Flag size={18} />}
         eyebrow={`${isSuperAdmin ? 'Super Admin · Reports' : 'College · Reports'} · ${reports.length} total`}
@@ -125,7 +156,7 @@ export default function ReportsPage() {
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[220px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" />
-            <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=> e.key==='Enter' && handleSearch()} placeholder="Search title, description..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 dark:focus:border-primary-500/40" />
+            <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=> e.key==='Enter' && handleSearch()} placeholder="Search title, description..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 dark:focus:border-primary-500/40" />
           </div>
           <button onClick={handleSearch} className="px-5 h-11 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-sm font-black hover:bg-black dark:hover:bg-zinc-100 transition-colors shadow-sm">Search</button>
           {(search || scope!=='ALL' || status!=='ALL' || issueType!=='ALL' || priority!=='ALL' || collegeFilter!=='ALL') && (
@@ -231,11 +262,11 @@ export default function ReportsPage() {
                         </td>
                         <td className="py-3 px-2">
                           <div className="flex items-center justify-end gap-1">
-                            <button onClick={()=>setSelected(r)} className="w-8 h-8 rounded-full bg-surface-50 dark:bg-white/5 hover:bg-surface-100 dark:hover:bg-white/10 flex items-center justify-center text-surface-600 dark:text-night-300 hover:text-surface-900 dark:hover:text-white transition-colors" title="View">
+                            <button onClick={()=>setSelected(r)} aria-label={`View report ${r.title || r.id}`} className="min-w-[44px] min-h-[44px] rounded-full bg-surface-50 dark:bg-white/5 hover:bg-surface-100 dark:hover:bg-white/10 inline-flex items-center justify-center text-surface-600 dark:text-night-300 hover:text-surface-900 dark:hover:text-white transition-colors" title="View">
                               <Eye size={14} />
                             </button>
                             {canManage && (
-                              <button onClick={async()=>{ if(!confirm('Delete report?')) return; try{ await reportAPI.delete(r.id); toast.success('Deleted'); load() } catch(e:any){ toast.error(e?.response?.data?.error || 'Failed') } }} className="w-8 h-8 rounded-full bg-surface-50 dark:bg-white/5 hover:bg-danger-50 dark:hover:bg-danger-500/15 flex items-center justify-center text-surface-500 dark:text-night-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors" title="Delete">
+                              <button onClick={() => handleDeleteReport(r.id)} aria-label={`Delete report ${r.title || r.id}`} className="min-w-[44px] min-h-[44px] rounded-full bg-surface-50 dark:bg-white/5 hover:bg-danger-50 dark:hover:bg-danger-500/15 inline-flex items-center justify-center text-surface-500 dark:text-night-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors" title="Delete">
                                 <Trash2 size={14} />
                               </button>
                             )}

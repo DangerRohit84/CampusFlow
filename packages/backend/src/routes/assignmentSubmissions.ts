@@ -3,6 +3,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import multer from 'multer'
 import { uploadFile } from '../config/storage'
+import { validateUploadMagicBytes, scanBufferForMalware } from '../utils/uploadScan'
 import { filterSubmissionForStudentVisibility } from '../utils/assignmentVisibility'
 import {
   emitAssignmentSubmissionUpdated,
@@ -14,6 +15,7 @@ import {
   broadcastAssignmentMutation,
 } from '../services/socket'
 import path from 'path'
+import { logger } from '../utils/logger'
 
 const router = Router({ mergeParams: true })
 router.use(authenticate)
@@ -22,7 +24,7 @@ export const blockedSubmissionExtensions = ['.html','.htm','.xhtml','.svg','.xml
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (blockedSubmissionExtensions.includes(path.extname(file.originalname).toLowerCase())) { cb(new Error('File type not allowed')); return }
     cb(null, true)
@@ -37,7 +39,10 @@ export function enforceSubmissionMode(mode: string, hasFile: boolean, hasContent
 }
 
 function handleMulterError(err: any, _req: any, res: Response, next: any) {
-  if (err) return res.status(400).json({ error: err.message })
+  if (err) {
+    const code = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400
+    return res.status(code).json({ error: err.message || 'File upload error' })
+  }
   next()
 }
 
@@ -76,7 +81,8 @@ function getDepartmentEligibleWhere(hub: any) {
 
 // Helper: fetch eligible students for a hub (for pending) — include extra fields for frontend filtering (dept/year)
 async function fetchEligibleStudents(hub: any) {
-  const baseSelect = { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } as const
+  // Order 6: departmentName via join (DB copy dropped). baseSelect includes department relation; callers map to departmentName for compat.
+  const baseSelect = { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } as const
   if (hub.scope === 'ALL' && hub.collegeId) {
     return prisma.user.findMany({
       where: { collegeId: hub.collegeId, role: 'STUDENT' },
@@ -155,7 +161,7 @@ router.post('/hub/:hubId/submissions/offline', async (req: AuthRequest, res: Res
         } else {
           if (existing.status === 'RETURNED') data.status = 'SUBMITTED'
         }
-        return tx.assignmentSubmission.update({ where: { id: existing.id }, data, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } } })
+        return tx.assignmentSubmission.update({ where: { id: existing.id }, data, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } } })
       } else {
         const createData: any = {
           assignmentId: hub.id,
@@ -177,7 +183,7 @@ router.post('/hub/:hubId/submissions/offline', async (req: AuthRequest, res: Res
           gradedAt: shouldGrade ? now : null,
           gradedBy: shouldGrade ? user.id : null,
         }
-        return tx.assignmentSubmission.create({ data: createData, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } } })
+        return tx.assignmentSubmission.create({ data: createData, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } } })
       }
     })
 
@@ -192,7 +198,7 @@ router.post('/hub/:hubId/submissions/offline', async (req: AuthRequest, res: Res
     } catch {}
 
     res.status(201).json(submission)
-  } catch (e) { console.error('Offline submit error', e); res.status(500).json({ error: 'Failed to mark offline submission' }) }
+  } catch (e) { logger.error({ err: e }, 'Offline submit error'); res.status(500).json({ error: 'Failed to mark offline submission' }) }
 })
 
 // ---------------------------------------------------------------------------
@@ -253,7 +259,7 @@ router.post('/hub/:hubId/submissions/bulk-grade', async (req: AuthRequest, res: 
           } else {
             if (existing.status === 'RETURNED') data.status = 'SUBMITTED'
           }
-          const updated = await tx.assignmentSubmission.update({ where: { id: existing.id }, data, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } } })
+          const updated = await tx.assignmentSubmission.update({ where: { id: existing.id }, data, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } } })
           results.push(updated)
         } else {
           // create as OFFLINE if offlineNote/content supplied, otherwise ONLINE placeholder but graded
@@ -279,7 +285,7 @@ router.post('/hub/:hubId/submissions/bulk-grade', async (req: AuthRequest, res: 
               gradedAt: shouldGrade ? now : null,
               gradedBy: shouldGrade ? user.id : null,
             },
-            include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } }
+            include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } }
           })
           results.push(created)
         }
@@ -298,7 +304,7 @@ router.post('/hub/:hubId/submissions/bulk-grade', async (req: AuthRequest, res: 
 
     res.json({ data: results, count: results.length })
   } catch (e: any) {
-    console.error('Bulk grade error', e)
+    logger.error({ err: e }, 'Bulk grade error')
     // if validation error from throw inside transaction, map to 400
     if (e.message && (e.message.includes('Student not found') || e.message.includes('not in target') || e.message.includes('not in hub'))) {
       res.status(400).json({ error: e.message }); return
@@ -350,6 +356,10 @@ router.post('/hub/:hubId/submissions', upload.fields([{ name: 'file', maxCount: 
       // Upload each file, store primary in fileUrl/fileName and extras as JSON in fileUrl if needed
       const uploaded: { url: string; name: string; size: number; ext: string }[] = []
       for (const f of uniqueFiles.slice(0, 5)) {
+        const magicErr = await validateUploadMagicBytes(f.buffer, f.originalname, f.mimetype, 'submissions')
+        if (magicErr) { res.status(400).json({ error: magicErr }); return }
+        const scan = await scanBufferForMalware(f.buffer, f.originalname)
+        if (!scan.clean) { res.status(400).json({ error: scan.reason || 'File rejected by scan' }); return }
         const stored = await uploadFile(f.buffer, { folder: `assignments/${hub.id}`, resourceType: 'auto', fileName: f.originalname })
         uploaded.push({ url: stored.url, name: f.originalname, size: f.size, ext: path.extname(f.originalname).toLowerCase().slice(1) || 'other' })
       }
@@ -375,14 +385,14 @@ router.post('/hub/:hubId/submissions', upload.fields([{ name: 'file', maxCount: 
     })
     try {
       // enrich with student for broadcast
-      const enriched: any = { ...submission, student: { id: user.id, name: user.name, email: user.email, studentId: (user as any).studentId, departmentName: (user as any).departmentName, departmentId: (user as any).departmentId, incomingYear: (user as any).incomingYear } }
+      const enriched: any = { ...submission, student: { id: user.id, name: user.name, email: user.email, studentId: (user as any).studentId, departmentName: (user as any).department?.name ?? null, departmentId: (user as any).departmentId, incomingYear: (user as any).incomingYear } }
       emitAssignmentSubmissionUpdated(hub.id, enriched, { channel })
       emitAssignmentPendingUpdated(hub.id)
       emitAssignmentStatsUpdated(hub.id)
       broadcastAssignmentMutation(hub.id)
     } catch {}
     res.status(201).json(submission)
-  } catch (e) { console.error('Submit error', e); res.status(500).json({ error: 'Failed to submit' }) }
+  } catch (e) { logger.error({ err: e }, 'Submit error'); res.status(500).json({ error: 'Failed to submit' }) }
 })
 
 router.get('/hub/:hubId/submissions', async (req: AuthRequest, res: Response) => {
@@ -392,15 +402,20 @@ router.get('/hub/:hubId/submissions', async (req: AuthRequest, res: Response) =>
     const hub = await prisma.assignmentHub.findUnique({ where: { id: req.params.hubId as string } })
     if (!hub) { res.status(404).json({ error: 'Assignment not found' }); return }
     if (!await authorizeHubTeacher(hub, user)) { res.status(403).json({ error: 'Not authorized for this assignment' }); return }
+    // 10k scale: take:50 max (was 100) + count + cursor (keyset on id).
+    // Offset kept for compat (?page); ?cursor takes precedence (stable under inserts).
     const page = Math.max(1, parseInt(req.query.page as string) || 1)
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20))
-    const skip = (page - 1) * limit
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const cursorId = req.query.cursor ? String(req.query.cursor) : null
+    const cursorClause: any = cursorId ? { cursor: { id: cursorId }, skip: 1 } : { skip: (page - 1) * limit }
     const [subs, total] = await Promise.all([
-      prisma.assignmentSubmission.findMany({ where: { assignmentId: hub.id }, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } }, orderBy: { submittedAt: 'desc' }, skip, take: limit }),
+      prisma.assignmentSubmission.findMany({ where: { assignmentId: hub.id }, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } }, orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }], take: limit, ...cursorClause }),
       prisma.assignmentSubmission.count({ where: { assignmentId: hub.id } })
     ])
-    res.json({ data: subs, pagination: { page, limit, total, pages: Math.ceil(total/limit) } })
-  } catch (e) { console.error('List subs error', e); res.status(500).json({ error: 'Failed to list submissions' }) }
+    const nextCursor = subs.length === limit ? (subs[subs.length - 1] as any)?.id ?? null : null
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
+    res.json({ data: subs, pagination: { page, limit, total, pages: Math.ceil(total/limit), nextCursor } })
+  } catch (e) { logger.error({ err: e }, 'List subs error'); res.status(500).json({ error: 'Failed to list submissions' }) }
 })
 
 // Pending students: eligible - submitted
@@ -421,7 +436,7 @@ router.get('/hub/:hubId/pending', async (req: AuthRequest, res: Response) => {
     pending.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
 
     res.json({ data: pending, total: pending.length, count: pending.length })
-  } catch (e) { console.error('Pending error', e); res.status(500).json({ error: 'Failed to get pending students' }) }
+  } catch (e) { logger.error({ err: e }, 'Pending error'); res.status(500).json({ error: 'Failed to get pending students' }) }
 })
 
 router.put('/submissions/:id/grade', async (req: AuthRequest, res: Response) => {
@@ -438,14 +453,14 @@ router.put('/submissions/:id/grade', async (req: AuthRequest, res: Response) => 
     if (pointsErr) { res.status(400).json({ error: pointsErr }); return }
     if (typeof grade === 'string' && grade.length > 50) { res.status(400).json({ error: 'grade too long (max 50)' }); return }
     if (typeof feedback === 'string' && feedback.length > 5000) { res.status(400).json({ error: 'feedback too long (max 5000)' }); return }
-    const updated = await prisma.assignmentSubmission.update({ where: { id: sub.id }, data: { grade: grade ?? undefined, points: points ?? undefined, feedback: feedback ?? undefined, status: 'GRADED', gradedAt: new Date(), gradedBy: user.id }, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } } } })
+    const updated = await prisma.assignmentSubmission.update({ where: { id: sub.id }, data: { grade: grade ?? undefined, points: points ?? undefined, feedback: feedback ?? undefined, status: 'GRADED', gradedAt: new Date(), gradedBy: user.id }, include: { student: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } } } })
     // Re-fetch with student for broadcast consistency if include fails? Already included
     try {
       // include full submission with student for client optimistic patch
       const enriched = updated as any
       // if student not included due to prisma include quirk, fetch separately
       if (!enriched.student) {
-        const stu = await prisma.user.findUnique({ where: { id: (updated as any).studentId }, select: { id: true, name: true, email: true, studentId: true, departmentName: true, departmentId: true, incomingYear: true } })
+        const stu = await prisma.user.findUnique({ where: { id: (updated as any).studentId }, select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } })
         ;(enriched as any).student = stu
       }
       emitAssignmentGraded(hub.id, enriched)
@@ -454,7 +469,7 @@ router.put('/submissions/:id/grade', async (req: AuthRequest, res: Response) => 
       broadcastAssignmentMutation(hub.id)
     } catch {}
     res.json(updated)
-  } catch (e) { console.error('Grade error', e); res.status(500).json({ error: 'Failed to grade' }) }
+  } catch (e) { logger.error({ err: e }, 'Grade error'); res.status(500).json({ error: 'Failed to grade' }) }
 })
 
 router.get('/my-submissions', async (req: AuthRequest, res: Response) => {
@@ -467,7 +482,7 @@ router.get('/my-submissions', async (req: AuthRequest, res: Response) => {
       return filterSubmissionForStudentVisibility(hub, s)
     })
     res.json(filtered)
-  } catch (e) { console.error('My subs error', e); res.status(500).json({ error: 'Failed to fetch' }) }
+  } catch (e) { logger.error({ err: e }, 'My subs error'); res.status(500).json({ error: 'Failed to fetch' }) }
 })
 
 router.get('/hub/:hubId/stats', async (req: AuthRequest, res: Response) => {
@@ -482,17 +497,26 @@ router.get('/hub/:hubId/stats', async (req: AuthRequest, res: Response) => {
     const isStudent = user.role === 'STUDENT'
     if (isStudent && !hub.showStats) { res.status(403).json({ error: 'Stats not visible to students for this assignment' }); return }
     if (!isOwner && !isCollegeAdmin && !isSuper && !isStudent) { res.status(403).json({ error: 'Access denied' }); return }
-    let eligibleCount: number
-    if (hub.scope === 'ALL' && hub.collegeId) eligibleCount = await prisma.user.count({ where: { collegeId: hub.collegeId, role: 'STUDENT' } })
-    else if (hub.scope === 'DEPARTMENT' && hub.departmentId) eligibleCount = await prisma.user.count({ where: getDepartmentEligibleWhere(hub) })
-    else if (hub.scope === 'ROOM' && hub.roomId) eligibleCount = await prisma.roomMember.count({ where: { roomId: hub.roomId } })
-    else eligibleCount = 0
-    const submissions = await prisma.assignmentSubmission.findMany({ where: { assignmentId: hub.id } })
-    const submitted = submissions.length
-    const graded = submissions.filter(s => s.status === 'GRADED').length
-    const avgPoints = graded ? Math.round((submissions.filter(s => s.points !== null).reduce((a,c)=>a+(c.points||0),0)/graded)*10)/10 : null
+    // 10k scale: single aggregations (no findMany-all + JS filter over 10k rows).
+    const [eligibleCount, submitted, graded, avgAgg] = await Promise.all([
+      hub.scope === 'ALL' && hub.collegeId
+        ? prisma.user.count({ where: { collegeId: hub.collegeId, role: 'STUDENT' } })
+        : hub.scope === 'DEPARTMENT' && hub.departmentId
+          ? prisma.user.count({ where: getDepartmentEligibleWhere(hub) })
+          : hub.scope === 'ROOM' && hub.roomId
+            ? prisma.roomMember.count({ where: { roomId: hub.roomId } })
+            : Promise.resolve(0),
+      prisma.assignmentSubmission.count({ where: { assignmentId: hub.id } }),
+      prisma.assignmentSubmission.count({ where: { assignmentId: hub.id, status: 'GRADED' } }),
+      prisma.assignmentSubmission.aggregate({
+        where: { assignmentId: hub.id, status: 'GRADED', points: { not: null } },
+        _avg: { points: true },
+      }),
+    ])
+    const avgPoints = avgAgg._avg.points != null ? Math.round(avgAgg._avg.points * 10) / 10 : null
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json({ eligible: eligibleCount, submitted, pending: Math.max(0, eligibleCount - submitted), graded, avgPoints, submissionRate: eligibleCount ? Math.round((submitted/eligibleCount)*100) : 0 })
-  } catch (e) { console.error('Stats error', e); res.status(500).json({ error: 'Failed to get stats' }) }
+  } catch (e) { logger.error({ err: e }, 'Stats error'); res.status(500).json({ error: 'Failed to get stats' }) }
 })
 
 export default router

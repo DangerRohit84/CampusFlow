@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
+import { broadcastDepartmentMutation } from '../services/socket'
+import { logger } from '../utils/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -9,7 +11,8 @@ router.use(authenticate)
 // List departments for user's college (SUPER_ADMIN sees all, or filtered by ?collegeId=/header)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) {
       res.status(403).json({ error: 'Access required' })
       return
@@ -35,7 +38,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // Create department (college admin or super admin)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'College admin or super admin access required' })
       return
@@ -60,9 +64,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const dept = await prisma.department.create({
       data: { name: name.trim(), collegeId },
     })
+    try { broadcastDepartmentMutation({ departmentId: dept.id, collegeId, action: 'created' }) } catch {}
     res.status(201).json(dept)
   } catch (error: any) {
-    console.error('Department create error:', error?.message || error)
+    logger.error({ err: error?.message || error }, 'Department create error:')
     res.status(500).json({ error: 'Failed to create department', detail: error?.message })
   }
 })
@@ -70,7 +75,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Rename department
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: parallel independent reads (was user then dept sequential) + narrow auth
+    const [user, dept] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.department.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'College admin or super admin access required' })
       return
@@ -80,7 +89,6 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Department name is required' })
       return
     }
-    const dept = await prisma.department.findUnique({ where: { id: req.params.id as string } })
     if (!dept) {
       res.status(404).json({ error: 'Department not found' })
       return
@@ -94,6 +102,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: req.params.id as string },
       data: { name: name.trim() },
     })
+    try { broadcastDepartmentMutation({ departmentId: updated.id, collegeId: updated.collegeId, action: 'updated' }) } catch {}
     res.json(updated)
   } catch (error) {
     res.status(500).json({ error: 'Failed to update department' })
@@ -103,15 +112,18 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // Delete department
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: parallel independent reads (was user then dept sequential) + narrow auth
+    const [user, dept] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.department.findUnique({
+        where: { id: req.params.id as string },
+        include: { _count: { select: { users: true } } },
+      }),
+    ])
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'College admin or super admin access required' })
       return
     }
-    const dept = await prisma.department.findUnique({
-      where: { id: req.params.id as string },
-      include: { _count: { select: { users: true } } },
-    })
     if (!dept) {
       res.status(404).json({ error: 'Department not found' })
       return
@@ -126,6 +138,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
     await prisma.department.delete({ where: { id: req.params.id as string } })
+    try { broadcastDepartmentMutation({ departmentId: req.params.id as string, collegeId: dept.collegeId, action: 'deleted' }) } catch {}
     res.json({ success: true })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete department' })

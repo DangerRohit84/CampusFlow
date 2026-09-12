@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Premium Hackathon tokens — --background #F5F3FF light / #0a0a0a dark ── */
+/* ── Brand tokens — single primary source (#1ed760) + info blue (#0284c7) ── */
 :root {
   --background: #F5F3FF;
   --foreground: #18181b;
@@ -12,9 +12,14 @@
   --card-border: rgba(255, 255, 255, 0.55);
   --glass: rgba(255, 255, 255, 0.06);
   --glass-border: rgba(255, 255, 255, 0.10);
-  --cta: #6366F1;
-  --cta-hover: #4F46E5;
-  --cta-foreground: #ffffff;
+  /* WHY: single brand source — was --cta indigo #6366F1 clashing with green system. */
+  --brand: #1ed760;
+  --brand-hover: #1db954;
+  --brand-foreground: #000000;
+  --brand-text: #169c46;
+  --brand-text-strong: #0a7a3a;
+  --info: #0284c7;
+  --info-hover: #0369a1;
 }
 .dark {
   --background: #0a0a0a;
@@ -25,9 +30,13 @@
   --card-border: rgba(255, 255, 255, 0.08);
   --glass: rgba(255, 255, 255, 0.03);
   --glass-border: rgba(255, 255, 255, 0.08);
-  --cta: #6366F1;
-  --cta-hover: #4F46E5;
-  --cta-foreground: #ffffff;
+  --brand: #1ed760;
+  --brand-hover: #1db954;
+  --brand-foreground: #000000;
+  --brand-text: #1ed760;
+  --brand-text-strong: #1ed760;
+  --info: #0ea5e9;
+  --info-hover: #0284c7;
 }
 .hackathon-premium {
   --background: #F5F3FF;
@@ -45,7 +54,19 @@
 /* Base — Spotify surfaces · Light #ffffff / Dark #121212/#000 · Green #1ed760 */
 @layer base {
   * { @apply border-surface-200; }
-  html { scroll-behavior: smooth; }
+  html {
+    scroll-behavior: smooth;
+    /* WHY: anchor/route focus must not hide under 64px sticky header (WCAG 2.4.11 focus not obscured). */
+    scroll-padding-top: 64px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
   body {
     @apply bg-surface-50 text-slate-800 antialiased font-sans;
     font-feature-settings: "ss01" 1, "cv01" 1, "cv11" 1;
@@ -69,6 +90,24 @@
   ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-400 dark:bg-[#3a3a3a]; }
   /* focus ring — Spotify green #1ed760 */
   :focus-visible { @apply outline-none ring-2 ring-primary-500/25 ring-offset-2 ring-offset-surface-50; }
+  /*
+   * WHY: programmatic route-change focus targets (main#main-content, main#public-main,
+   * h1[tabindex="-1"] focused by RouteFocus + skip links) must never show a visible
+   * ring/box in either theme. Tailwind ring-2 paints via box-shadow, so nullify both
+   * outline and ring shadows here (after the global :focus-visible rule). Interactive
+   * elements (buttons, links, inputs) are untouched and keep their visible rings.
+   */
+  main[tabindex='-1']:focus,
+  main[tabindex='-1']:focus-visible,
+  main[tabindex='-1']:focus-within,
+  h1[tabindex='-1']:focus,
+  h1[tabindex='-1']:focus-visible,
+  [tabindex='-1']:focus:not(:focus-visible) {
+    outline: none !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    box-shadow: none !important;
+  }
 }
 
 /* Dark mode — Spotify #000 / #121212 with green mist */
@@ -234,8 +273,9 @@
   }
   .due-slip--brass,
   .due-slip--warning { border-left-color: #1ed760; }
+  /* WHY: info blue restored (#0284c7) — was overwritten to green, killing info vs success distinction. */
   .due-slip--blue,
-  .due-slip--accent { border-left-color: #1ed760; }
+  .due-slip--accent { border-left-color: #0284c7; }
   .due-slip--emerald,
   .due-slip--success { border-left-color: #1db954; }
   .due-slip--neutral { border-left-color: #e5e7eb; }
@@ -244,13 +284,13 @@
   .due-slip--danger { border-left-color: #ff4b5c; }
   /* subtle inner tints — green 5% */
   .due-slip--brass { background: linear-gradient(90deg, rgba(30,215,96,0.06) 0%, transparent 32%), white; border-color: rgba(30,215,96,0.14); border-left-color:#1ed760; }
-  .due-slip--blue { background: linear-gradient(90deg, rgba(30,215,96,0.05) 0%, transparent 32%), white; }
+  .due-slip--blue { background: linear-gradient(90deg, rgba(2,132,199,0.06) 0%, transparent 32%), white; border-color: rgba(2,132,199,0.14); border-left-color:#0284c7; }
   .due-slip--emerald { background: linear-gradient(90deg, rgba(29,185,84,0.05) 0%, transparent 32%), white; }
   .due-slip--neutral { background: linear-gradient(90deg, #f6f6f6 0%, transparent 40%), white; }
   .due-slip--rose { background: linear-gradient(90deg, rgba(255,75,92,0.04) 0%, transparent 32%), white; }
   .dark .due-slip { background-color:#121212; color:#ffffff; }
   .dark .due-slip--brass { background: linear-gradient(90deg, rgba(30,215,96,0.08) 0%, transparent 40%), #121212 !important; }
-  .dark .due-slip--blue { background: linear-gradient(90deg, rgba(30,215,96,0.08) 0%, transparent 40%), #121212 !important; }
+  .dark .due-slip--blue { background: linear-gradient(90deg, rgba(2,132,199,0.10) 0%, transparent 40%), #121212 !important; }
   .dark .due-slip--emerald { background: linear-gradient(90deg, rgba(29,185,84,0.08) 0%, transparent 40%), #121212 !important; }
   .dark .due-slip--neutral { background: linear-gradient(90deg, rgba(246,246,246,0.04) 0%, transparent 40%), #121212 !important; }
   .dark .due-slip--rose { background: linear-gradient(90deg, rgba(255,75,92,0.06) 0%, transparent 40%), #121212 !important; }
@@ -323,25 +363,25 @@
     background:#1ed760; color:#000000;
   }
   .btn-brass:hover { background:#1db954; color:#000000; }
-  /* Domain header accent bars — Spotify green */
+  /* Domain header accent bars — brand green, info blue restored */
   .accent-brass .h-\[3px\] { background:#1ed760 !important; }
-  .accent-blue .h-\[3px\] { background:#1ed760 !important; }
+  .accent-blue .h-\[3px\] { background:#0284c7 !important; }
   .accent-emerald .h-\[3px\] { background:#1db954 !important; }
   .accent-rose .h-\[3px\] { background:#ff4b5c !important; }
   .accent-neutral .h-\[3px\] { background:#e5e7eb !important; }
   .accent-slate .h-\[3px\] { background:#121212 !important; }
-  .accent-sky .h-\[3px\] { background:#1ed760 !important; }
-  /* Filter pill — Spotify */
+  .accent-sky .h-\[3px\] { background:#0284c7 !important; }
+  /* Filter pill — brand + info */
   .pill-brass { @apply text-black border-primary-500; background:#1ed760; border-color:#1ed760; }
   .dark .pill-brass { background:#1ed760; }
-  .pill-blue { @apply bg-primary-600 text-black border-primary-600 dark:bg-primary-500 dark:text-black dark:border-primary-500; }
+  .pill-blue { @apply bg-info-600 text-white border-info-600 dark:bg-info-500 dark:text-white dark:border-info-500; }
   .pill-emerald { @apply text-black border-success-600; background:#1db954; }
   .dark .pill-emerald { background:#1db954; }
   .pill-rose { @apply bg-[#ff4b5c] text-white border-[#ff4b5c] dark:bg-[#ff4b5c] dark:text-white dark:border-[#ff4b5c]; }
   .pill-neutral { @apply bg-surface-50 text-slate-700 border-surface-200 dark:bg-[#1f1f1f] dark:text-[#a7a7a7] dark:border-[#282828]; }
   /* Subtle page mesh overlay */
   .mesh-brass { background-image: radial-gradient(ellipse 600px 220px at 20% 0%, rgba(30,215,96,0.05), transparent 60%); }
-  .mesh-blue { background-image: radial-gradient(ellipse 600px 220px at 80% 0%, rgba(30,215,96,0.05), transparent 60%); }
+  .mesh-blue { background-image: radial-gradient(ellipse 600px 220px at 80% 0%, rgba(2,132,199,0.06), transparent 60%); }
   .mesh-emerald { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(29,185,84,0.04), transparent 60%); }
   .mesh-neutral { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(246,246,246,0.8), transparent 60%); }
   /* Per-section tints — Spotify green (assignments/forms now green 5% like hackathons — not neutral gray) */
@@ -351,19 +391,20 @@
   .section--assignments { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(30,215,96,0.05), transparent 65%); }
   .section--forms { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(30,215,96,0.05), transparent 65%); }
 
-  /* Input — Spotify */
+  /* Input — placeholder #6b7280 for 4.6:1 on white (was surface-400 #9ca3af at 2.8:1, fails AA) */
   .input-field {
     @apply w-full px-4 min-h-[44px] bg-white dark:bg-[#000000] border border-surface-200 dark:border-[#282828] rounded-xl
-           placeholder:text-surface-400
+           placeholder:text-[#6b7280]
            focus:outline-none focus:border-primary-500/30 dark:focus:border-primary-500/40 focus:ring-2 focus:ring-primary-500/15
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
            transition-colors duration-150 text-sm;
     color:#121212;
   }
   .dark .input-field { background-color:#000000; border-color:#282828; color:#ffffff; }
 
-  /* Sidebar links — Spotify — compact: gap 2, py 6 (32px), font 12, counts 9 */
+  /* Sidebar links — 44px rail (was 32px, fails 2.5.8 target size) */
   .sidebar-link {
-    @apply flex items-center gap-2 px-2.5 min-h-[32px] rounded-lg font-medium
+    @apply flex items-center gap-2 px-2.5 min-h-[44px] rounded-lg font-medium
            hover:bg-surface-100 dark:hover:bg-[#1f1f1f] transition-all duration-150 text-[12px];
     color:#62666d;
   }
@@ -371,7 +412,7 @@
   .dark .sidebar-link { color:#b3b3b3; }
   .dark .sidebar-link:hover { background-color:#1f1f1f; color:#ffffff; }
   .sidebar-link-active {
-    @apply flex items-center gap-2 px-2.5 min-h-[32px] rounded-lg font-semibold text-[12px] shadow-sm;
+    @apply flex items-center gap-2 px-2.5 min-h-[44px] rounded-lg font-semibold text-[12px] shadow-sm;
     background:#1f1f1f; color:#ffffff;
   }
   .dark .sidebar-link-active { background:#1f1f1f; color:#ffffff; }
@@ -456,6 +497,31 @@
       radial-gradient(ellipse at 20% 30%, rgba(255,255,255,0.04) 0%, transparent 50%),
       radial-gradient(ellipse at 80% 70%, rgba(18,18,18,0.03) 0%, transparent 50%);
   }
+}
+
+/* ── Contrast enforcement (WCAG AA C1) ──
+ * WHY: #1ed760 on white is 1.9:1 (fails). Restrict #1ed760 to large/dark surfaces only.
+ * Body/small text must use --brand-text-strong #0a7a3a (5.9:1) or #007A67 teal fallback.
+ * text-primary-600 (#1db954, 2.9:1) and text-primary-500 (#1ed760) on white also fail for
+ * small text — remap light-mode small-text usages to #0a7a3a. Dark mode keeps #1ed760
+ * (passes on #000/#121212). Verified axe-conscious: no white-on-green, no green-on-white small text.
+ */
+@layer utilities {
+  .text-primary-600 { color: #0a7a3a; }
+  .dark .text-primary-600 { color: #1ed760; }
+  .text-primary-700 { color: #0a7a3a; }
+  .dark .text-primary-700 { color: #1ed760; }
+  .text-primary-500 { color: #0a7a3a; }
+  .dark .text-primary-500 { color: #1ed760; }
+  /* Success reuses same green hue — same remap (was #1db954/#169c46 on white, fails small-text AA). */
+  .text-success-600 { color: #0a7a3a; }
+  .dark .text-success-600 { color: #1ed760; }
+  .text-success-700 { color: #0a7a3a; }
+  .dark .text-success-700 { color: #1ed760; }
+  /* Placeholder must be #6b7280 (4.6:1), never #9ca3af/surface-400 (2.8:1). */
+  .placeholder\:text-surface-400::placeholder { color: #6b7280 !important; }
+  input::placeholder, textarea::placeholder { color: #6b7280; }
+  .dark input::placeholder, .dark textarea::placeholder { color: #a1a1aa; }
 }
 
 /* Hanging lamp — theme toggle — Spotify green glow */

@@ -1,4 +1,5 @@
 import { aiChat } from './client'
+import { logger } from '../utils/logger'
 
 const SYSTEM_PROMPT = `You are CampusFlow, an AI-powered campus assistant for university students. You help with:
 - Class schedules and timetables
@@ -25,7 +26,7 @@ export async function chatWithAI(userMessage: string, context?: string): Promise
       max_tokens: 1024,
     })
   } catch (error) {
-    console.error('AI chat error:', error)
+    logger.error({ err: error }, 'AI chat error:')
     return getSmartResponse(userMessage)
   }
 }

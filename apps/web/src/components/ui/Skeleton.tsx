@@ -1,6 +1,8 @@
 export default function Skeleton({ className = '', lines = 1 }: { className?: string; lines?: number }) {
+  // WHY: skeletons are decorative placeholders — hide from AT (the real
+  // content announces via role=status loaders or the loaded region itself).
   return (
-    <div className={`animate-pulse space-y-3 ${className}`}>
+    <div aria-hidden="true" className={`animate-pulse space-y-3 ${className}`}>
       {Array.from({ length: lines }).map((_, i) => (
         <div key={i} className="h-4 bg-surface-200 rounded-lg dark:bg-[#282828]" style={{ width: `${70 + Math.random() * 30}%` }} />
       ))}
@@ -10,7 +12,7 @@ export default function Skeleton({ className = '', lines = 1 }: { className?: st
 
 export function CardSkeleton() {
   return (
-    <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
+    <div aria-hidden="true" className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
       <div className="flex items-start justify-between">
         <div className="space-y-3 flex-1">
           <div className="h-4 bg-surface-200 rounded-lg w-1/3 dark:bg-[#282828]" />
@@ -25,7 +27,7 @@ export function CardSkeleton() {
 
 export function ListSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="space-y-3">
+    <div aria-hidden="true" className="space-y-3">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5 animate-pulse">
           <div className="flex items-center gap-4">
@@ -44,7 +46,7 @@ export function ListSkeleton({ count = 4 }: { count?: number }) {
 
 export function StatSkeleton() {
   return (
-    <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
+    <div aria-hidden="true" className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6 animate-pulse">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
           <div className="h-3 bg-surface-200 rounded w-20 dark:bg-[#282828]" />

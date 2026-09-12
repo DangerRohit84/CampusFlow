@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { codingProfileAPI, departmentAPI } from '../lib/api'
+import { codingProfileAPI } from '../lib/api'
+import { useDepartments } from '../hooks/useDepartments'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
 import { useAuthStore } from '../store/authStore'
 import { ArrowLeft, Trophy, Download, Medal, Search, Filter, Users, BarChart3, TrendingUp, GraduationCap, BookOpen, Star } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -28,21 +31,32 @@ export default function ContestLeaderboardPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
-  const [leaderboard, setLeaderboard] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  // PERPAGE-HALF1: RQ conversion — was manual useState + mount useEffect
+  // firing getLeaderboard + getAll(departments) on EVERY mount with zero
+  // cache (no staleTime/keepPreviousData/focus:false, StrictMode double-fire
+  // = 2× GETs). Same rows rendered; warm revisits + filter/pagination
+  // switches read cache and revalidate in background. Busted by
+  // notifyEntityMutated('coding-profile') via the ['leaderboard'] prefix.
+  const { data: leaderboardData, isLoading: loading, isError } = useQuery({
+    queryKey: qk.leaderboard(),
+    queryFn: () => codingProfileAPI.getLeaderboard(),
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+  const leaderboard: any[] = (leaderboardData as any[]) ?? []
+  const { data: departmentsData } = useDepartments()
+  const departments: any[] = Array.isArray(departmentsData) ? departmentsData : []
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [selectedDept, setSelectedDept] = useState('ALL')
   const [selectedYear, setSelectedYear] = useState('ALL')
-  const [departments, setDepartments] = useState<any[]>([])
 
   useEffect(() => {
-    codingProfileAPI.getLeaderboard()
-      .then(setLeaderboard)
-      .catch(() => toast.error('Failed to load leaderboard'))
-      .finally(() => setLoading(false))
-    departmentAPI.getAll().then(setDepartments).catch(()=>{})
-  }, [])
+    if (isError) toast.error('Failed to load leaderboard')
+  }, [isError])
 
   // ── Derived analytics (keep stats + success like hackathon/internship) ──
   const totalParticipants = leaderboard.length
@@ -270,7 +284,7 @@ export default function ContestLeaderboardPage() {
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[220px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
-            <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search name, department..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
+            <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search name, department..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
           </div>
           <select value={selectedDept} onChange={e=> setSelectedDept(e.target.value)} className="px-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-w-[160px]">
             <option value="ALL">All departments</option>

@@ -5,6 +5,7 @@ import {
   User, Settings, LogOut, Shield, ChevronRight, Flame, Github,
 } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
+import { LOGOUT_DEST } from '../../lib/logout'
 import { codingProfileAPI } from '../../lib/api'
 
 // lightweight activity generator — same logic as public profile, but only for 1-line summary
@@ -36,7 +37,10 @@ function generateActivity(seedStr: string, days = 119) {
 }
 
 export default function AvatarDropdown() {
-  const { user, logout } = useAuthStore()
+  // WHY logout race: whole-store subscribe re-rendered on set() and raced
+  // navigate(); selectors keep logout stable + avoid extra renders.
+  const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
 
@@ -127,7 +131,7 @@ export default function AvatarDropdown() {
         className="relative w-9 h-9 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-sm shrink-0 ring-2 ring-white dark:ring-night-800 shadow-sm hover:ring-primary-200 dark:hover:ring-primary-900/30 hover:scale-[1.03] transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
       >
         {user?.avatarUrl ? (
-          <img src={user.avatarUrl} alt={displayName} className="w-full h-full object-cover rounded-full" />
+          <img src={user.avatarUrl} alt={displayName} width={36} height={36} loading="lazy" decoding="async" className="w-full h-full object-cover rounded-full" />
         ) : (
           <span className="tracking-wide">{initial}</span>
         )}
@@ -155,7 +159,7 @@ export default function AvatarDropdown() {
                 className="flex items-center gap-3 p-4 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700/60 text-left transition-colors w-full"
               >
                 <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-[15px] shrink-0 ring-2 ring-primary-100 dark:ring-primary-900/30 overflow-hidden">
-                  {user?.avatarUrl ? <img src={user.avatarUrl} alt={displayName} className="w-full h-full object-cover" /> : initial}
+                  {user?.avatarUrl ? <img src={user.avatarUrl} alt={displayName} width={40} height={40} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : initial}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-[14px] leading-none text-surface-900 dark:text-night-50 truncate">{displayName}</p>
@@ -237,7 +241,7 @@ export default function AvatarDropdown() {
                 <div className="h-px bg-surface-100 dark:bg-night-700 my-2" />
 
                 <button
-                  onClick={() => { setOpen(false); logout(); navigate('/login') }}
+                  onClick={() => { setOpen(false); logout(); navigate(LOGOUT_DEST, { replace: true }) }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-danger-50 dark:hover:bg-danger-500/10 text-left group transition-colors"
                 >
                   <span className="w-8 h-8 rounded-lg bg-danger-50 dark:bg-danger-500/15 border border-danger-100 dark:border-danger-500/20 flex items-center justify-center text-danger-600 dark:text-danger-400 group-hover:bg-danger-100 dark:group-hover:bg-danger-500/20 transition-colors shrink-0">

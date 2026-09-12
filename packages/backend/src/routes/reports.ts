@@ -1,6 +1,8 @@
 import { Router, Response } from 'express'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { broadcastReportMutation } from '../services/socket'
+import { logger } from '../utils/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -24,7 +26,8 @@ function isValidStatus(v: any): v is Status { return STATUSES.includes(v) }
 // POST /api/reports — any authenticated user can report college or website issue
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences; uses id/role/collegeId/collegeName)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
     const { scope, issueType, collegeId, title, description, priority, attachmentUrl } = req.body
@@ -44,7 +47,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const finalPriority: Priority = priority && isValidPriority(priority) ? priority : 'MEDIUM'
 
     let finalCollegeId: string | null = null
-    let collegeName: string | null = null
 
     if (scope === 'COLLEGE') {
       // College scope requires a college — prefer explicit body.collegeId, fallback to user's college
@@ -53,21 +55,23 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         res.status(400).json({ error: 'collegeId is required when scope is COLLEGE' }); return
       }
       // Validate college exists
-      const college = await prisma.college.findUnique({ where: { id: String(requested) } })
+      // HALF2: narrow to id/name only (was full row)
+      const college = await prisma.college.findUnique({ where: { id: String(requested) }, select: { id: true, name: true } })
       if (!college) { res.status(400).json({ error: 'Invalid collegeId' }); return }
       finalCollegeId = college.id
-      collegeName = college.name
     } else {
       // WEBSITE scope — collegeId optional; store reporter's college for analytics if available
       if (collegeId) {
-        const c = await prisma.college.findUnique({ where: { id: String(collegeId) } }).catch(() => null)
-        if (c) { finalCollegeId = c.id; collegeName = c.name }
-        else if (user.collegeId) { finalCollegeId = user.collegeId; collegeName = (user as any).collegeName || null }
+        // HALF2: narrow to id/name only (was full row)
+        const c = await prisma.college.findUnique({ where: { id: String(collegeId) }, select: { id: true, name: true } }).catch(() => null)
+        if (c) { finalCollegeId = c.id }
+        else if (user.collegeId) { finalCollegeId = user.collegeId }
       } else if (user.collegeId) {
         finalCollegeId = user.collegeId
         // try resolve name
-        const c = await prisma.college.findUnique({ where: { id: user.collegeId } }).catch(() => null)
-        collegeName = c?.name || (user as any).collegeName || null
+        // HALF2: narrow to id/name only (was full row)
+        const c = await prisma.college.findUnique({ where: { id: user.collegeId }, select: { id: true, name: true } }).catch(() => null)
+        // Order 6: collegeName copy dropped — resolve via college relation
       }
     }
 
@@ -82,7 +86,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         priority: finalPriority,
         status: 'OPEN',
         attachmentUrl: attachmentUrl ? String(attachmentUrl).slice(0, 2000) : null,
-        collegeName,
       },
       include: {
         user: { select: { id: true, name: true, email: true, role: true, collegeId: true } },
@@ -90,9 +93,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       },
     })
 
-    res.status(201).json(report)
+    try { broadcastReportMutation({ reportId: report.id, collegeId: finalCollegeId, action: 'created' }) } catch {}
+    // Order 6 compat: project collegeName via join (DB copy dropped).
+    res.status(201).json({ ...report, collegeName: (report as any).college?.name ?? null })
   } catch (err) {
-    console.error('Create report error', err)
+    logger.error({ err: err }, 'Create report error')
     res.status(500).json({ error: 'Failed to create report' })
   }
 })
@@ -100,7 +105,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // GET /api/reports — list with role-based scoping
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences)
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
     const page = Math.max(1, parseInt(req.query.page as string) || 1)
@@ -159,7 +165,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const pages = Math.ceil(total / limit)
     res.json({ data: reports, pagination: { page, limit, total, pages } })
   } catch (err) {
-    console.error('List reports error', err)
+    logger.error({ err: err }, 'List reports error')
     res.status(500).json({ error: 'Failed to fetch reports' })
   }
 })
@@ -167,15 +173,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // GET /api/reports/:id
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: parallel independent reads (was user then report sequential) + narrow auth
+    const [user, report] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      (prisma as any).report.findUnique({
+        where: { id: req.params.id as string },
+        include: {
+          user: { select: { id: true, name: true, email: true, role: true, collegeId: true } },
+          college: { select: { id: true, name: true, code: true } },
+        },
+      }),
+    ])
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
-    const report = await (prisma as any).report.findUnique({
-      where: { id: req.params.id as string },
-      include: {
-        user: { select: { id: true, name: true, email: true, role: true, collegeId: true } },
-        college: { select: { id: true, name: true, code: true } },
-      },
-    })
     if (!report) { res.status(404).json({ error: 'Report not found' }); return }
 
     // Access check
@@ -189,7 +198,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(report)
   } catch (err) {
-    console.error('Get report error', err)
+    logger.error({ err: err }, 'Get report error')
     res.status(500).json({ error: 'Failed to fetch report' })
   }
 })
@@ -197,7 +206,11 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // PATCH /api/reports/:id/status — college admin (own college) or superadmin
 router.patch('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: parallel independent reads (was user then existing sequential) + narrow auth
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      (prisma as any).report.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
     if (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN') {
       res.status(403).json({ error: 'Only college admin or super admin can update status' }); return
@@ -206,7 +219,6 @@ router.patch('/:id/status', async (req: AuthRequest, res: Response) => {
     if (!status || !isValidStatus(status)) {
       res.status(400).json({ error: `status must be one of ${STATUSES.join(',')}` }); return
     }
-    const existing = await (prisma as any).report.findUnique({ where: { id: req.params.id as string } })
     if (!existing) { res.status(404).json({ error: 'Report not found' }); return }
 
     if (user.role === 'COLLEGE_ADMIN' && existing.collegeId !== user.collegeId) {
@@ -221,9 +233,10 @@ router.patch('/:id/status', async (req: AuthRequest, res: Response) => {
         college: { select: { id: true, name: true } },
       },
     })
+    try { broadcastReportMutation({ reportId: updated.id, collegeId: updated.collegeId, action: 'status:updated' }) } catch {}
     res.json(updated)
   } catch (err) {
-    console.error('Update report status error', err)
+    logger.error({ err: err }, 'Update report status error')
     res.status(500).json({ error: 'Failed to update status' })
   }
 })
@@ -231,9 +244,12 @@ router.patch('/:id/status', async (req: AuthRequest, res: Response) => {
 // DELETE /api/reports/:id — owner can delete OPEN, admin/superadmin can delete any
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF2: parallel independent reads (was user then existing sequential) + narrow auth
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      (prisma as any).report.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
-    const existing = await (prisma as any).report.findUnique({ where: { id: req.params.id as string } })
     if (!existing) { res.status(404).json({ error: 'Report not found' }); return }
 
     const isOwner = existing.userId === user.id
@@ -248,9 +264,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await (prisma as any).report.delete({ where: { id: req.params.id as string } })
+    try { broadcastReportMutation({ reportId: req.params.id as string, collegeId: existing.collegeId, action: 'deleted' }) } catch {}
     res.json({ message: 'Report deleted' })
   } catch (err) {
-    console.error('Delete report error', err)
+    logger.error({ err: err }, 'Delete report error')
     res.status(500).json({ error: 'Failed to delete report' })
   }
 })

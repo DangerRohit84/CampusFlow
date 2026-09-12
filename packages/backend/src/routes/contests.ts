@@ -4,7 +4,30 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fetchAndStoreContests } from '../services/contestFetcher'
 import { broadcastContestMutation } from '../services/socket'
+import {
+  canUserSeeContest,
+  parseMinutesBefore,
+  validateReminderRequest,
+} from '../services/contestReminderService'
 import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
+import { logger } from '../utils/logger'
+import { toContestStatusEnum, toPlatformEnumStrict } from '../lib/enums'
+import { Platform, ContestStatus } from '@prisma/client'
+
+// Order 3 (V-12): solutions is canonical Json (array). Helper accepts Json
+// array or legacy String during rollout, never throws (garbage → []).
+function readSolutionsArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value as any[]
+  if (typeof value === 'string') {
+    const t = value.trim()
+    if (!t) return []
+    try {
+      const p = JSON.parse(t)
+      return Array.isArray(p) ? p : []
+    } catch { return [] }
+  }
+  return []
+}
 
 // Short in-memory cache for GET /contests — avoids DB hammer when many users list simultaneously.
 // Cron (6h) is the only writer; readers share cached rows for 30s. Keyed per query+college so no cross-tenant leak.
@@ -36,7 +59,10 @@ const fetchNowRateLimiter = rateLimit({
 const router = Router()
 router.use(authenticate)
 
-const PLATFORMS = ['CODEFORCES', 'CODECHEF', 'LEETCODE', 'ATCODER', 'HACKERRANK', 'OTHER']
+// Order 4: mirrors Prisma Platform enum (CODEFORCES/CODECHEF/LEETCODE/ATCODER/
+// HACKERRANK/GFG/OTHER). GFG added (was missing — syncEngine gfgHandle maps to
+// GFG, old allowlist forced OTHER). Validators PlatformEnum is SSOT for new code.
+const PLATFORMS = ['CODEFORCES', 'CODECHEF', 'LEETCODE', 'ATCODER', 'HACKERRANK', 'GFG', 'OTHER']
 const VALID_STATUSES = ['UPCOMING', 'ONGOING', 'ENDED'] as const
 
 function isValidPlatform(p: string): boolean {
@@ -65,7 +91,7 @@ function isValidUrl(u: string): boolean {
 // Create coding contest (Teacher/Admin)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Only teachers can create contests' })
       return
@@ -98,29 +124,32 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // College scoping: SUPER_ADMIN may specify collegeId via body/query/header; null = global
     const targetCollegeId = deriveCollegeId(user as any, collegeId as string | null | undefined, req)
 
-    const normalizedPlatform = String(platform).toUpperCase()
-    const computedStatus = computeStatus(startDate.toISOString(), parsedDuration)
+    const normalizedPlatform: Platform = toPlatformEnumStrict(platform)
+    const computedStatus: ContestStatus = toContestStatusEnum(computeStatus(startDate.toISOString(), parsedDuration))
 
+    // Order 8 dual-write: ISO String + typed startAt (range/order key).
     const contest = await prisma.codingContest.create({
       data: {
         title: String(title).trim(),
         platform: normalizedPlatform,
         url: String(url).trim(),
         startTime: startDate.toISOString(),
+        startAt: startDate as any,
         duration: parsedDuration,
         contestType: contestType ? String(contestType).toUpperCase() : null,
         status: computedStatus,
-        solutions: JSON.stringify(Array.isArray(solutions) ? solutions : []),
+        // Order 3: canonical Json array (was JSON-stringified String).
+        solutions: (Array.isArray(solutions) ? solutions : []) as any,
         isAutoFetched: false,
         creatorId: req.userId!,
         collegeId: targetCollegeId,
       },
     })
-    try { broadcastContestMutation({ contestId: contest.id, action: 'created' }) } catch {}
+    try { broadcastContestMutation({ contestId: contest.id, action: 'created' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.status(201).json(contest)
   } catch (error) {
-    console.error('Create contest error:', error)
+    logger.error({ err: error }, 'Create contest error:')
     res.status(500).json({ error: 'Failed to create contest' })
   }
 })
@@ -128,7 +157,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Get all coding contests (paginated, indexed)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!user) {
       res.status(404).json({ error: 'User not found' })
       return
@@ -138,7 +167,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const rawPage = parseInt(req.query.page as string, 10)
     const rawLimit = parseInt(req.query.limit as string, 10)
     const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1
-    const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 50
+    // HALF1: cap 50 (was 100) + pagination — matches hackathons/internships/forms limit. Default stays 20/50-compatible.
+    const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, rawLimit)) : 50
     // Performance QA legacy expects Math.min(50) && || 20 — keep comment for regression compat while actual limits are 100/50
     // Math.min(50) || 20
     const skip = (page - 1) * limit
@@ -210,14 +240,24 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       prisma.codingContest.count({ where }),
     ])
 
-    // Cold-start seed: if DB completely empty, create global sample contests so UI never shows "No contests found"
-    // This covers first-deploy, wiped DB, or external APIs all down. Global (collegeId null) is visible to every college via OR logic.
+    // Cold-start seed — FLAG-GATED (I-12 fix, parity with contestFetcher.ts).
+    // Previously unconditional: every empty-DB list call WROTE fake rows
+    // ("Weekly Contest 519/520") that masked outages with plausible-but-fake
+    // dates. Now only when SEED_DEMO_CONTESTS=true (local dev/demo).
+    // Otherwise the list returns empty with degraded:true so the UI shows its
+    // "Contests unavailable — retrying" empty-state instead of fake rows.
+    // Global (collegeId null) is visible to every college via OR logic.
+    let degraded = false
     if (total === 0) {
       try {
         const globalCount = await prisma.codingContest.count()
         if (globalCount === 0) {
-          console.warn('[Contests] DB empty — seeding global sample contests for immediate UI visibility')
-          const now = new Date()
+          if (process.env.SEED_DEMO_CONTESTS !== 'true') {
+            degraded = true
+            logger.warn('[Contests] DB empty after fetch — degraded (no seed; SEED_DEMO_CONTESTS!=true)')
+          } else {
+            logger.warn('[Contests] DB empty — seeding global sample contests (SEED_DEMO_CONTESTS=true)')
+            const now = new Date()
           const samples = [
             { title: 'Weekly Contest 519', platform: 'LEETCODE', url: 'https://leetcode.com/contest/weekly-contest-519/', startTime: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(), duration: 90, contestType: 'WEEKLY', status: 'UPCOMING' as const },
             { title: 'Biweekly Contest 192', platform: 'LEETCODE', url: 'https://leetcode.com/contest/biweekly-contest-192/', startTime: new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString(), duration: 90, contestType: 'BIWEEKLY', status: 'UPCOMING' as const },
@@ -230,14 +270,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               await prisma.codingContest.create({
                 data: {
                   title: s.title,
-                  platform: s.platform,
+                  // Samples are already REAL enum members (UPPERCASE);
+                  // validate at the boundary (no `as any` lie).
+                  platform: toPlatformEnumStrict(s.platform),
                   url: s.url,
                   startTime: s.startTime,
                   duration: s.duration,
                   contestType: s.contestType,
-                  status: s.status,
+                  status: toContestStatusEnum(s.status),
                   isAutoFetched: true,
-                  solutions: '[]',
+                  // Order 3: canonical Json array.
+                  solutions: [] as any,
                   collegeId: null,
                 },
               })
@@ -250,10 +293,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           ])
           contests = seeded
           total = seededTotal
-          console.log(`[Contests] Seeded ${samples.length} sample contests — now total ${total}`)
+          logger.info(`[Contests] Seeded ${samples.length} sample contests (demo mode only) — now total ${total}`)
+          }
         }
       } catch (seedErr) {
-        console.warn('[Contests] seed on empty failed (non-critical):', (seedErr as Error).message)
+        logger.warn({ err: (seedErr as Error).message }, '[Contests] seed on empty failed (non-critical)')
       }
     }
 
@@ -278,24 +322,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (page > 1) links.push(`${makeLink(page - 1)}; rel="prev"`)
     links.push(`${makeLink(1)}; rel="first"`)
     if (pages > 0) links.push(`${makeLink(pages)}; rel="last"`)
-    const body = { data: contests, pagination: { page, limit, total, pages } }
+    const body = { data: contests, pagination: { page, limit, total, pages }, ...(degraded ? { degraded: true } : {}) }
     const cacheHeaders: Record<string, string> = {
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=60, s-maxage=120, stale-while-revalidate=300',
+      // P0 SECURITY (F11): authenticated endpoint — private only. Vary alone
+      // does NOT prevent CDN cross-tenant leaks; s-maxage removed.
+      'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
       'Vary': 'Authorization, Accept-Encoding',
     }
     if (links.length) cacheHeaders['Link'] = links.join(', ')
     // Store for 30s so subsequent list visitors hit memory not DB (cron is writer, not page visits)
     contestsGetCache.set(cacheKey, { expires: Date.now() + 30 * 1000, body, headers: cacheHeaders })
     if (links.length) res.set('Link', links.join(', '))
-    // Authenticated endpoint: keep CDN-compatible public header for performance QA, but add Vary to avoid cross-user leak
-    // Performance QA expects: public, max-age=30, stale-while-revalidate=60, s-maxage=120
-    // We retain that shape and enforce private semantics via Vary: Authorization + ETag middleware
+    // Authenticated endpoint: private semantics enforced (F11). In-memory
+    // per-process cache above is safe (no shared edge); CDN must not store.
     res.set('Cache-Control', cacheHeaders['Cache-Control'])
     res.set('Vary', cacheHeaders['Vary'])
     res.set('X-Cache', 'MISS')
     res.json(body)
   } catch (error) {
-    console.error('Get contests error:', error)
+    logger.error({ err: error }, 'Get contests error:')
     res.status(500).json({ error: 'Failed to fetch contests' })
   }
 })
@@ -303,7 +348,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // Get contests for calendar view (filtered by date range)
 router.get('/calendar', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!user) {
       res.status(404).json({ error: 'User not found' })
       return
@@ -351,17 +396,16 @@ router.get('/calendar', async (req: AuthRequest, res: Response) => {
         creator: { select: { name: true, email: true } },
       },
       orderBy: { startTime: 'asc' },
+      // HALF1: bound calendar scan (was unbounded). Date-range already narrows, take:200
+      // guards pathological ranges without changing normal-month payloads.
+      take: 200,
     })
 
     // Add registrations count (number of solutions as a proxy)
     const contestsWithCounts = contests.map((contest) => {
-      let solutionsCount = 0
-      try {
-        const solutions = JSON.parse(contest.solutions || '[]')
-        solutionsCount = Array.isArray(solutions) ? solutions.length : 0
-      } catch {
-        // ignore
-      }
+      // Order 3: solutions is Json array (helper covers legacy String).
+      const solutions = readSolutionsArray((contest as any).solutions)
+      const solutionsCount = Array.isArray(solutions) ? solutions.length : 0
       return {
         ...contest,
         solutionsCount,
@@ -371,7 +415,7 @@ router.get('/calendar', async (req: AuthRequest, res: Response) => {
     res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json(contestsWithCounts)
   } catch (error) {
-    console.error('Get calendar contests error:', error)
+    logger.error({ err: error }, 'Get calendar contests error:')
     res.status(500).json({ error: 'Failed to fetch calendar contests' })
   }
 })
@@ -379,7 +423,7 @@ router.get('/calendar', async (req: AuthRequest, res: Response) => {
 // Get contests by date — returns contests matching local date (YYYY-MM-DD)
 router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
   try {
-    const _user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const _user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!_user) {
       res.status(404).json({ error: 'User not found' })
       return
@@ -406,11 +450,13 @@ router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
       where,
       include: { creator: { select: { name: true, email: true } } },
       orderBy: { startTime: 'asc' },
+      // HALF1: bound single-day scan (was unbounded). One day never exceeds 50 in practice.
+      take: 50,
     })
     res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json(contests)
   } catch (error) {
-    console.error('Get contests by date error:', error)
+    logger.error({ err: error }, 'Get contests by date error:')
     res.status(500).json({ error: 'Failed to fetch contests by date' })
   }
 })
@@ -418,7 +464,7 @@ router.get('/by-date/:date', async (req: AuthRequest, res: Response) => {
 // Participant count per ENDED contest (batched O(m+n) + grouped, college-scoped)
 router.get('/participant-counts', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!user) {
       res.status(404).json({ error: 'User not found' })
       return
@@ -463,6 +509,8 @@ router.get('/participant-counts', async (req: AuthRequest, res: Response) => {
       byPlatform.get(key)!.push({ n: normalize(p.contestName), u: p.contestUrl ? normUrl(p.contestUrl) : null })
     }
 
+    // Order 7 snapshot contract: participations carry snapshot contestName/contestUrl (asOf syncedAt); canonical is CodingContest when contestId set.
+    // Fuzzy match below prefers exact URL/title (canonical) over includes — same rule as resolveContestDisplay() (validators.ts).
     const counts: Record<string, number> = {}
     for (const c of contests) {
       const list = byPlatform.get(c.platform.toLowerCase()) || []
@@ -474,8 +522,111 @@ router.get('/participant-counts', async (req: AuthRequest, res: Response) => {
     }
     res.json(counts)
   } catch (error) {
-    console.error('Participant counts error:', error)
+    logger.error({ err: error }, 'Participant counts error:')
     res.status(500).json({ error: 'Failed to compute participant counts' })
+  }
+})
+
+// #6 contest alarms — remind-me CRUD (must sit BEFORE GET /:id so the
+// two-segment /reminders/* paths never fall through to the single-segment
+// param route; functionally distinct but ordering documents intent).
+const remindersDb = () => (prisma as any).contestReminder
+
+// List my reminders (with contest for title/time/GCal). Scoped by userId —
+// no college filter needed (rows are per-user; contest visibility was checked
+// at create time; deleted contests cascade away).
+router.get('/reminders/mine', async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await remindersDb().findMany({
+      where: { userId: req.userId },
+      include: { contest: { select: { id: true, title: true, platform: true, url: true, startTime: true, duration: true } } },
+      orderBy: { remindAt: 'asc' },
+      take: 100,
+    })
+    res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+    res.json(rows)
+  } catch (error) {
+    logger.error({ err: error }, 'List contest reminders error:')
+    res.status(500).json({ error: 'Failed to fetch reminders' })
+  }
+})
+
+// Create (idempotent) a remind-me for one contest.
+// Body: { minutesBefore: 15 | 60 | 1440 }. Same triple returns 200 existing.
+router.post('/:id/remind', async (req: AuthRequest, res: Response) => {
+  try {
+    const minutesBefore = parseMinutesBefore((req.body as any)?.minutesBefore)
+    if (!minutesBefore) {
+      res.status(400).json({ error: 'minutesBefore must be one of 15, 60, 1440' })
+      return
+    }
+    const [user, contest] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.codingContest.findUnique({ where: { id: req.params.id as string } }),
+    ])
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    if (!contest || !canUserSeeContest(user as any, contest as any)) {
+      // 404 (not 403) so college-scoped ids are not enumerable.
+      res.status(404).json({ error: 'Contest not found' })
+      return
+    }
+    const checked = validateReminderRequest(minutesBefore, contest as any, new Date())
+    if ('error' in checked) {
+      res.status(checked.status).json({ error: checked.error })
+      return
+    }
+    const existing = await remindersDb().findUnique({
+      where: { userId_contestId_minutesBefore: { userId: req.userId!, contestId: contest.id, minutesBefore } },
+    })
+    if (existing) {
+      res.json(existing)
+      return
+    }
+    const created = await remindersDb().create({
+      data: {
+        userId: req.userId!,
+        contestId: contest.id,
+        minutesBefore,
+        remindAt: checked.remindAt,
+        sent: false,
+      },
+    })
+    res.status(201).json(created)
+  } catch (error: any) {
+    // Unique race (two tabs POST at once) → return the winner, not 500.
+    if (error?.code === 'P2002') {
+      try {
+        const winner = await remindersDb().findFirst({
+          where: { userId: req.userId, contestId: req.params.id as string },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (winner) {
+          res.json(winner)
+          return
+        }
+      } catch { /* fall through */ }
+    }
+    logger.error({ err: error }, 'Create contest reminder error:')
+    res.status(500).json({ error: 'Failed to create reminder' })
+  }
+})
+
+// Delete my reminder. 404 when missing OR owned by someone else (no leak).
+router.delete('/reminders/:reminderId', async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await remindersDb().findUnique({ where: { id: req.params.reminderId as string } })
+    if (!row || row.userId !== req.userId) {
+      res.status(404).json({ error: 'Reminder not found' })
+      return
+    }
+    await remindersDb().delete({ where: { id: row.id } })
+    res.json({ message: 'Reminder deleted' })
+  } catch (error) {
+    logger.error({ err: error }, 'Delete contest reminder error:')
+    res.status(500).json({ error: 'Failed to delete reminder' })
   }
 })
 
@@ -501,13 +652,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Update coding contest
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    // HALF1: user + existing independent → Promise.all (was sequential).
+    const [user, existing] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }), // NARROW-READ half1
+      prisma.codingContest.findUnique({ where: { id: req.params.id as string } }),
+    ])
     if (!user) {
       res.status(404).json({ error: 'User not found' })
       return
     }
 
-    const existing = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
     if (!existing) {
       res.status(404).json({ error: 'Contest not found' })
       return
@@ -549,29 +703,34 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const sanitizedData: any = {}
     if (title !== undefined) sanitizedData.title = String(title).trim()
-    if (platform !== undefined) sanitizedData.platform = String(platform).toUpperCase()
+    // Already 400-validated above; re-validate against the REAL enums so
+    // drift fails closed (never writes a raw upper-cased ghost string).
+    if (platform !== undefined) sanitizedData.platform = toPlatformEnumStrict(platform)
     if (url !== undefined) sanitizedData.url = String(url).trim()
-    if (startTime !== undefined) sanitizedData.startTime = new Date(startTime).toISOString()
+    if (startTime !== undefined) { const _sd = new Date(startTime as any); if (!Number.isNaN(_sd.getTime())) { sanitizedData.startTime = _sd.toISOString(); (sanitizedData as any).startAt = _sd } }
     if (duration !== undefined) sanitizedData.duration = parseDuration(duration)
     if (contestType !== undefined) sanitizedData.contestType = contestType ? String(contestType).toUpperCase() : null
-    if (status !== undefined) sanitizedData.status = String(status).toUpperCase()
+    if (status !== undefined) sanitizedData.status = toContestStatusEnum(status)
     else if (startTime !== undefined || duration !== undefined) {
       // Auto-recompute status if time changed and status not explicitly set
       const s = sanitizedData.startTime ?? existing.startTime
       const d = sanitizedData.duration !== undefined ? sanitizedData.duration : existing.duration
       sanitizedData.status = computeStatus(s, d)
     }
-    if (solutions !== undefined) sanitizedData.solutions = JSON.stringify(solutions)
+    if (solutions !== undefined) sanitizedData.solutions = solutions as any
 
     const updated = await prisma.codingContest.update({
       where: { id: req.params.id as string },
+      // Order 3: canonical Json array. sanitizedData carries every validated
+      // field (topbottom F1: a previous revision wrote only {solutions} here,
+      // silently dropping title/platform/url/startTime/duration/status edits).
       data: sanitizedData,
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'updated' }) } catch {}
+    try { broadcastContestMutation({ contestId: updated.id, action: 'updated' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json(updated)
   } catch (error) {
-    console.error('Update contest error:', error)
+    logger.error({ err: error }, 'Update contest error:')
     res.status(500).json({ error: 'Failed to update contest' })
   }
 })
@@ -579,13 +738,16 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // Bulk replace solutions for a contest
 router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
+    // HALF1: contest + user independent → Promise.all (was sequential).
+    const [contest, user] = await Promise.all([
+      prisma.codingContest.findUnique({ where: { id: req.params.id as string } }),
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }), // NARROW-READ half1
+    ])
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
     const isOwner = contest.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
     const isTeacherSameCollege = user?.role === 'TEACHER' && !!user.collegeId && contest.collegeId === user.collegeId
@@ -615,13 +777,14 @@ router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
 
     const updated = await prisma.codingContest.update({
       where: { id: req.params.id as string },
-      data: { solutions: JSON.stringify(solutions) },
+      // Order 3: canonical Json array.
+      data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solutions:updated' }) } catch {}
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solutions:updated' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json(updated)
   } catch (error) {
-    console.error('Bulk replace solutions error:', error)
+    logger.error({ err: error }, 'Bulk replace solutions error:')
     res.status(500).json({ error: 'Failed to replace solutions' })
   }
 })
@@ -629,13 +792,16 @@ router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
 // Delete coding contest
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({ where: { id: req.params.id as string } })
+    // HALF1: contest + user independent → Promise.all (was sequential).
+    const [contest, user] = await Promise.all([
+      prisma.codingContest.findUnique({ where: { id: req.params.id as string } }),
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }), // NARROW-READ half1
+    ])
     if (!contest) {
       res.status(404).json({ error: 'Contest not found' })
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
     const isOwner = contest.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -650,7 +816,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.codingContest.delete({ where: { id: req.params.id as string } })
-    try { broadcastContestMutation({ contestId: req.params.id as string, action: 'deleted' }) } catch {}
+    try { broadcastContestMutation({ contestId: req.params.id as string, action: 'deleted' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ message: 'Contest deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete contest' })
@@ -704,7 +870,7 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     const isOwner = contest.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
     const isTeacherSameCollege = user?.role === 'TEACHER' && !!user.collegeId && contest.collegeId === user.collegeId
@@ -734,13 +900,7 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    let solutions: any[]
-    try {
-      const parsed = JSON.parse(contest.solutions || '[]')
-      solutions = Array.isArray(parsed) ? parsed : []
-    } catch {
-      solutions = []
-    }
+    let solutions: any[] = readSolutionsArray((contest as any).solutions)
     if (solutions.length >= 100) {
       res.status(400).json({ error: 'Solution limit reached (100)' })
       return
@@ -770,13 +930,14 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
 
     const updated = await prisma.codingContest.update({
       where: { id: req.params.id as string },
-      data: { solutions: JSON.stringify(solutions) },
+      // Order 3: canonical Json array.
+      data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:added' }) } catch {}
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:added' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json(updated)
   } catch (error) {
-    console.error('Add solution error:', error)
+    logger.error({ err: error }, 'Add solution error:')
     res.status(500).json({ error: 'Failed to add solution' })
   }
 })
@@ -790,8 +951,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
       return
     }
 
-    let solutionsArr: any[] = []
-    try { const p = JSON.parse(contest.solutions || '[]'); solutionsArr = Array.isArray(p) ? p : [] } catch { solutionsArr = [] }
+    let solutionsArr: any[] = readSolutionsArray((contest as any).solutions)
     const rawIdx = String(req.params.solutionIndex || '').trim()
     const solutionIndex = parseInt(rawIdx, 10)
     if (!Number.isInteger(solutionIndex)) {
@@ -803,7 +963,7 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     const isOwner = contest.creatorId === req.userId
     const isAdmin = user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
     const isAdder = solutionsArr[solutionIndex]?.addedBy === req.userId
@@ -819,13 +979,14 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
 
     const updated = await prisma.codingContest.update({
       where: { id: req.params.id as string },
-      data: { solutions: JSON.stringify(solutions) },
+      // Order 3: canonical Json array.
+      data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:removed' }) } catch {}
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:removed' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json(updated)
   } catch (error) {
-    console.error('Remove solution error:', error)
+    logger.error({ err: error }, 'Remove solution error:')
     res.status(500).json({ error: 'Failed to remove solution' })
   }
 })
@@ -838,7 +999,7 @@ const lastFetchByUser = new Map<string, number>()
 // Auto-fetch upcoming contests from competitive programming platforms — delegates to central fetcher (all 3 platforms)
 router.post('/fetch-now', fetchNowRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // NARROW-READ half1
     if (!user || (user.role !== 'TEACHER' && user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Only teachers can auto-fetch contests' })
       return
@@ -879,7 +1040,7 @@ router.post('/fetch-now', fetchNowRateLimiter, async (req: AuthRequest, res: Res
     }
     // Invalidate GET cache so next list sees fresh rows (contestsGetCache is 30s live)
     contestsGetCache.clear()
-    try { broadcastContestMutation({ action: 'fetched', fetched: result.fetched, updated: result.updated }) } catch {}
+    try { broadcastContestMutation({ action: 'fetched', fetched: result.fetched, updated: result.updated }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json({
       message: `Fetched ${result.fetched} new contests (${result.updated} updated)`,
@@ -888,7 +1049,7 @@ router.post('/fetch-now', fetchNowRateLimiter, async (req: AuthRequest, res: Res
   } catch (error) {
     // Ensure lock released on throw (already via finally), but also clear if we never entered fetch
     fetchNowInProgress = false
-    console.error('Auto-fetch contests error:', error)
+    logger.error({ err: error }, 'Auto-fetch contests error:')
     res.status(500).json({ error: 'Failed to auto-fetch contests' })
   }
 })

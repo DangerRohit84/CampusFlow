@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { adminAPI, authAPI } from '../lib/api'
+import { validateCollegeRegistration } from '../lib/validation'
 import { motion } from 'framer-motion'
 import { GraduationCap, Loader2, CheckCircle, ArrowLeft, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -10,6 +11,7 @@ export default function CollegeRegistrationPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [form, setForm] = useState({
     collegeName: '',
     collegeCode: '',
@@ -21,9 +23,18 @@ export default function CollegeRegistrationPage() {
     adminPassword: '',
   })
 
-  const handleSubmit = async () => {
-    if (!form.collegeName || !form.collegeCode || !form.adminName || !form.adminEmail || !form.adminPassword) {
-      toast.error('Please fill all required fields')
+  const handleSubmit = async (ev?: React.FormEvent) => {
+    ev?.preventDefault()
+    const ve = validateCollegeRegistration({
+      collegeName: form.collegeName,
+      collegeCode: form.collegeCode,
+      adminName: form.adminName,
+      adminEmail: form.adminEmail,
+      adminPassword: form.adminPassword,
+    })
+    setErrors(ve)
+    if (Object.keys(ve).length) {
+      toast.error(Object.values(ve)[0])
       return
     }
     setLoading(true)
@@ -107,6 +118,7 @@ export default function CollegeRegistrationPage() {
         </div>
 
         {/* College Details */}
+        <form onSubmit={handleSubmit} noValidate>
         <div className="space-y-4 mb-6">
           <h3 className="text-sm font-semibold text-surface-700 dark:text-night-200 uppercase tracking-wider">College Details</h3>
           <div>
@@ -114,12 +126,14 @@ export default function CollegeRegistrationPage() {
             <input type="text" value={form.collegeName} onChange={(e) => setForm({ ...form, collegeName: e.target.value })}
               className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="e.g., MIT College of Engineering" />
+            {errors.collegeName && <p className="mt-1 text-xs text-danger-600">{errors.collegeName}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">College Code *</label>
             <input type="text" value={form.collegeCode} onChange={(e) => setForm({ ...form, collegeCode: e.target.value })}
               className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="e.g., MIT" />
+            {errors.collegeCode && <p className="mt-1 text-xs text-danger-600">{errors.collegeCode}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Address</label>
@@ -151,26 +165,30 @@ export default function CollegeRegistrationPage() {
             <input type="text" value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })}
               className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="Full name" />
+            {errors.adminName && <p className="mt-1 text-xs text-danger-600">{errors.adminName}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Admin Email *</label>
             <input type="email" value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })}
               className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
               placeholder="admin@college.edu" />
+            {errors.adminEmail && <p className="mt-1 text-xs text-danger-600">{errors.adminEmail}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-surface-700 dark:text-night-200 mb-1">Password *</label>
             <input type="password" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })}
               className="w-full px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
-              placeholder="Create a password" />
+              placeholder="Min 8 characters (max 72)" />
+            {errors.adminPassword && <p className="mt-1 text-xs text-danger-600">{errors.adminPassword}</p>}
           </div>
         </div>
 
-        <button onClick={handleSubmit} disabled={loading}
-          className="w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2">
+        <button type="submit" disabled={loading}
+          className="w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle size={16} />}
           {loading ? 'Submitting...' : 'Register College'}
         </button>
+        </form>
 
         <p className="mt-4 text-center text-sm text-surface-500 dark:text-night-400">
           Already have an account? <Link to="/login" className="text-primary-600 hover:text-primary-700 font-semibold">Sign in</Link>

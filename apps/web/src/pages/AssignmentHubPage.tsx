@@ -1,13 +1,22 @@
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Plus, Search, FileText} from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { assignmentHubAPI } from '../lib/api'
-import { queryClient } from '../lib/queryClient'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { useAuthStore } from '../store/authStore'
 import { useDebounce } from '../hooks/useDebounce'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import {
+  normalizeAssignmentStatus,
+  getStoredAssignmentStatus,
+  setStoredAssignmentStatus,
+  type AssignmentStatusFilter,
+} from '../lib/assignmentStatus'
 import CreateAssignmentModal from '../components/assignments/CreateAssignmentModal'
 import AssignmentHubCard from '../components/assignments/AssignmentHubCard'
 import SubmissionPanel from '../components/assignments/SubmissionPanel'
@@ -18,19 +27,25 @@ import Pagination from '../components/shared/Pagination'
 import EmptyState from '../components/shared/EmptyState'
 import toast from 'react-hot-toast'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { useConfirm } from '../components/ui/ConfirmModal'
 
 export default function AssignmentHubPage() {
+  const { confirm: confirmDialog } = useConfirm()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore(s=> s.user)
   const isTeacher = user?.role==='TEACHER' || user?.role==='COLLEGE_ADMIN' || user?.role==='SUPER_ADMIN'
-  const [hubs, setHubs] = useState<any[]>([])
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 })
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search, 300)
   const [filterScope, setFilterScope] = useState('ALL')
   const [filterMode, setFilterMode] = useState('ALL')
+  // WHY: default Active on open — URL ?status takes precedence, then localStorage, else active.
+  const [statusFilter, setStatusFilter] = useState<AssignmentStatusFilter>(() => {
+    const urlRaw = searchParams.get('status')
+    if (urlRaw && urlRaw.trim().toLowerCase() === normalizeAssignmentStatus(urlRaw)) return normalizeAssignmentStatus(urlRaw)
+    return getStoredAssignmentStatus() ?? 'active'
+  })
   const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [detail, setDetail] = useState<any>(null)
@@ -38,34 +53,156 @@ export default function AssignmentHubPage() {
   const [submissions, setSubmissions] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
   const [grading, setGrading] = useState<any>(null)
-  const abortRef = useRef<AbortController | null>(null)
 
-  const load = async ()=> {
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-    setLoading(true)
+  // TAB-NOREFRESH: reactive college scope feeds the stable query key so every
+  // tab/filter/page has its own cache slice (qk.assignmentHubs factory).
+  // Switching All/Active/Completed only swaps keys — TanStack serves the cached
+  // slice instantly (placeholderData) and revalidates in background after
+  // staleTime. No useEffect fetch on tab state, no remount, no full loader.
+  const collegeScope = useCollegeScope()
+  const queryClient = useQueryClient()
+  const hubsKey = qk.assignmentHubs({
+    page,
+    search: debouncedSearch || '',
+    scope: filterScope,
+    mode: filterMode,
+    status: statusFilter,
+    collegeId: collegeScope,
+  })
+
+  const {
+    data: hubsData,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+  } = useQuery({
+    queryKey: hubsKey,
+    queryFn: ({ signal }) =>
+      // WHY: omit status=all (no param = all, backward compat); active/completed filter server-side.
+      // signal cancels stale tab/page switches (no out-of-order overwrite).
+      assignmentHubAPI.getHubs({
+        page,
+        limit: 20,
+        search: debouncedSearch || undefined,
+        scope: filterScope !== 'ALL' ? filterScope : undefined,
+        submissionMode: filterMode !== 'ALL' ? filterMode : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        signal,
+      } as any),
+    // Lists: stale 60s (within 30s-2min window) + gc 5min. Focus refetch OFF —
+    // browser tab switches must never reload the list; background revalidate
+    // only after staleTime. Mutations bust via notifyEntityMutated prefix.
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  })
+  const hubs: any[] = (hubsData as any)?.data ?? []
+  const pagination = (hubsData as any)?.pagination ?? { page: 1, limit: 20, total: 0, pages: 1 }
+  // keepPreviousData: isLoading is false when a cached slice exists → cached
+  // list stays visible while the new tab revalidates (no spinner flash).
+  const loading = isLoading && !isPlaceholderData && hubs.length === 0
+  const refreshing = isFetching && !isLoading
+
+  // Prefetch adjacent status tab on hover/focus (Vercel instant-nav): warms the
+  // other slice's cache so hover→click renders instantly even when cold.
+  const prefetchStatus = (s: AssignmentStatusFilter) => {
+    if (s === statusFilter) return
     try {
-      const res = await assignmentHubAPI.getHubs({ page, limit: 20, search: debouncedSearch||undefined, scope: filterScope!=='ALL'?filterScope:undefined, submissionMode: filterMode!=='ALL'?filterMode:undefined, signal: controller.signal } as any)
-      if (controller.signal.aborted) return
-      setHubs(res.data); setPagination(res.pagination)
-    } catch(e: any){ if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED' || controller.signal.aborted) return; console.error(e)} finally{ if (abortRef.current === controller) setLoading(false)}
+      void queryClient.prefetchQuery({
+        queryKey: qk.assignmentHubs({
+          page: 1,
+          search: debouncedSearch || '',
+          scope: filterScope,
+          mode: filterMode,
+          status: s,
+          collegeId: collegeScope,
+        }),
+        queryFn: ({ signal }) =>
+          assignmentHubAPI.getHubs({
+            page: 1,
+            limit: 20,
+            search: debouncedSearch || undefined,
+            scope: filterScope !== 'ALL' ? filterScope : undefined,
+            submissionMode: filterMode !== 'ALL' ? filterMode : undefined,
+            status: s !== 'all' ? s : undefined,
+            signal,
+          } as any),
+        staleTime: 60 * 1000,
+      })
+    } catch {}
   }
 
-  // Guard filtered empty with loading — prevents initial flash of "No assignments match your filters" before fetch completes
-  const filteredAssignments = hubs
-  useEffect(()=>{ load(); return () => abortRef.current?.abort() }, [page, filterScope, filterMode, debouncedSearch])
-  useEffect(()=>{ setPage(1) }, [debouncedSearch, filterScope, filterMode])
+  const prefetchPage = (p: number) => {
+    if (p === page) return
+    try {
+      void queryClient.prefetchQuery({
+        queryKey: qk.assignmentHubs({
+          page: p,
+          search: debouncedSearch || '',
+          scope: filterScope,
+          mode: filterMode,
+          status: statusFilter,
+          collegeId: collegeScope,
+        }),
+        queryFn: ({ signal }) =>
+          assignmentHubAPI.getHubs({
+            page: p,
+            limit: 20,
+            search: debouncedSearch || undefined,
+            scope: filterScope !== 'ALL' ? filterScope : undefined,
+            submissionMode: filterMode !== 'ALL' ? filterMode : undefined,
+            status: statusFilter !== 'all' ? statusFilter : undefined,
+            signal,
+          } as any),
+        staleTime: 60 * 1000,
+      })
+    } catch {}
+  }
+
+  // Persist status tab to URL (?status=active) + localStorage on change/open.
+  useEffect(() => {
+    setStoredAssignmentStatus(statusFilter)
+    const current = searchParams.get('status')?.toLowerCase()
+    if (current !== statusFilter) {
+      const next = new URLSearchParams(searchParams)
+      next.set('status', statusFilter)
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter])
+
+  useEffect(()=>{ setPage(1) }, [debouncedSearch, filterScope, filterMode, statusFilter])
+
+  // STATE-SYNC: no manual useEntitySync subscription — TanStack prefix
+  // invalidation owns freshness. notifyEntityMutated('assignment') busts
+  // ['assignmentHubs'] (+ dashboard/search/tasks) so creates/edits/grades from
+  // any tab/device refetch automatically without a focus listener or reload.
+
+  const handleClearFilters = () => {
+    setSearch('')
+    setFilterScope('ALL')
+    setFilterMode('ALL')
+    setStatusFilter('all')
+    setPage(1)
+  }
 
   const openDetail = async (hub:any)=> {
     setDetailLoading(true)
     setDetail(hub) // optimistically show title while fetching
     try {
-      const full = await assignmentHubAPI.getHub(hub.id)
+      // PERPAGE-HALF1: single parallel round — was waterfall (await getHub,
+      // THEN await subs+stats = 2 sequential rounds). hub.id is already known
+      // from the list row, so all three fire together. Same setState outcome.
+      const [full, subs, st] = await Promise.all([
+        assignmentHubAPI.getHub(hub.id),
+        isTeacher ? assignmentHubAPI.listSubmissions(hub.id) : Promise.resolve({ data: [] } as any),
+        isTeacher ? assignmentHubAPI.stats(hub.id).catch(()=> null) : Promise.resolve(null),
+      ])
       setDetail(full)
       if(isTeacher) {
-        const [subs, st] = await Promise.all([assignmentHubAPI.listSubmissions(hub.id), assignmentHubAPI.stats(hub.id).catch(()=> null)])
-        setSubmissions(subs.data||subs); setStats(st)
+        setSubmissions((subs as any).data||subs); setStats(st)
       } else {
         setSubmissions([]); setStats(null)
       }
@@ -79,21 +216,18 @@ export default function AssignmentHubPage() {
     setDetail(null)
     setSubmissions([])
     setStats(null)
-    // invalidate queries and reload list so updated submission counts/status appear
-    queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
-    queryClient.invalidateQueries({ queryKey: ['hubs'] })
-    window.dispatchEvent(new Event('assignment:mutated'))
-    await load()
+    // Central truth: RQ prefix + window event so dashboard/counts/search update.
+    // No manual load() — invalidation refetches the active slice in background.
+    notifyEntityMutated('assignment', { action: 'submitted' })
   }
 
   const handleSaved = async () => {
-    queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
-    queryClient.invalidateQueries({ queryKey: ['hubs'] })
-    window.dispatchEvent(new Event('assignment:mutated'))
-    await load()
+    notifyEntityMutated('assignment', { action: 'saved' })
   }
 
-  const handleDelete = async (hub:any)=> { if(!confirm('Delete assignment?')) return; await assignmentHubAPI.delete(hub.id); toast.success('Deleted'); queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] }); window.dispatchEvent(new Event('assignment:mutated')); load() }
+  const handleDelete = async (hub:any)=> { const ok = await confirmDialog({ title: 'Delete assignment?', message: `Delete "${hub?.title || 'this assignment'}" and its submissions?`, confirmLabel: 'Delete' }); if(!ok) return; await assignmentHubAPI.delete(hub.id); toast.success('Deleted'); notifyEntityMutated('assignment', { hubId: hub.id, action: 'deleted' }) }
+
+  const filteredAssignments = hubs
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6 max-w-[1280px] mx-auto">
@@ -112,20 +246,55 @@ export default function AssignmentHubPage() {
       </div>
 
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." className="pl-9" onKeyDown={e=> e.key==='Enter' && load()} /></div>
-        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
-        <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
+        <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400"/><Input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search..." aria-label="Search assignments" className="pl-9" /></div>
+        <select value={filterScope} onChange={e=> setFilterScope(e.target.value)} aria-label="Filter by scope" className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All scopes</option><option value="DEPARTMENT">DEPARTMENT</option><option value="ROOM">ROOM</option></select>
+        <select value={filterMode} onChange={e=> setFilterMode(e.target.value)} aria-label="Filter by mode" className="px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-surface-900 dark:text-night-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"><option value="ALL">All modes</option><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="HYBRID">HYBRID</option></select>
+        {refreshing && hubs.length > 0 && (
+          <span className="text-xs text-surface-500 dark:text-night-300" aria-live="polite">Updating…</span>
+        )}
+      </div>
+
+      <div role="tablist" aria-label="Filter assignments by status" className="inline-flex p-1 rounded-xl border border-surface-200 dark:border-night-600 bg-surface-50 dark:bg-night-800 gap-1">
+        {(['all', 'active', 'completed'] as AssignmentStatusFilter[]).map((s) => {
+          const selected = statusFilter === s
+          const label = s === 'all' ? 'All' : s === 'active' ? 'Active' : 'Completed'
+          return (
+            <button
+              key={s}
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setStatusFilter(s)}
+              onMouseEnter={() => prefetchStatus(s)}
+              onFocus={() => prefetchStatus(s)}
+              className={`px-4 h-9 rounded-lg text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+                selected
+                  ? 'bg-white dark:bg-night-900 text-slate-800 dark:text-night-50 shadow-sm border border-surface-200 dark:border-night-600'
+                  : 'text-surface-500 dark:text-night-400 hover:text-slate-800 dark:hover:text-night-50 border border-transparent'
+              }`}
+            >
+              {label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="space-y-3">
         {loading ? (
           <CenteredLoader />
-        ) : filteredAssignments.length===0 ? <EmptyState icon={FileText} title="No assignments" description="No assignments match your filters" /> : filteredAssignments.map(h=> (
+        ) : filteredAssignments.length===0 ? (
+          statusFilter==='active' ? (
+            <EmptyState icon={FileText} title="No active assignments" description="You're all caught up! No pending assignments." action={<Button size="sm" variant="secondary" onClick={handleClearFilters}>Clear filters</Button>} />
+          ) : statusFilter==='completed' ? (
+            <EmptyState icon={FileText} title="No completed assignments" description="Nothing completed yet. Submit an assignment to see it here." action={<Button size="sm" variant="secondary" onClick={handleClearFilters}>Clear filters</Button>} />
+          ) : (
+            <EmptyState icon={FileText} title="No assignments" description="No assignments match your filters." action={<Button size="sm" variant="secondary" onClick={handleClearFilters}>Clear filters</Button>} />
+          )
+        ) : filteredAssignments.map(h=> (
           <AssignmentHubCard key={h.id} hub={h} onClick={()=> navigate(`/assignments/${h.id}`)} onEdit={isTeacher? (hub:any)=>{setEditing(hub); setModalOpen(true)}:undefined} onDelete={isTeacher? handleDelete:undefined} />
         ))}
       </div>
 
-      <Pagination page={pagination.page} totalPages={pagination.pages} onChange={setPage} />
+      <Pagination page={pagination.page} totalPages={pagination.pages} onChange={setPage} onPrefetch={prefetchPage} />
 
       <CreateAssignmentModal open={modalOpen} hub={editing} onClose={()=> setModalOpen(false)} onSaved={handleSaved} />
 
@@ -156,7 +325,7 @@ export default function AssignmentHubPage() {
         ) : null}
       </Modal>
 
-      {grading && <GradeModal submission={grading} hub={detail} open={!!grading} onClose={()=> setGrading(null)} onGraded={()=> { openDetail(detail); assignmentHubAPI.listSubmissions(detail.id).then(r=> setSubmissions(r.data||r)); queryClient.invalidateQueries({ queryKey:['assignmentHubs']}) }} />}
+      {grading && <GradeModal submission={grading} hub={detail} open={!!grading} onClose={()=> setGrading(null)} onGraded={()=> { openDetail(detail); notifyEntityMutated('assignment', { hubId: detail.id, action: 'graded' }) }} />}
     </motion.div>
   )
 }

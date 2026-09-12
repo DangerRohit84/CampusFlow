@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { v2 as cloudinary } from 'cloudinary'
+import { logger } from '../utils/logger'
 
 export interface UploadOptions {
   folder?: string
@@ -20,15 +21,25 @@ const apiSecret = process.env.CLOUDINARY_API_SECRET
 export const storageMode: 'cloudinary' | 'local' =
   cloudName && apiKey && apiSecret ? 'cloudinary' : 'local'
 
+// Prod parity guard (popular-site parity): ephemeral disk on Render/Railway loses
+// /uploads on every restart/redeploy. Fail fast in production instead of silently
+// writing files that will vanish.
+if (process.env.NODE_ENV === 'production' && storageMode !== 'cloudinary') {
+  throw new Error(
+    'CLOUDINARY_* env vars are required in production (storageMode must be cloudinary). ' +
+      'Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.'
+  )
+}
+
 if (storageMode === 'cloudinary') {
   cloudinary.config({
     cloud_name: cloudName,
     api_key: apiKey,
     api_secret: apiSecret,
   })
-  console.log('[Storage] Mode: cloudinary')
+  logger.info('[Storage] Mode: cloudinary')
 } else {
-  console.log('[Storage] Mode: local disk (set CLOUDINARY_* env vars for production persistence)')
+  logger.info('[Storage] Mode: local disk (set CLOUDINARY_* env vars for production persistence)')
 }
 
 const LOCAL_UPLOAD_ROOT = path.resolve(__dirname, '../../uploads')
@@ -172,6 +183,6 @@ export async function deleteFile(urlOrPublicId: string): Promise<void> {
       }
     }
   } catch (err) {
-    console.error('Storage deleteFile error:', err)
+    logger.error({ err: err }, 'Storage deleteFile error:')
   }
 }

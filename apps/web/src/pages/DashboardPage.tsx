@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Calendar, Users, Briefcase, FileText, Clock,
@@ -7,9 +6,10 @@ import {
 } from 'lucide-react'
 import { dashboardAPI, hackathonAPI, roomAPI, formAPI, announcementsAPI, timetableAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
-import { useQuery } from '@tanstack/react-query'
-import { getSocket } from '../lib/socket'
-import { queryClient } from '../lib/queryClient'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { useEntitySync } from '../lib/entitySync'
 import { motion } from 'framer-motion'
 import { PremiumHero, GlassPanel, BentoGrid, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -23,22 +23,41 @@ export default function DashboardPage() {
   const todayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const dayIdx = now.getDay() === 0 ? 6 : now.getDay() - 1
 
-  const { data: dashboardBundle, isLoading: loading } = useQuery({
-    queryKey: ['dashboard', dayIdx],
+  // STATE-SYNC: reactive college scope — super-admin college switches change
+  // the key (new scope → fresh fetch) instead of showing the old college's
+  // cached bundle until refresh. qk.dashboard keeps prefix ['dashboard'] so
+  // notifyEntityMutated(['dashboard']) still busts every day/scope variant.
+  const collegeScope = useCollegeScope()
+
+  // Single cancellable bundle: ONE AbortSignal threads into EVERY sub-fetch
+  // (React Query aborts the whole bundle on day/scope switch). Previously
+  // dashboardAPI.get + announcements + timetable ignored the signal, so a slow
+  // bundle could resolve after navigation and paint a stale dashboard.
+  const { data: dashboardBundle, isLoading: loading, isError, error, refetch } = useQuery({
+    queryKey: qk.dashboard(dayIdx, (user as any)?.collegeId || collegeScope),
     queryFn: async ({ signal }) => {
       const [dashData, hackData, roomData, formData, annData, sched] = await Promise.all([
-        dashboardAPI.get(),
+        dashboardAPI.get(signal),
         hackathonAPI.getAll({ signal } as any).catch(()=>[]),
         roomAPI.getAll({ signal } as any).catch(()=>[]),
         formAPI.getAll({ signal } as any).catch(()=>[]),
-        announcementsAPI.list(1, 6).catch(()=>({ announcements:[], unreadCount:0 })),
-        timetableAPI.getAll().catch(()=>[]),
+        announcementsAPI.list(1, 6, undefined, signal).catch(()=>({ announcements:[], unreadCount:0 })),
+        timetableAPI.getAll({ signal }).catch(()=>[]),
       ])
       const today = (sched as any[]).filter((s:any)=> s.dayOfWeek===dayIdx).sort((a:any,b:any)=> a.startTime.localeCompare(b.startTime))
       return { dashData, hackData, roomData, formData, annData, today }
     },
+    // SG cloud-dev: each API query 500-1000ms NORMAL (India→SG 70-90ms RTT+TLS+pgbouncer);
+    // staleTime 2min (>> 30s minimum for dashboard lists) avoids refetch storms on
+    // tab focus/nav. Backend dashboard is single GROUP BY aggregations (no N+1 fallback).
+    // TAB-NOREFRESH: keepPreviousData shows the cached bundle instantly on day/scope
+    // switch (no full loader flash); refetchOnWindowFocus false (inherits global)
+    // so switching browser tabs never reloads the dashboard — RQ revalidates in
+    // background only after staleTime, cancelled via signal on rapid switches.
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
   const data = dashboardBundle?.dashData ?? null
   const hackathons = (dashboardBundle?.hackData as any[]) ?? []
@@ -51,27 +70,15 @@ export default function DashboardPage() {
   const upcomingHackathons = hackathons.filter((h:any)=> h.startDate && new Date(h.startDate) > new Date()).sort((a:any,b:any)=> new Date(a.startDate).getTime()-new Date(b.startDate).getTime()).slice(0,3)
   const periodLabels = ['I','II','III','IV','V','VI','VII','VIII']
 
-  useEffect(() => {
-    const socket = getSocket()
-    const handler = () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['announcements'] })
-      queryClient.invalidateQueries({ queryKey: ['hackathons'] })
-      queryClient.invalidateQueries({ queryKey: ['rooms'] })
-      queryClient.invalidateQueries({ queryKey: ['forms'] })
-      queryClient.invalidateQueries({ queryKey: ['timetable'] })
-      queryClient.invalidateQueries({ queryKey: ['schedules'] })
-    }
-    const events = ['announcement:mutated','announcement:created','announcement:updated','announcement:deleted','assignment:mutated','assignment:hub:updated','form:mutated','form:updated','room:mutated','room:updated','hackathon:mutated','hackathon:updated','internship:mutated','internship:updated','schedule:mutated','calendar:mutated','schedule:update','contest:mutated','attendance:mutated','grade:mutated']
-    if (socket) events.forEach(ev=> socket.on(ev, handler))
-    const onMutated = () => handler()
-    const winEvents = ['announcement:mutated','announcement:created','announcement:updated','announcement:deleted','assignment:mutated','form:mutated','room:mutated','room:updated','hackathon:mutated','internship:mutated','schedule:mutated','calendar:mutated','contest:mutated','attendance:mutated','grade:mutated']
-    winEvents.forEach(ev=> window.addEventListener(ev as any, onMutated as any))
-    return () => {
-      if (socket) events.forEach(ev=> socket.off(ev, handler))
-      winEvents.forEach(ev=> window.removeEventListener(ev as any, onMutated as any))
-    }
-  }, [])
+  // STATE-SYNC: one canonical subscription — every entity feeding the bundle
+  // (announcements/assignments/forms/rooms/hackathons/internships/schedules/
+  // contests/attendance/grades) refreshes via notifyEntityMutated + the Layout
+  // socket bridge. No hand-rolled socket/window lists (they drifted: missing
+  // tasks/timetable/search fan-out, dead keys, double-notify).
+  useEntitySync(
+    ['announcement', 'assignment', 'form', 'room', 'hackathon', 'internship', 'schedule', 'task', 'contest', 'attendance', 'grade'],
+    async () => {},
+  )
 
   const stats = user?.role==='STUDENT' ? [
     { label:'CGPA', value: data?.cgpa ?? '—', sub: 'Current Standing', icon: GraduationCap },
@@ -87,6 +94,21 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
+      {/* WHY: one H1 per page (was 0, fails 1.3.1). Visually hidden would also pass, but PremiumHero is decorative — sr-only H1 keeps RouteFocus targeting. */}
+      <h1 className="sr-only">Dashboard — Overview for {firstName}</h1>
+      {isError && !dashboardBundle ? (
+        <div className="rounded-[20px] border border-danger-200 bg-danger-50 p-6 text-center" role="alert">
+          <p className="font-semibold text-surface-900">Couldn&apos;t load your overview</p>
+          <p className="text-sm text-surface-500 mt-1">{(error as any)?.response?.data?.error || 'Check your connection and try again.'}</p>
+          <button onClick={() => refetch()} className="mt-4 inline-flex items-center gap-1.5 min-h-[44px] px-5 bg-[#0a0a0a] dark:bg-white text-white dark:text-black rounded-full text-sm font-bold">Retry</button>
+        </div>
+      ) : null}
+      {isError && dashboardBundle ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3" role="alert">
+          <span>Showing cached overview — refresh failed.</span>
+          <button onClick={() => refetch()} className="font-bold underline underline-offset-4 shrink-0">Retry</button>
+        </div>
+      ) : null}
       <PremiumHero
         eyebrow={`Campus Flow · ${todayLabel}`}
         icon={<Sparkles size={16} className="text-black dark:text-black" />}
@@ -136,7 +158,7 @@ export default function DashboardPage() {
             <div className="group relative overflow-hidden rounded-[20px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] p-4 hover:shadow-[0_12px_32px_rgba(0,0,0,0.08)] hover:border-surface-300 dark:hover:border-[#3a3a3a] transition-all">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">{s.label}</p>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-300">{s.label}</p>
                   <p className="mt-1 font-display text-[22px] font-[800] tracking-[-0.02em] leading-none text-[#0a0a0a] dark:text-white">{s.value}</p>
                   <p className="mt-1 text-[11px] font-semibold text-surface-500 dark:text-night-400">{s.sub}</p>
                 </div>
@@ -197,7 +219,7 @@ export default function DashboardPage() {
               <div className="p-8 text-center rounded-[20px] bg-surface-50 dark:bg-[#0a0a0a] border border-dashed border-surface-200 dark:border-[#282828]">
                 <Megaphone size={28} className="mx-auto text-surface-300 dark:text-night-500" />
                 <p className="mt-2 text-sm font-semibold text-surface-500 dark:text-night-400">No pinned notices</p>
-                <p className="text-xs text-surface-400 dark:text-night-400">Announcements will be pinned here when posted.</p>
+                <p className="text-xs text-surface-500 dark:text-night-300">Announcements will be pinned here when posted.</p>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -220,7 +242,7 @@ export default function DashboardPage() {
           <SectionCard title="Up Next" subtitle="Opportunities" icon={<Trophy size={16}/>} action={<button onClick={()=>navigate('/hackathons')} className="text-xs font-bold text-primary-600 hover:text-primary-700">View events →</button>}>
             <div className="space-y-2.5">
               {upcomingHackathons.length===0 ? (
-                <p className="text-sm text-surface-400 dark:text-night-400 py-6 text-center border border-dashed border-surface-200 dark:border-[#282828] rounded-[16px]">No upcoming events</p>
+                <p className="text-sm text-surface-500 dark:text-night-300 py-6 text-center border border-dashed border-surface-200 dark:border-[#282828] rounded-[16px]">No upcoming events</p>
               ) : upcomingHackathons.map((h:any)=>(
                 <div key={h.id} className="flex items-center gap-3 p-3 rounded-[16px] bg-surface-50/60 dark:bg-[#0a0a0a] border border-surface-200 dark:border-[#282828] hover:border-primary-500/15 transition-colors">
                   <span className="w-2 h-2 rounded-full bg-primary-500 shrink-0" />
@@ -234,7 +256,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-6">
-              <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Quick Actions</p>
+              <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-300">Quick Actions</p>
               <div className="mt-3 grid grid-cols-1 gap-2">
                 {[
                   {label:'Browse Hackathons', sub:'Find events & team ups', action:()=>navigate('/hackathons'), icon: Trophy},

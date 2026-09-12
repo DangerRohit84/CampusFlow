@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Megaphone, Plus, ChevronLeft, ChevronRight, Filter } from 'lucide-react'
 import { announcementsAPI } from '../lib/api'
+import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+import { useRaceGuard, isAbortError } from '../hooks/useRaceGuard'
+import { useConfirm } from '../components/ui/ConfirmModal'
+import { showUndoToast } from '../lib/undoToast'
 import { useAuthStore } from '../store/authStore'
 import AnnouncementCard from '../components/AnnouncementCard'
 import CreateAnnouncementModal from '../components/CreateAnnouncementModal'
 import toast from 'react-hot-toast'
 import { BentoCard } from '../components/premium/PremiumKit'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
 export default function AnnouncementsPage() {
+  // WHY: MotionConfig=user covers globally; local guard disables stagger for reduced-motion.
+  const shouldReduce = useReducedMotion()
   const { user } = useAuthStore()
   const [data, setData] = useState<{ announcements: any[]; pagination: any } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -17,6 +23,10 @@ export default function AnnouncementsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [collegeFilter, setCollegeFilter] = useState<string>('')
   const [editingAnnouncement, setEditingAnnouncement] = useState<any | null>(null)
+  const { confirm: confirmDialog } = useConfirm()
+  // STATE-SYNC RACE GUARD: rapid page/filter switches abort the previous list
+  // request and ignore stale responses (slow page-1 must never overwrite fast page-2).
+  const { newRequest, isCurrent } = useRaceGuard()
 
   const canCreate = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
@@ -29,40 +39,80 @@ export default function AnnouncementsPage() {
     }
   }, [isSuperAdmin])
 
-  const fetchAnnouncements = useCallback(async () => {
-    setLoading(true)
+  // silent:true skips the full-page loader for background revalidates
+  // (entity-sync/focus) when a list is already visible — mount + page/filter
+  // switches still show it. Same manual-page equivalent of RQ silent
+  // background revalidate used by TasksPage.
+  const fetchAnnouncements = useCallback(async (opts?: { silent?: boolean }) => {
+    const { signal, seq } = newRequest()
+    if (!opts?.silent) setLoading(true)
     try {
-      const result = await announcementsAPI.list(page, 10, isSuperAdmin && collegeFilter ? collegeFilter : undefined)
+      const result = await announcementsAPI.list(page, 10, isSuperAdmin && collegeFilter ? collegeFilter : undefined, signal)
+      if (!isCurrent(seq) || signal.aborted) return
       setData(result)
       if (result.announcements?.length) {
+        const readSeq = seq
         announcementsAPI.markAllRead(isSuperAdmin && collegeFilter ? collegeFilter : undefined).then(() => {
+          if (!isCurrent(readSeq)) return
           setData((prev) => prev ? { ...prev, announcements: prev.announcements.map((a: any) => ({ ...a, isRead: true })), unreadCount: 0 } : prev)
         }).catch(() => {})
       }
-    } catch {
+    } catch (e: any) {
+      if (isAbortError(e, signal)) return
       toast.error('Failed to load announcements')
     } finally {
-      setLoading(false)
+      if (isCurrent(seq) && !signal.aborted) setLoading(false)
     }
-  }, [page, collegeFilter, isSuperAdmin])
+  }, [page, collegeFilter, isSuperAdmin, newRequest, isCurrent])
 
   useEffect(() => {
-    fetchAnnouncements()
+    void fetchAnnouncements()
   }, [fetchAnnouncements])
+
+  // STATE-SYNC: refresh on same-tab mutations, cross-tab edits, and
+  // cross-device socket broadcasts (no refresh/navigate needed). Background
+  // silent — the list stays visible while revalidating (no loader flash per
+  // incoming announcement).
+  useEntitySync('announcement', () => { void fetchAnnouncements({ silent: true }) })
 
   const handleMarkRead = useCallback(async (id: string) => {
     try {
       await announcementsAPI.markRead(id)
+      notifyEntityMutated('notification', { announcementId: id })
       setData((prev) => prev ? { ...prev, announcements: prev.announcements.map((a: any) => a.id === id ? { ...a, isRead: true } : a) } : prev)
     } catch {}
   }, [])
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this announcement?')) return
+    const doomed = announcements.find((a: any) => a.id === id)
+    const ok = await confirmDialog({ title: 'Delete announcement?', message: `Delete "${doomed?.title || 'this announcement'}"? You can undo right after.`, confirmLabel: 'Delete' })
+    if (!ok) return
     try {
       await announcementsAPI.delete(id)
-      toast.success('Announcement deleted')
-      fetchAnnouncements()
+      // LISTENER-OWNS-REFETCH (AssignmentDetailPage precedent): notify busts
+      // RQ + reloads this list via useEntitySync — a direct
+      // fetchAnnouncements() here would double-fetch (direct + listener).
+      notifyEntityMutated('announcement', { announcementId: id, action: 'deleted' })
+      if (doomed) {
+        const { id: _id, createdAt: _c, updatedAt: _u, ...snapshot } = doomed
+        showUndoToast('Announcement deleted', async () => {
+          await announcementsAPI.create({
+            title: snapshot.title,
+            content: snapshot.content,
+            target: snapshot.target,
+            departmentIds: snapshot.departmentIds,
+            targetScope: snapshot.targetScope,
+            collegeIds: snapshot.collegeIds,
+            publishAt: snapshot.publishAt,
+            expiresAt: snapshot.expiresAt,
+          })
+          // Same single-path refresh for the undo-restore (was direct fetch
+          // with no notify → other tabs/pages stayed stale).
+          notifyEntityMutated('announcement', { action: 'restored' })
+        })
+      } else {
+        toast.success('Announcement deleted')
+      }
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Failed to delete')
     }
@@ -155,9 +205,9 @@ export default function AnnouncementsPage() {
         </div>
       )}
 
-      <motion.div initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }} className="grid grid-cols-12 gap-4">
+      <motion.div initial={shouldReduce ? undefined : "hidden"} animate="show" variants={shouldReduce ? undefined : { hidden: {}, show: { transition: { staggerChildren: 0.06 } } }} className="grid grid-cols-12 gap-4">
         {announcements.map((a: any, i: number) => (
-          <motion.div key={a.id} variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { delay: i * 0.04, duration: 0.4, ease: [0.22, 1, 0.36, 1] as any } } }} className="col-span-12">
+          <motion.div key={a.id} variants={shouldReduce ? undefined : { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { delay: i * 0.04, duration: 0.4, ease: [0.22, 1, 0.36, 1] as any } } }} className="col-span-12">
             <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden hover:shadow-[0_12px_32px_rgba(0,0,0,0.08)] hover:border-surface-300 dark:hover:border-[#3a3a3a] transition-all">
               <AnnouncementCard
                 announcement={a}
@@ -199,7 +249,11 @@ export default function AnnouncementsPage() {
       <CreateAnnouncementModal
         open={showCreate || !!editingAnnouncement}
         onClose={() => { setShowCreate(false); setEditingAnnouncement(null) }}
-        onCreated={fetchAnnouncements}
+        // MODAL-NOTIFIES: CreateAnnouncementModal already calls
+        // notifyEntityMutated('announcement') on create/update success, which
+        // reloads this list via useEntitySync above — passing
+        // fetchAnnouncements here would double-fetch (direct + listener).
+        onCreated={() => {}}
         announcement={editingAnnouncement}
       />
     </div>

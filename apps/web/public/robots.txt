@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+# /landing 301s to / (canonical) — no separate Allow needed, kept for old links.
+Allow: /login
+Allow: /register
+Allow: /register-college
+Allow: /privacy
+Allow: /terms
+Allow: /about
+Allow: /help
+Allow: /contact
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /superadmin
+Disallow: /api/
+Disallow: /u/
+# WHY: keep authed/app surfaces out of the index (docs/seo.md index map).
+# Authed chat/rooms/settings/fetch/insights + data-entry forms + gaming-prone leaderboard stay noindex + disallow.
+Disallow: /chat
+Disallow: /rooms/
+Disallow: /settings
+Disallow: /fetch
+Disallow: /insights
+Disallow: /forms
+Disallow: /contests/leaderboard
+
+Sitemap: https://campusflow.dev/sitemap.xml

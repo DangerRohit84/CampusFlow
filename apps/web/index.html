@@ -2,18 +2,44 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- GSC verification is injected at runtime by Seo.tsx from VITE_GSC_VERIFICATION (no build placeholder, no warning when unset). -->
+    <!-- WHY CSR fallback: crawlers without JS read these static tags (title/description/canonical/OG/Twitter 1200x630 PNG). Client Helmet (Seo.tsx) then refines per-route. For bot parity, prerender the 10 PUBLIC_EXACT paths; no framework swap (Vite SPA + SPA fallback). -->
+    <meta name="theme-color" content="#1ed760" />
+    <meta name="description" content="CampusFlow pins your timetable, rooms, assignments and career boards — live in seconds." />
+    <link rel="canonical" href="https://campusflow.dev/" />
+    <meta property="og:site_name" content="CampusFlow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CampusFlow — Campus OS" />
+    <meta property="og:description" content="Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
+    <meta property="og:url" content="https://campusflow.dev/" />
+    <!-- WHY: OG/Twitter require absolute PNG/JPG 1200x630 (SVG breaks previews). og-cover.png is canonical; og-image.png kept as alias. See Seo.tsx DEFAULT_OG_IMAGE. -->
+    <meta property="og:image" content="https://campusflow.dev/og-cover.png" />
+    <meta property="og:image:secure_url" content="https://campusflow.dev/og-cover.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CampusFlow — Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CampusFlow — Campus OS" />
+    <meta name="twitter:description" content="Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
+    <meta name="twitter:image" content="https://campusflow.dev/og-cover.png" />
+    <meta name="twitter:image:alt" content="CampusFlow — Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
     <title>CampusFlow — Campus OS</title>
-    <!-- High-scale head: preconnect + dns-prefetch + preload fonts (Notion/Vercel pattern for first-paint) -->
+    <!-- High-scale head: 2 families only (Fraunces display + DM Sans body) for fast first-paint.
+         JetBrains Mono/Source Sans 3 removed — mono uses system stack (0KB), body uses DM Sans.
+         preconnect kept + display=swap avoids FOIT (Shopify/StackOverflow pattern). -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
     <link rel="dns-prefetch" href="https://fonts.gstatic.com">
     <!-- preload font stylesheet with swap; display=swap avoids FOIT (like Shopify/StackOverflow) -->
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap">
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet"></noscript>
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&display=swap">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
     <script>
       (function() {
         var theme = localStorage.getItem('theme');

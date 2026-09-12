@@ -2,13 +2,15 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { chatCompletion } from '../ai/client'
+import { aiQuota, noteAiUpstreamError } from '../middleware/aiQuota'
+import { chatCompletion, isAiRateLimitError } from '../ai/client'
+import { logger } from '../utils/logger'
 
 const router = Router()
 router.use(authenticate)
 
 const messageSchema = z.object({
-  content: z.string().min(1),
+  content: z.string().min(1).max(8000),
 })
 
 const providerSchema = z.object({
@@ -97,10 +99,13 @@ function compressAssignments(assignments: any[]): string {
 function compressGrades(grades: any[]): string {
   if (!grades.length) return 'No grades available'
   const gradeStrs = grades.slice(0, 8).map(g => {
-    const code = g.courseName || '?'
+    const code = (g as any).courseName ?? (g as any).course?.name ?? '?'
     return `${code}:${g.grade}(${g.gpa})`
   }).join(', ')
   const totalCredits = grades.reduce((sum: number, g: any) => sum + g.credits, 0)
+  // topbottom F6b: zero-credit history (or empty) → NaN CGPA baked into the AI
+  // prompt. Guard: report n/a instead of "NaN".
+  if (totalCredits <= 0) return `${gradeStrs}, CGPA:n/a`
   const weightedGpa = grades.reduce((sum: number, g: any) => sum + g.gpa * g.credits, 0) / totalCredits
   return `${gradeStrs}, CGPA:${weightedGpa.toFixed(1)}`
 }
@@ -133,9 +138,11 @@ async function buildScopedContext(userId: string, intent: Intent): Promise<strin
 
   // Schedule: only today + next 3 days
   if (intent === 'schedule') {
+    // HALF2: bound user-scoped scan (was unbounded; weekly timetable typically <50)
     const schedules = await prisma.schedule.findMany({
       where: { userId },
-      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }]
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+      take: 50,
     })
     const todayClasses = schedules.filter(s => s.dayOfWeek === todayDayOfWeek)
     const nextDaysClasses = schedules.filter(s => s.dayOfWeek > todayDayOfWeek && s.dayOfWeek <= todayDayOfWeek + 3)
@@ -155,11 +162,13 @@ async function buildScopedContext(userId: string, intent: Intent): Promise<strin
 
   // Grade: recent grades + CGPA summary
   if (intent === 'grade') {
-    const grades = await prisma.grade.findMany({
+    const _gr = await prisma.grade.findMany({
       where: { userId },
+      include: { course: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
       take: 10
     })
+    const grades: any[] = _gr.map((g: any) => ({ ...g, courseName: g.course?.name ?? null }))
     return `GRADES: ${compressGrades(grades)}`
   }
 
@@ -175,9 +184,10 @@ async function buildCompactSummary(userId: string): Promise<string> {
   const todayDayOfWeek = now.getDay()
 
   const [schedules, assignments, grades] = await Promise.all([
-    prisma.schedule.findMany({ where: { userId }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] }),
+    // HALF2: bound user-scoped schedule scan (was unbounded; weekly typically <50)
+    prisma.schedule.findMany({ where: { userId }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }], take: 50 }),
     prisma.assignment.findMany({ where: { userId, status: { not: 'COMPLETED' } }, orderBy: { dueDate: 'asc' }, take: 5 }),
-    prisma.grade.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 10 }),
+    prisma.grade.findMany({ where: { userId }, include: { course: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 10 }),
   ])
 
   const parts: string[] = []
@@ -197,9 +207,10 @@ async function buildFullContext(userId: string): Promise<string> {
   const todayStr = now.toISOString().split('T')[0]
 
   const [schedules, assignments, grades] = await Promise.all([
-    prisma.schedule.findMany({ where: { userId }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] }),
+    // HALF2: bound user-scoped scans (were unbounded; weekly typically <50)
+    prisma.schedule.findMany({ where: { userId }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }], take: 50 }),
     prisma.assignment.findMany({ where: { userId }, orderBy: { dueDate: 'asc' }, take: 10 }),
-    prisma.grade.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.grade.findMany({ where: { userId }, include: { course: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ])
 
   const parts: string[] = []
@@ -244,7 +255,7 @@ async function buildFullContext(userId: string): Promise<string> {
     parts.push('')
     parts.push('RECENT GRADES:')
     grades.slice(0, 10).forEach(g => {
-      parts.push(`  • ${g.courseName}: ${g.grade} (GPA: ${g.gpa}) | Semester ${g.semester} | Credits: ${g.credits}`)
+      parts.push(`  • ${(g as any).courseName ?? (g as any).course?.name ?? '?'}: ${g.grade} (GPA: ${g.gpa}) | Semester ${g.semester} | Credits: ${g.credits}`)
     })
     const totalCredits = grades.reduce((sum, g) => sum + g.credits, 0)
     const weightedGpa = grades.reduce((sum, g) => sum + g.gpa * g.credits, 0) / totalCredits
@@ -267,7 +278,7 @@ async function chatWithProvider(userId: string, userMessage: string): Promise<st
   try {
     const intent = classifyIntent(userMessage)
     const studentContext = await buildScopedContext(userId, intent)
-    console.log('[Chat] Intent:', intent, '| Context length:', studentContext.length, 'chars for user:', userId)
+    logger.info({ err: intent }, '[Chat] Intent:', '| Context length:', studentContext.length, 'chars for user:', userId)
 
     const fullPrompt = `${SYSTEM_PROMPT}
 
@@ -281,7 +292,8 @@ Student's question: ${userMessage}`
       { role: 'user', content: fullPrompt },
     ], { temperature: 0.7, max_tokens: 1024 })
   } catch (error: any) {
-    console.error('AI provider error:', error?.message || error)
+    try { noteAiUpstreamError('chat', error) } catch {}
+    logger.error({ err: error?.message || error }, 'AI provider error:')
     return getSmartResponse(userMessage)
   }
 }
@@ -312,10 +324,12 @@ function getSmartResponse(query: string): string {
 // Get all chat sessions
 router.get('/sessions', async (req: AuthRequest, res: Response) => {
   try {
+    // HALF2: bound user-scoped list (was unbounded; sessions per user typically <50)
     const sessions = await prisma.chatSession.findMany({
       where: { userId: req.userId },
       orderBy: { updatedAt: 'desc' },
       include: { messages: { take: 1, orderBy: { createdAt: 'desc' } } },
+      take: 50,
     })
     res.json(sessions)
   } catch (error) {
@@ -338,7 +352,9 @@ router.post('/sessions', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get session messages
+// Get session messages — cursor pagination (take:50 max) + count.
+// Uses (sessionId, createdAt) index. Dual-mode: no query → capped array
+// (compat, oldest-first); ?cursor/?limit/?page → envelope with total+nextCursor.
 router.get('/sessions/:sessionId/messages', async (req: AuthRequest, res: Response) => {
   try {
     const session = await prisma.chatSession.findFirst({
@@ -349,10 +365,29 @@ router.get('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respon
       return
     }
 
-    const messages = await prisma.chatMessage.findMany({
-      where: { sessionId: req.params.sessionId as string },
-      orderBy: { createdAt: 'asc' },
-    })
+    const wantsPaged = req.query.cursor != null || req.query.limit != null || req.query.page != null
+    const limitParam = parseInt(String(req.query.limit || '50'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.min(50, Math.max(1, limitParam)) : 50
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const cursorId = req.query.cursor ? String(req.query.cursor) : null
+    const where: any = { sessionId: req.params.sessionId as string }
+    const cursorClause: any = cursorId ? { cursor: { id: cursorId }, skip: 1 } : { skip: (page - 1) * limit }
+    const [messages, total] = await Promise.all([
+      prisma.chatMessage.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: limit,
+        ...cursorClause,
+      }),
+      wantsPaged ? prisma.chatMessage.count({ where }) : Promise.resolve(-1),
+    ])
+    res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+    if (wantsPaged) {
+      const pages = Math.ceil((total as number) / limit)
+      const nextCursor = messages.length === limit ? (messages[messages.length - 1] as any)?.id ?? null : null
+      res.json({ data: messages, pagination: { page, limit, total, pages, nextCursor } })
+      return
+    }
     res.json(messages)
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch messages' })
@@ -360,7 +395,7 @@ router.get('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respon
 })
 
 // Send message and get AI response
-router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Response) => {
+router.post('/sessions/:sessionId/messages', aiQuota('chat'), async (req: AuthRequest, res: Response) => {
   try {
     const body = messageSchema.parse(req.body)
     const session = await prisma.chatSession.findFirst({
@@ -375,17 +410,39 @@ router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respo
       data: { sessionId: req.params.sessionId as string, role: 'USER', content: body.content },
     })
 
-    const aiResponse = await chatWithProvider(req.userId!, body.content)
+    // topbottom F6: the user turn is already persisted — an AI outage must NOT
+    // 500 the request (client would lose the reference and duplicate on retry).
+    // Return 502 WITH the saved userMessage so the client can render + retry
+    // cleanly without resending.
+    let aiResponse: string
+    try {
+      aiResponse = await chatWithProvider(req.userId!, body.content)
+    } catch (aiError) {
+      if (isAiRateLimitError(aiError)) {
+        noteAiUpstreamError('chat', aiError)
+        res.status(429).json({ userMessage, error: 'AI rate limit reached, try again shortly' })
+        return
+      }
+      logger.error({ err: aiError }, 'Chat provider error (user turn saved):')
+      res.status(502).json({ userMessage, error: 'AI unavailable right now — your message was saved, retry shortly' })
+      return
+    }
 
     const assistantMessage = await prisma.chatMessage.create({
       data: { sessionId: req.params.sessionId as string, role: 'ASSISTANT', content: aiResponse },
     })
 
-    const msgCount = await prisma.chatMessage.count({ where: { sessionId: req.params.sessionId as string } })
-    await prisma.chatSession.update({
-      where: { id: req.params.sessionId as string },
-      data: { updatedAt: new Date(), title: msgCount <= 2 ? body.content.slice(0, 50) : undefined },
-    })
+    // topbottom F6: title/count bookkeeping must never 500 a fully-saved
+    // exchange — best-effort.
+    try {
+      const msgCount = await prisma.chatMessage.count({ where: { sessionId: req.params.sessionId as string } })
+      await prisma.chatSession.update({
+        where: { id: req.params.sessionId as string },
+        data: { updatedAt: new Date(), title: msgCount <= 2 ? body.content.slice(0, 50) : undefined },
+      })
+    } catch (metaError) {
+      logger.debug({ err: metaError }, 'Chat session title update non-fatal')
+    }
 
     res.json({ userMessage, assistantMessage })
   } catch (error) {
@@ -393,13 +450,18 @@ router.post('/sessions/:sessionId/messages', async (req: AuthRequest, res: Respo
       res.status(400).json({ error: 'Validation error', details: error.errors })
       return
     }
-    console.error('Chat error:', error)
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('chat', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
+    logger.error({ err: error }, 'Chat error:')
     res.status(500).json({ error: 'Failed to send message' })
   }
 })
 
 // Quick ask (no session needed)
-router.post('/ask', async (req: AuthRequest, res: Response) => {
+router.post('/ask', aiQuota('chat'), async (req: AuthRequest, res: Response) => {
   try {
     const body = messageSchema.parse(req.body)
     const response = await chatWithProvider(req.userId!, body.content)
@@ -409,21 +471,35 @@ router.post('/ask', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Validation error', details: error.errors })
       return
     }
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('chat', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
     res.status(500).json({ error: 'Failed to get response' })
   }
 })
 
 // Summarize content
-router.post('/summarize', async (req: AuthRequest, res: Response) => {
+router.post('/summarize', aiQuota('chat'), async (req: AuthRequest, res: Response) => {
   try {
     const { content } = req.body
     if (!content) {
       res.status(400).json({ error: 'Content is required' })
       return
     }
+    if (typeof content === 'string' && content.length > 8000) {
+      res.status(413).json({ error: 'AI input too large (max 8000 chars)', max: 8000 })
+      return
+    }
     const summary = await chatWithProvider(req.userId!, `Summarize this in 3-5 bullet points:\n\n${content}`)
     res.json({ summary })
   } catch (error) {
+    if (isAiRateLimitError(error)) {
+      noteAiUpstreamError('chat', error)
+      res.status(429).json({ error: 'AI rate limit reached, try again shortly' })
+      return
+    }
     res.status(500).json({ error: 'Failed to summarize' })
   }
 })

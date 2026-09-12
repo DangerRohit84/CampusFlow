@@ -1,9 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { hackathonAPI, departmentAPI } from '../lib/api'
+import { hackathonAPI } from '../lib/api'
+import { useDepartments } from '../hooks/useDepartments'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useDebounce } from '../hooks/useDebounce'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Calendar, Users, Download,
@@ -52,7 +56,6 @@ export default function HackathonsPage() {
     highlights: '',
   })
   const [aiRounds, setAiRounds] = useState<Array<{roundNumber: number; title: string; description: string; date: string; resultDate: string}>>([])
-  const [departments, setDepartments] = useState<Department[]>([])
   const [targetDepartments, setTargetDepartments] = useState<string[]>([])
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
@@ -63,15 +66,41 @@ export default function HackathonsPage() {
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
+  // PERPAGE-HALF1: shared cached departments (was an uncached mount GET on
+  // every visit, duplicated across 7 pages — see useDepartments). Only
+  // teachers need it (create modal eligibility picker), so students skip
+  // the fetch entirely. MUST sit after isTeacher (TDZ).
+  const { data: departmentsData } = useDepartments({ enabled: isTeacher })
+  const departments = (departmentsData ?? []) as Department[]
+
   // React Query with keepPreviousData + SWR (Vercel/GitHub pattern) + AbortController + server-side debounced search (O(log n) indexed scan)
+  // STATE-SYNC: reactive college scope (useCollegeScope subscribes to the
+  // super-admin store) so college switching changes the key → fresh fetch,
+  // never another college's cached list (prefix invalidation still hits all).
+  const overrideScope = useCollegeScope()
+  const collegeScope = (user as any)?.collegeId || overrideScope
   const { data: hackathonsData, isLoading: loading } = useQuery({
-    queryKey: ['hackathons', debouncedSearch],
+    queryKey: qk.hackathons(debouncedSearch, collegeScope),
     queryFn: ({ signal }) => hackathonAPI.getAll({ search: debouncedSearch || undefined, signal } as any),
     staleTime: 3 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
   const hackathons = (hackathonsData as any[]) ?? []
+
+  // ?mine=true — own registrations only, powers the "Registered" tab (#5 leftovers).
+  // Separate RQ entry (qk … 'mine') so status-tab counts stay sourced from the
+  // full list; placeholderData keeps the previous slice during tab switches.
+  const { data: mineHackathonsData } = useQuery({
+    queryKey: qk.hackathons(debouncedSearch, collegeScope, true),
+    queryFn: ({ signal }) => hackathonAPI.getAll({ search: debouncedSearch || undefined, mine: true, signal } as any),
+    staleTime: 3 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+  })
+  const mineHackathons = (mineHackathonsData as any[]) ?? []
 
   // Prefetch next client-page slice on hover — hides pagination latency (Shopify instant-nav)
   const prefetchPage = (nextPage: number) => {
@@ -81,12 +110,11 @@ export default function HackathonsPage() {
     void nextPage
   }
 
-  useEffect(() => {
-    departmentAPI.getAll().then(setDepartments).catch(() => {})
-  }, [])
+  // Departments now come from the shared useDepartments() hook above —
+  // the old uncached mount useEffect was removed (PERPAGE-HALF1).
 
   const loadHackathons = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['hackathons'] })
+    notifyEntityMutated('hackathon')
   }
 
   const getHackathonStatus = (h: any): HackathonStatus => {
@@ -151,20 +179,29 @@ export default function HackathonsPage() {
       { key: 'upcoming', label: 'Upcoming' },
       { key: 'ongoing', label: 'Ongoing' },
       { key: 'completed', label: 'Completed' },
+      { key: 'registered', label: 'Registered' },
     ],
-    filterFn: (h, tab) => tab === 'all' || getHackathonStatus(h) === tab,
+    // 'registered' is server-filtered (?mine=true) — client keeps every mine row;
+    // status tabs filter the full list as before.
+    filterFn: (h, tab) => tab === 'all' || tab === 'registered' || getHackathonStatus(h) === tab,
     defaultTab: 'upcoming',
   })
+  const isMineTab = activeTab === 'registered'
 
   const tabCounts = useMemo(() => ({
     all: hackathons.length,
     upcoming: hackathons.filter((h) => getHackathonStatus(h) === 'upcoming').length,
     ongoing: hackathons.filter((h) => getHackathonStatus(h) === 'ongoing').length,
     completed: hackathons.filter((h) => getHackathonStatus(h) === 'completed').length,
-  }), [hackathons])
+    registered: mineHackathons.length,
+  }), [hackathons, mineHackathons])
 
   const searchedHackathons = useMemo(() => {
-    const items = !searchQuery.trim() ? filteredHackathons : filteredHackathons.filter(h =>
+    // Registered tab reads the mine query (own registrations only); every other
+    // tab reads the status-filtered full list. Client search + deadline sort
+    // apply identically to both sources.
+    const source = isMineTab ? mineHackathons : filteredHackathons
+    const items = !searchQuery.trim() ? source : source.filter(h =>
       h.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       h.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       h.organizer?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -188,7 +225,7 @@ export default function HackathonsPage() {
       // Keep original order for mixed statuses
       return 0
     })
-  }, [filteredHackathons, searchQuery])
+  }, [filteredHackathons, mineHackathons, isMineTab, searchQuery])
 
   const isNearDeadline = (dateStr: string) => {
     if (!dateStr) return false
@@ -285,7 +322,7 @@ export default function HackathonsPage() {
       setTargetDepartments([])
       setTargetYears([])
       setEligibilityEnabled(false)
-      loadHackathons()
+      notifyEntityMutated('hackathon', { action: 'created' })
     } catch (err) {
       toast.error('Failed to create hackathon')
     }
@@ -310,13 +347,16 @@ export default function HackathonsPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" size={14} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400 pointer-events-none" size={14} aria-hidden="true" />
+              <label htmlFor="hackathon-search" className="sr-only">Search hackathons</label>
               <input
-                type="text"
+                id="hackathon-search"
+                type="search"
+                aria-label="Search hackathons"
                 placeholder="Search notices…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 dark:text-zinc-500"
+                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:text-zinc-500"
               />
             </div>
             {isTeacher && (
@@ -340,13 +380,16 @@ export default function HackathonsPage() {
         {/* mobile search */}
         <div className="px-5 pb-4 sm:hidden">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" size={16} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400 pointer-events-none" size={16} aria-hidden="true" />
+            <label htmlFor="hackathon-search-mobile" className="sr-only">Search hackathons</label>
             <input
-              type="text"
+              id="hackathon-search-mobile"
+              type="search"
+              aria-label="Search hackathons"
               placeholder="Search hackathons..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800"
+              className="w-full pl-10 pr-4 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-[#6b7280] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
             />
           </div>
         </div>
@@ -360,6 +403,7 @@ export default function HackathonsPage() {
           { key: 'upcoming', label: 'Upcoming', icon: Clock, count: tabCounts.upcoming },
           { key: 'ongoing', label: 'Ongoing', icon: Zap, count: tabCounts.ongoing },
           { key: 'completed', label: 'Completed', icon: CheckCircle2, count: tabCounts.completed },
+          { key: 'registered', label: 'Registered', icon: Users, count: tabCounts.registered },
         ]}
         activeTab={activeTab}
         onTabChange={(key) => setActiveTab(key as any)}
@@ -369,14 +413,16 @@ export default function HackathonsPage() {
       {searchedHackathons.length === 0 ? (
         <EmptyState
           icon={Trophy}
-          title="No hackathons found"
+          title={isMineTab ? 'No registered hackathons' : 'No hackathons found'}
           description={
-            isTeacher
-              ? 'Create your first hackathon to get started'
-              : 'No hackathons available yet'
+            isMineTab
+              ? 'You have not registered for any hackathon yet — open one and hit Register.'
+              : isTeacher
+                ? 'Create your first hackathon to get started'
+                : 'No hackathons available yet'
           }
           action={
-            isTeacher ? (
+            isTeacher && !isMineTab ? (
               <button
                 onClick={createModal.open}
                 className="btn-primary"
@@ -392,11 +438,21 @@ export default function HackathonsPage() {
                 {pagedHackathons.map((h) => {
             const status = getHackathonStatus(h)
             const isUrgent = status==='upcoming' && isNearDeadline(h.deadline)
+            const cardLabel = `View hackathon ${h.title}${h.organizer ? ` by ${h.organizer}` : ''} — ${getStatusLabel(status)}`
             return (
-              <div
+              <article
                 key={h.id}
-                className={clsx('due-slip p-5 flex flex-col group cursor-pointer hover:shadow-md transition-all', isUrgent ? 'due-slip--urgent' : 'due-slip--brass')}
+                role="link"
+                tabIndex={0}
+                aria-label={cardLabel}
+                className={clsx('due-slip p-5 flex flex-col group cursor-pointer hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2', isUrgent ? 'due-slip--urgent' : 'due-slip--brass')}
                 onClick={() => navigate(`/hackathons/${h.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    navigate(`/hackathons/${h.id}`)
+                  }
+                }}
               >
                   <div className="flex items-center justify-between">
                     <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border', status==='upcoming'?'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/40': status==='ongoing'?'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40':'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700')}>
@@ -417,10 +473,10 @@ export default function HackathonsPage() {
                     {h.location && <span className="inline-flex items-center gap-1 text-surface-500 dark:text-night-400"><MapPin size={12}/> {h.location}</span>}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
-                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12}/> {h.rounds?.length||0} rounds</span></span>
-                    <span className="w-8 h-8 rounded-full bg-amber-500 text-zinc-900 inline-flex items-center justify-center dark:text-white"><ChevronRight size={14} /></span>
+                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12} aria-hidden="true" /> {h.registrations?.length||0}</span> <span className="inline-flex items-center gap-1"><Code size={12} aria-hidden="true" /> {h.rounds?.length||0} rounds</span></span>
+                    <span className="w-8 h-8 rounded-full bg-amber-500 text-zinc-900 inline-flex items-center justify-center dark:text-white" aria-hidden="true"><ChevronRight size={14} /></span>
                   </div>
-              </div>
+              </article>
             )
           })}
         </div>

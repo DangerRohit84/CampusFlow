@@ -4,12 +4,16 @@ import { useAuthStore } from '../store/authStore'
 import { roomAPI } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, BookOpen, Users, FileText, Copy, Share2,
   Trash2, Loader2, Pencil, ChevronRight, KeyRound,
-  Building2, UsersRound, GraduationCap, Layers, DoorOpen
+  Building2, UsersRound, GraduationCap, Layers, DoorOpen, BellOff
 } from 'lucide-react'
+import { readMutedLocal, writeMutedLocal, MUTE_CHANGED_EVENT } from '../components/room/roomMute'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import Badge from '../components/ui/Badge'
@@ -69,14 +73,40 @@ export default function RoomsPage() {
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // STATE-SYNC: reactive scope — one stable variable feeds BOTH the query key
+  // and the optimistic setQueryData key (previously recomputed via raw
+  // localStorage reads that drifted, making setQueryData a no-op).
+  const overrideScope = useCollegeScope()
+  const collegeScope = (user as any)?.collegeId || overrideScope
+
   const { data: roomsData, isLoading: loading } = useQuery({
-    queryKey: ['rooms'],
+    queryKey: qk.rooms('all', collegeScope),
     queryFn: ({ signal }) => roomAPI.getAll({ signal } as any),
+    // TAB-NOREFRESH (reference pattern): ONE stable key for ALL type tabs —
+    // tabs filter client-side via useFilteredItems, so switching All/Department/
+    // Club/Study Group/Custom never changes the key → zero network fetch, instant
+    // cached render. staleTime 2min + gcTime 5min + keepPreviousData (Vercel/Linear
+    // SWR); signal cancels stale college-scope switches; focus refetch disabled
+    // for lists so browser tab switches never reload.
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
   const rooms = (roomsData as any[]) ?? []
+
+  // Prefetch adjacent type-tab on hover: list is already cached client-side, so
+  // this just warms gcTime + validates the key (no-op when fresh). Keeps the
+  // hover→click path instant even right before gcTime expiry (Shopify pattern).
+  const prefetchAdjacentTab = () => {
+    try {
+      void queryClient.prefetchQuery({
+        queryKey: qk.rooms('all', collegeScope),
+        queryFn: ({ signal }) => roomAPI.getAll({ signal } as any),
+        staleTime: 2 * 60 * 1000,
+      })
+    } catch {}
+  }
 
   const { activeTab, setActiveTab, filteredItems: filteredRooms } = useFilteredItems<any>({
     items: rooms,
@@ -102,10 +132,44 @@ export default function RoomsPage() {
     custom: rooms.filter(r => getRoomType(r) === 'custom').length,
   }), [rooms])
 
-  // Live unread: increment local count instead of full refetch (avoids N+1 reload storm)
+  // Threads-lite: muted channels suppress unread badges (local first, backend reconciles).
+  const [mutedRooms, setMutedRooms] = useState<Set<string>>(() => readMutedLocal())
   useEffect(() => {
+    setMutedRooms(readMutedLocal())
+    let cancelled = false
+    roomAPI.getMutedRooms().then((d) => {
+      if (cancelled || !d || !Array.isArray(d.mutedRoomIds)) return
+      writeMutedLocal(d.mutedRoomIds)
+      setMutedRooms(new Set(d.mutedRoomIds))
+    }).catch(() => {})
+    const onMute = (e: Event) => {
+      const detail = (e as CustomEvent<{ roomId: string; muted: boolean }>).detail
+      if (!detail?.roomId) return
+      setMutedRooms((prev) => {
+        const next = new Set(prev)
+        if (detail.muted) next.add(detail.roomId)
+        else next.delete(detail.roomId)
+        return next
+      })
+    }
+    window.addEventListener(MUTE_CHANGED_EVENT, onMute as EventListener)
+    return () => {
+      cancelled = true
+      window.removeEventListener(MUTE_CHANGED_EVENT, onMute as EventListener)
+    }
+  }, [])
+
+  // Live unread: increment local count instead of full refetch (avoids N+1 reload storm)
+  // STATE-SYNC: stable roomsKey (same collegeScope var as the query) + window
+  // 'room:mutated' parity. Socket may be null on first mount (Layout connects
+  // after auth) — window events from the Layout bridge still arrive, and RQ
+  // prefix invalidation refetches the list, so unread never sticks stale.
+  useEffect(() => {
+    const roomsKey = qk.rooms('all', collegeScope)
     const socketHandler = (message: any) => {
-      queryClient.setQueryData(['rooms'], (old: any) => {
+      // Threads-lite: muted channels never increment badges.
+      if (message?.roomId && mutedRooms.has(message.roomId)) return
+      queryClient.setQueryData(roomsKey, (old: any) => {
         if (!Array.isArray(old)) return old
         return old.map((r: any) => r.id === message.roomId ? { ...r, unreadCount: (Number(r.unreadCount) || 0) + 1 } : r)
       })
@@ -113,26 +177,31 @@ export default function RoomsPage() {
     const onRead = (e: any) => {
       const roomId = e?.detail?.roomId
       if (roomId) {
-        queryClient.setQueryData(['rooms'], (old: any) => {
+        queryClient.setQueryData(roomsKey, (old: any) => {
           if (!Array.isArray(old)) return old
           return old.map((r: any) => r.id === roomId ? { ...r, unreadCount: 0 } : r)
         })
       } else {
-        queryClient.invalidateQueries({ queryKey: ['rooms'] })
+        notifyEntityMutated('room')
       }
     }
     const s = getSocket()
     if (s) s.on('room:message:new', socketHandler)
     window.addEventListener('room:read', onRead as any)
+    // Cross-tab/device parity when this page mounts before Layout's socket:
+    // Layout bridges every room broadcast → window 'room:mutated' + RQ bust.
+    const onMutated = () => queryClient.invalidateQueries({ queryKey: ['rooms'] })
+    window.addEventListener('room:mutated', onMutated as any)
     return () => {
       if (s) s.off('room:message:new', socketHandler)
       window.removeEventListener('room:read', onRead as any)
+      window.removeEventListener('room:mutated', onMutated as any)
     }
-  }, [queryClient])
+  }, [queryClient, collegeScope, mutedRooms])
 
   const loadRooms = async () => {
     try {
-      await queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      notifyEntityMutated('room')
     } catch (err) {
       console.error('Failed to load rooms', err)
     }
@@ -262,7 +331,10 @@ export default function RoomsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs — emerald for rooms */}
+      {/* Filter Tabs — emerald for rooms. onMouseEnter prefetches so the
+          hover→click path never hits a cold cache (tabs themselves are
+          client-side filtered → no fetch on switch). */}
+      <div onMouseEnter={prefetchAdjacentTab} onFocus={prefetchAdjacentTab}>
       <FilterTabs
         accent="emerald"
         tabs={[
@@ -275,6 +347,7 @@ export default function RoomsPage() {
         activeTab={activeTab}
         onTabChange={(key) => setActiveTab(key)}
       />
+      </div>
 
       {/* Rooms Grid */}
       {rooms.length === 0 ? (
@@ -316,7 +389,9 @@ export default function RoomsPage() {
                   <div className="mt-3 flex items-center gap-2 text-sm text-surface-500 dark:text-night-400">
                     <Users size={14} className="text-surface-400 dark:text-night-400" />
                     <span>{room._count?.members ?? room.members?.length ?? 0} members</span>
-                    {room.unreadCount > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-danger-500 text-white rounded-full text-[11px] font-bold">{room.unreadCount>99?'99+':room.unreadCount}</span>}
+                    {/* Threads-lite: muted rooms hide the count badge, show a mute mark instead */}
+                    {!mutedRooms.has(room.id) && room.unreadCount > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-danger-500 text-white rounded-full text-[11px] font-bold">{room.unreadCount>99?'99+':room.unreadCount}</span>}
+                    {mutedRooms.has(room.id) && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-surface-400 dark:text-night-400" title="Muted channel"><BellOff size={12} /> Muted</span>}
                   </div>
                   <div className="mt-3 p-2.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl flex items-center gap-2">
                     <KeyRound size={13} className="text-primary-600 shrink-0" />

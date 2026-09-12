@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { AtSign, Check, X, Loader2, Sparkles, ArrowRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { userAPI, publicProfileAPI } from '../lib/api'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import toast from 'react-hot-toast'
 
 interface Props {
@@ -28,6 +29,10 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const debounceRef = useRef<number | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // WHY: trap focus inside while open; mandatory students keep ESC-blocked
+  // behavior below, focus still returns to trigger on close (F24).
+  useFocusTrap(dialogRef, open)
 
   // Escape handling: mandatory students cannot dismiss via Escape; teachers/admins can skip.
   useEffect(() => {
@@ -157,6 +162,7 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
           aria-hidden={false}
         >
           <motion.div
+            ref={dialogRef}
             initial={{ scale: 0.96, y: 8, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.96, y: 8, opacity: 0 }}
             transition={{ duration: 0.16 }}
             className="w-full max-w-md bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 shadow-e3 overflow-hidden"
@@ -171,9 +177,9 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
                 <button
                   onClick={handleSkip}
                   aria-label="Skip username setup"
-                  className="absolute top-4 right-4 w-8 h-8 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-night-300 dark:hover:text-night-100 dark:hover:bg-night-700 transition-colors dark:bg-[#1e1e1e]"
+                  className="absolute top-4 right-4 w-11 h-11 inline-flex items-center justify-center rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-night-300 dark:hover:text-night-100 dark:hover:bg-night-700 transition-colors dark:bg-[#1e1e1e]"
                 >
-                  <X size={16} />
+                  <X size={16} aria-hidden="true" />
                 </button>
               )}
               <div className="w-12 h-12 rounded-xl bg-primary-600 dark:bg-success-300 flex items-center justify-center text-white mb-3">

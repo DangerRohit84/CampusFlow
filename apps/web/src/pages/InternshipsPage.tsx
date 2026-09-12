@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { internshipAPI, departmentAPI } from '../lib/api'
+import { internshipAPI } from '../lib/api'
+import { useDepartments } from '../hooks/useDepartments'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from '../hooks/useCollegeScope'
+import { notifyEntityMutated } from '../lib/entitySync'
 import { useDebounce } from '../hooks/useDebounce'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -23,10 +27,12 @@ import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { useConfirm } from '../components/ui/ConfirmModal'
 
 type InternshipStatus = 'upcoming' | 'active' | 'ended'
 
 export default function InternshipsPage() {
+  const { confirm: confirmDialog } = useConfirm()
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -42,7 +48,6 @@ export default function InternshipsPage() {
     startDate: '',
     deadline: '',
   })
-  const [departments, setDepartments] = useState<Department[]>([])
   const [targetDepartments, setTargetDepartments] = useState<string[]>([])
   const [targetYears, setTargetYears] = useState<number[]>([])
   const [eligibilityEnabled, setEligibilityEnabled] = useState(false)
@@ -54,22 +59,47 @@ export default function InternshipsPage() {
 
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'COLLEGE_ADMIN' || user?.role === 'SUPER_ADMIN'
 
+  // PERPAGE-HALF1: shared cached departments (was an uncached mount GET on
+  // every visit, duplicated across 7 pages). Only teachers need it (create
+  // modal eligibility picker). MUST sit after isTeacher (TDZ).
+  const { data: departmentsData } = useDepartments({ enabled: isTeacher })
+  const departments = (departmentsData ?? []) as Department[]
+
+  // STATE-SYNC: reactive college scope (useCollegeScope subscribes to the
+  // super-admin store) — college switching changes the key → fresh fetch.
+  const overrideScope = useCollegeScope()
+  const collegeScope = (user as any)?.collegeId || overrideScope
   const { data: internshipsData, isLoading: loading } = useQuery({
-    queryKey: ['internships', debouncedSearch],
+    queryKey: qk.internships(debouncedSearch, collegeScope),
     queryFn: ({ signal }) => internshipAPI.getAll({ search: debouncedSearch || undefined, signal } as any),
     staleTime: 3 * 60 * 1000,
+    // PERPAGE-HALF1: added missing gcTime (parity with HackathonsPage;
+    // global default was already 10min, so behavior identical — now explicit
+    // for grep-verifiable compliance).
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
   const internships = (internshipsData as any[]) ?? []
 
+  // ?mine=true — own registrations only, powers the "Registered" tab (#5 leftovers).
+  const { data: mineInternshipsData } = useQuery({
+    queryKey: qk.internships(debouncedSearch, collegeScope, true),
+    queryFn: ({ signal }) => internshipAPI.getAll({ search: debouncedSearch || undefined, mine: true, signal } as any),
+    staleTime: 3 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+  })
+  const mineInternships = (mineInternshipsData as any[]) ?? []
+
   const prefetchPage = (_p: number) => { void _p }
 
-  useEffect(() => {
-    departmentAPI.getAll().then(setDepartments).catch(() => {})
-  }, [])
+  // Departments now come from the shared useDepartments() hook above —
+  // the old uncached mount useEffect was removed (PERPAGE-HALF1).
 
   const loadInternships = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['internships'] })
+    notifyEntityMutated('internship')
   }
 
   const getInternshipStatus = (i: any): InternshipStatus => {
@@ -100,13 +130,16 @@ export default function InternshipsPage() {
       { key: 'upcoming', label: 'Upcoming' },
       { key: 'active', label: 'Active' },
       { key: 'ended', label: 'Ended' },
+      { key: 'registered', label: 'Registered' },
     ],
-    filterFn: (i, tab) => tab === 'all' || getInternshipStatus(i) === tab,
+    filterFn: (i, tab) => tab === 'all' || tab === 'registered' || getInternshipStatus(i) === tab,
     defaultTab: 'upcoming',
   })
+  const isMineTab = activeTab === 'registered'
 
   const searchedInternships = useMemo(() => {
-    const items = !searchQuery.trim() ? filteredInternships : filteredInternships.filter((i: any) =>
+    const source = isMineTab ? mineInternships : filteredInternships
+    const items = !searchQuery.trim() ? source : source.filter((i: any) =>
       i.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       i.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       i.role?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -130,7 +163,7 @@ export default function InternshipsPage() {
       }
       return 0
     })
-  }, [filteredInternships, searchQuery])
+  }, [filteredInternships, mineInternships, isMineTab, searchQuery])
 
   // ===== Pagination =====
   const [page, setPage] = useState(1)
@@ -144,7 +177,8 @@ export default function InternshipsPage() {
     upcoming: internships.filter((i) => getInternshipStatus(i) === 'upcoming').length,
     active: internships.filter((i) => getInternshipStatus(i) === 'active').length,
     ended: internships.filter((i) => getInternshipStatus(i) === 'ended').length,
-  }), [internships])
+    registered: mineInternships.length,
+  }), [internships, mineInternships])
 
   const isNearDeadline = (dateStr: string) => {
     if (!dateStr) return false
@@ -219,7 +253,8 @@ export default function InternshipsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this internship?')) return
+    const ok = await confirmDialog({ title: 'Delete internship?', message: 'Delete this internship and its registrations?', confirmLabel: 'Delete' })
+    if (!ok) return
     try {
       await internshipAPI.delete(id)
       toast.success('Deleted')
@@ -248,8 +283,9 @@ export default function InternshipsPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
-              <input type="text" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 dark:text-zinc-500" />
+              <label htmlFor="internship-search" className="sr-only">Search internships</label>
+              <input id="internship-search" type="search" aria-label="Search internships" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:text-zinc-500" />
             </div>
             {isTeacher && (
               <button
@@ -270,7 +306,8 @@ export default function InternshipsPage() {
           </div>
         </div>
         <div className="px-5 pb-4 sm:hidden">
-          <input type="text" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm" />
+          <label htmlFor="internship-search-mobile" className="sr-only">Search internships</label>
+          <input id="internship-search-mobile" type="search" aria-label="Search internships" placeholder="Search internships..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-[#6b7280] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2" />
         </div>
       </div>
 
@@ -282,6 +319,7 @@ export default function InternshipsPage() {
           { key: 'upcoming', label: 'Upcoming', icon: Clock, count: tabCounts.upcoming },
           { key: 'active', label: 'Active', icon: CheckCircle2, count: tabCounts.active },
           { key: 'ended', label: 'Ended', icon: Calendar, count: tabCounts.ended },
+          { key: 'registered', label: 'Registered', icon: Users, count: tabCounts.registered },
         ]}
         activeTab={activeTab}
         onTabChange={(key) => setActiveTab(key as any)}
@@ -291,14 +329,16 @@ export default function InternshipsPage() {
       {searchedInternships.length === 0 ? (
         <EmptyState
           icon={Briefcase}
-          title="No internships found"
+          title={isMineTab ? 'No registered internships' : 'No internships found'}
           description={
-            isTeacher
-              ? 'Post your first internship to get started'
-              : 'No internships available yet'
+            isMineTab
+              ? 'You have not registered for any internship yet — open one and hit Register.'
+              : isTeacher
+                ? 'Post your first internship to get started'
+                : 'No internships available yet'
           }
           action={
-            isTeacher ? (
+            isTeacher && !isMineTab ? (
               <button
                 onClick={createModal.open}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-all text-sm font-medium"
@@ -314,11 +354,21 @@ export default function InternshipsPage() {
           {pagedInternships.map((i) => {
             const status = getInternshipStatus(i)
             const isUrgent = status!=='ended' && isNearDeadline(i.deadline)
+            const cardLabel = `View internship ${i.title}${i.company ? ` at ${i.company}` : ''} — ${getStatusLabel(status)}`
             return (
-              <div
+              <article
                 key={i.id}
+                role="link"
+                tabIndex={0}
+                aria-label={cardLabel}
                 onClick={() => navigate(`/internships/${i.id}`)}
-                className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow', isUrgent ? 'due-slip--urgent' : 'due-slip--blue')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    navigate(`/internships/${i.id}`)
+                  }
+                }}
+                className={clsx('due-slip p-5 flex flex-col cursor-pointer hover:shadow-e2 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2', isUrgent ? 'due-slip--urgent' : 'due-slip--blue')}
               >
                   <div className="flex items-center justify-between">
                     <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border', status==='upcoming'?'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/40': status==='active'?'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40':'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700')}>
@@ -337,10 +387,10 @@ export default function InternshipsPage() {
                     {i.deadline && <span className={clsx('inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium', isUrgent ? 'bg-danger-50 dark:bg-danger-950/30 text-danger-700 dark:text-danger-300 border-danger-100 dark:border-danger-900/40' : 'bg-surface-50 dark:bg-night-800 text-surface-600 dark:text-night-300 border-surface-200 dark:border-night-600')}><Calendar size={12}/> {new Date(i.deadline).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} {isUrgent && '· Due soon'}</span>}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-surface-100 dark:border-night-600 pt-3">
-                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12}/> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12}/> {i.role}</span>}</span>
-                    <span className="w-8 h-8 rounded-full bg-sky-600 text-white inline-flex items-center justify-center"><ChevronRight size={14}/></span>
+                    <span className="text-xs text-surface-500 dark:text-night-400 inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><Users size={12} aria-hidden="true" /> {i.registrations?.length||0}</span> {i.role && <span className="inline-flex items-center gap-1"><Briefcase size={12} aria-hidden="true" /> {i.role}</span>}</span>
+                    <span className="w-8 h-8 rounded-full bg-sky-600 text-white inline-flex items-center justify-center" aria-hidden="true"><ChevronRight size={14} /></span>
                   </div>
-              </div>
+              </article>
             )
           })}
         </div>

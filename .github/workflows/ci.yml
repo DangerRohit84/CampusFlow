@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install (ci, reproducible)
+        run: npm ci
+
+      - name: Type-check (tsc -b)
+        run: |
+          npx tsc -b apps/web --pretty false
+          npx tsc --noEmit -p packages/backend --pretty false
+
+      - name: Prisma validate
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/neondb?sslmode=require
+          DIRECT_URL: postgresql://user:pass@localhost:5432/neondb?sslmode=require
+        run: npx prisma validate --schema=packages/backend/prisma/schema.prisma
+
+      - name: Dependency audit (parseable gate — fail only on critical with safe fix)
+        run: node tools/audit-gate.js
+
+      - name: Docker build (prod parity)
+        run: docker build -t campusflow:ci .
+
+      - name: Gitleaks (secrets scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,7 +6,7 @@ import ScopeSelector from './ScopeSelector'
 import SubmissionModeToggle from './SubmissionModeToggle'
 import VisibilityToggles from './VisibilityToggles'
 import { assignmentHubAPI } from '../../lib/api'
-import { queryClient } from '../../lib/queryClient'
+import { notifyEntityMutated } from '../../lib/entitySync'
 import toast from 'react-hot-toast'
 import { FileText, Calendar, Users, UploadCloud, Eye, Paperclip, Info, Award, Clock, AlertCircle, X, File } from 'lucide-react'
 
@@ -176,16 +176,15 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
         if(hub) savedHub = await assignmentHubAPI.update(hub.id, payload); else savedHub = await assignmentHubAPI.create(payload)
       }
       toast.success(hub?'Assignment updated':'Assignment created');
-      // invalidate queries so lists refetch with new/updated assignment
-      queryClient.invalidateQueries({ queryKey: ['assignmentHubs'] })
-      queryClient.invalidateQueries({ queryKey: ['hubs'] })
-      queryClient.invalidateQueries({ queryKey: ['assignments'] })
-      // runtime: notify all pages (socket will also broadcast from backend, this is same-tab instant)
+      // Central truth: prefix-invalidate assignment lists + dashboard/counts/search,
+      // then notify manual pages (same-tab + socket bridge covers cross-device).
+      // notifyEntityMutated already dispatches the window event; keep savedHub id.
       try {
-        const mutatedId = hub?.id || savedHub?.id || savedHub?.data?.id
-        if (mutatedId) window.dispatchEvent(new CustomEvent('assignment:mutated', { detail: { hubId: mutatedId } }))
-        else window.dispatchEvent(new Event('assignment:mutated'))
-      } catch {}
+        const mutatedId = hub?.id || (savedHub as any)?.id || (savedHub as any)?.data?.id
+        notifyEntityMutated('assignment', { hubId: mutatedId, action: hub ? 'updated' : 'created' })
+      } catch {
+        notifyEntityMutated('assignment', { action: hub ? 'updated' : 'created' })
+      }
       onSaved(); onClose()
     } catch(e:any){
       const data = e.response?.data
@@ -226,7 +225,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
               onChange={e=> setForm(p=>({...p, title:e.target.value}))}
               disabled={saving}
               placeholder="e.g. Data Structures — Linked List Implementation"
-              className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:ring-2 transition disabled:opacity-50 disabled:cursor-not-allowed ${errors.title ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`}
+              className={`w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border rounded-xl text-sm placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 transition disabled:opacity-50 disabled:cursor-not-allowed ${errors.title ? 'border-danger-300 focus:border-danger-400 focus:ring-danger-500/20' : 'border-surface-200 dark:border-night-700 focus:border-primary-400 focus:ring-primary-500/20'}`}
             />
             {errors.title ? <p className="text-xs text-danger-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>{errors.title}</p> : <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Clear, specific titles get faster submissions. {form.title.length>0 && `${form.title.length} chars`}</p>}
           </div>
@@ -238,7 +237,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
               onChange={e=> setForm(p=>({...p, courseId:e.target.value}))}
               disabled={saving}
               placeholder="e.g. CS301 — Data Structures"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Links this assignment to a course code. Leave blank for general assignments.</p>
           </div>
@@ -251,7 +250,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
               disabled={saving}
               rows={4}
               placeholder="Add instructions, requirements, grading criteria, or links. Example: &#10;• Implement singly linked list with insert/delete&#10;• Submit .java file or PDF&#10;• See attached rubric"
-              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-surface-400 dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-700 rounded-xl text-sm placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 resize-none disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-500"
             />
             <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Supports plain text and links. {form.description.length} / 2000</p>
           </div>

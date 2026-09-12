@@ -2,9 +2,23 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { tryToPlatformEnumStrict } from '../lib/enums'
 
 const router = Router()
 router.use(authenticate)
+
+// 10k SEARCH BUDGET (bounded fan-out, no behavior change):
+// - Per-source take:6 × 10 sources = 60 rows max per request (was already 6 each;
+//   made explicit via constants). Global cap 60 enforced via slice (no-op today,
+//   guards future source adds).
+// - Query max 100 chars (trim + slice) — prevents `contains` full-scan abuse via
+//   10k-char input; realistic queries <50 chars unaffected.
+// - 10 parallel findMany in ONE Promise.all (was already parallel); each ≤6 rows,
+//   total ≤60 rows + 1 narrow auth read = 11 queries/request. Pool 50 holds
+//   200-user burst via per-user limiter buckets (see load-10k-smoke.mjs).
+export const SEARCH_PER_SOURCE_LIMIT = 6
+export const SEARCH_GLOBAL_MAX = 60
+export const SEARCH_QUERY_MAX_LEN = 100
 
 // Search across all user data
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -15,20 +29,29 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const query = q.toLowerCase()
+    const trimmed = q.trim().slice(0, SEARCH_QUERY_MAX_LEN)
+    if (!trimmed) {
+      res.status(400).json({ error: 'Search query required' })
+      return
+    }
+    const query = trimmed.toLowerCase()
     const userId = req.userId!
 
-    const user = await prisma.user.findUnique({ where: { id: userId } })
+    // HALF2: narrow auth read (was full row incl. passwordHash/preferences; only collegeId used)
+    // topbottom F12a: auth-read failure must degrade to global scope, not 500.
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { collegeId: true } }).catch(() => null)
     const collegeId = (user as any)?.collegeId || null
     // Use mode insensitive for Postgres; contains is sufficient
     const like = { contains: query, mode: 'insensitive' as const }
+    // topbottom F12a: EVERY branch isolated — one table blip degrades to [],
+    // never 500s the whole search (4 branches lacked .catch before).
     const [schedules, assignments, assignmentHubs, notifications, hackathons, internships, forms, rooms, codingContests, tasks] = await Promise.all([
       prisma.schedule.findMany({
         where: { userId, OR: [{ title: like }, { course: like }, { location: like }] }, take: 6,
-      }),
+      }).catch(() => [] as any[]),
       prisma.assignment.findMany({
         where: { userId, OR: [{ title: like }, { courseId: like }, { description: like }] }, take: 6,
-      }),
+      }).catch(() => [] as any[]),
       // AssignmentHub — college-scoped, visible via assignmentVisibility OR at least by college/global where
       prisma.assignmentHub.findMany({
         where: collegeId ? { collegeId, OR: [{ title: like }, { description: like }] } : { OR: [{ title: like }, { description: like }] },
@@ -36,7 +59,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }).catch(()=>[] as any[]),
       prisma.notification.findMany({
         where: { userId, OR: [{ title: like }, { message: like }] }, take: 6,
-      }),
+      }).catch(() => [] as any[]),
       prisma.hackathon.findMany({
         where: collegeId ? { collegeId, OR: [{ title: like }, { organizer: like }] } : { OR: [{ title: like }, { organizer: like }] },
         take: 6, orderBy: { createdAt: 'desc' }
@@ -53,12 +76,43 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: { OR: [{ name: like }, { description: like }] }, take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.codingContest.findMany({
-        where: { OR: [{ title: like }, { platform: like }] }, take: 6, orderBy: { startTime: 'desc' }
+        // Order 4: platform is native Platform enum — no contains/mode filter.
+        // Title keeps contains; platform uses exact equals when query is a valid
+        // platform key (LEETCODE/CODECHEF/...), else title-only (avoids P2000
+        // on invalid enum + keeps search total ≤6). Validated against the REAL
+        // enum (no `as any` lie).
+        where: (() => { const p = tryToPlatformEnumStrict(trimmed); return p ? { OR: [{ title: like }, { platform: { equals: p } }] } : { OR: [{ title: like }] } })(),
+        take: 6,
+        orderBy: { startTime: 'desc' },
       }).catch(()=>[] as any[]),
       prisma.task.findMany({
         where: { userId, OR: [{ title: like }, { description: like }] }, take: 6,
-      }),
+      }).catch(() => [] as any[]),
     ])
+
+    // topbottom F12b: join codes are room keys. The list endpoint scopes rooms
+    // to member/own; search must not leak `Code <joinCode>` for rooms the
+    // requester can't access (they could join any room). Strip unless the
+    // requester is SUPER_ADMIN, the room teacher, or a member. Fail-closed:
+    // lookup failure → strip.
+    const accessibleRoomIds = new Set<string>()
+    try {
+      const roomRows = rooms as any[]
+      const [meRow, myMemberships] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { role: true } }).catch(() => null),
+        roomRows.length
+          ? prisma.roomMember.findMany({ where: { studentId: userId, roomId: { in: roomRows.map((r: any) => r.id) } }, select: { roomId: true } }).catch(() => [] as Array<{ roomId: string }>)
+          : Promise.resolve([] as Array<{ roomId: string }>),
+      ])
+      const isSuper = !!meRow && (meRow as any).role === 'SUPER_ADMIN'
+      for (const m of (myMemberships as Array<{ roomId: string }>) || []) accessibleRoomIds.add(m.roomId)
+      for (const r of roomRows) {
+        if (isSuper || r.teacherId === userId || accessibleRoomIds.has(r.id)) accessibleRoomIds.add(r.id)
+      }
+    } catch { /* fail-closed: accessibleRoomIds stays as-is (likely empty) */ }
+    const safeRooms = (rooms as any[]).map((r: any) =>
+      accessibleRoomIds.has(r.id) ? r : { ...r, joinCode: undefined },
+    )
 
     const results = [
       ...schedules.map((s: any) => ({ type: 'schedule', id: s.id, title: s.title, subtitle: `${s.course || ''} · ${s.location || ''}`.replace(/^ · | · $/g,''), data: s })),
@@ -68,12 +122,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ...(hackathons as any[]).map((h: any) => ({ type: 'hackathon', id: h.id, title: h.title, subtitle: `${h.organizer || ''} · ${h.mode || ''}`.replace(/^ · | · $/g,''), data: h })),
       ...(internships as any[]).map((i: any) => ({ type: 'internship', id: i.id, title: i.title, subtitle: `${i.company || ''} · ${i.role || ''}`.replace(/^ · | · $/g,''), data: i })),
       ...(forms as any[]).map((f: any) => ({ type: 'form', id: f.id, title: f.title, subtitle: f.description || 'Form', data: f })),
-      ...(rooms as any[]).map((r: any) => ({ type: 'room', id: r.id, title: r.name, subtitle: r.description || `Code ${r.joinCode}`, data: r })),
+      ...(safeRooms as any[]).map((r: any) => ({ type: 'room', id: r.id, title: r.name, subtitle: r.description || (r.joinCode ? `Code ${r.joinCode}` : 'Room'), data: r })),
       ...(codingContests as any[]).map((c: any) => ({ type: 'contest', id: c.id, title: c.title, subtitle: `${c.platform} · ${c.status}`, data: c })),
       ...tasks.map((t: any) => ({ type: 'task', id: t.id, title: t.title, subtitle: `${t.category || 'personal'} · ${new Date(t.date).toLocaleDateString()}`, data: t })),
     ]
 
-    res.json({ results, total: results.length })
+    // Global cap: 10 sources × SEARCH_PER_SOURCE_LIMIT (6) = SEARCH_GLOBAL_MAX (60).
+    const capped = results.slice(0, SEARCH_GLOBAL_MAX)
+    // CACHE-ALL: own+college-scoped search slice (take:6 bounded fan-out) — private edge SWR.
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
+    res.json({ results: capped, total: capped.length })
   } catch (error) {
     res.status(500).json({ error: 'Search failed' })
   }
