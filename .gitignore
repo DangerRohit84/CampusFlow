@@ -42,3 +42,7 @@ tools/qa-*.js
 playwright-report/
 test-results/
 
+# AI agent reports (never track — local only, history preserved)
+.ai/reports/
+packages/backend/.ai/reports/
+
