@@ -28,7 +28,7 @@
 ## 1. Neon database URLs (DATABASE_URL + DIRECT_URL)
 
 1. Neon dashboard → project → **Roles** → reset password for the app role (or create a new role `campusflow_app` and grant).
-2. **Connection strings**: copy the new **pooled** URL (must contain `-pooler`, `sslmode=require`, `pgbouncer=true`, `connection_limit=20`, `pool_timeout=30`, `channel_binding=prefer`, `connect_timeout=30`) → this is the new `DATABASE_URL`.
+2. **Connection strings**: copy the new **pooled** URL (must contain `-pooler`, `sslmode=require`, `pgbouncer=true`, `connection_limit=50`, `pool_timeout=30`, `channel_binding=prefer`, `connect_timeout=30`) → this is the new `DATABASE_URL`.
 3. Copy the new **direct** URL (no `-pooler`, no `pgbouncer`, `sslmode=require`, `channel_binding=prefer`, `connect_timeout=30`) → new `DIRECT_URL`.
 4. Render → `campusflow-api` → **Environment** → update `DATABASE_URL` + `DIRECT_URL` → **Save** (triggers redeploy; `preDeployCommand` runs `prisma migrate deploy` on `DIRECT_URL`).
 5. Local: update `.env` (never commit) and verify: `npx prisma validate --schema=packages/backend/prisma/schema.prisma` + `curl -fsS localhost:4000/api/health` shows `"db":"ok"`.
@@ -42,11 +42,11 @@
 3. All sessions invalidate on next request (`jwt.verify` fails closed) — users log in again. No DB migration needed.
 4. Rollback: previous value is unrecoverable after overwrite (Render keeps version history — restore from dashboard within retention).
 
-## 3. CRON_SECRET (internal jobs)
+## 3. CRON_SECRET (internal jobs — 6 places)
 
 1. Generate a fresh token the same way as JWT (32+ bytes).
-2. Update in **5 places** (they must match): `campusflow-api` + `campusflow-cron-contests` + `campusflow-cron-profile-sync` + `campusflow-cron-opportunities` + `campusflow-cron-cleanup` (+ `campusflow-keepalive` env block, unused by its command but kept for uniformity).
-3. Redeploy crons (Render picks up env on next schedule; trigger one manually and expect `200`, then a `401` with a wrong secret).
+2. Update in **6 places** (they must match): `campusflow-api` + `campusflow-cron-contests` + `campusflow-cron-profile-sync` + `campusflow-cron-contest-reminders` + `campusflow-cron-opportunities` + `campusflow-cron-cleanup`. (`campusflow-keepalive` holds NO secret by design — public `GET /api/health` only. Older revisions of this file said "5 places / 4 crons" before the `contest-reminders` job existed; `render.yaml` is now source of truth.)
+3. Redeploy crons (Render picks up env on next schedule; trigger one manually and expect `200`, then a `401` with a wrong secret, `503` when unset).
 4. Verify: `curl -fsS -X POST $API_BASE_URL/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"` → `200`.
 
 ## 4. AI_ENCRYPTION_KEY (≥32 chars — special care)
@@ -54,7 +54,12 @@
 `AiProvider.apiKey` rows are AES-256-GCM ciphertexts of this key. Rotating the key **without re-encrypting** bricks stored providers.
 
 1. Maintenance mode on (pause `/api/ai-manager` writes).
-2. Decrypt all rows with the OLD key, encrypt with the NEW key (one-off script, run locally with both keys in env, never commit either).
+2. Decrypt all rows with the OLD key, encrypt with the NEW key via the local one-off
+   script `packages/backend/scripts/reencrypt-ai-providers.mjs` (keys ONLY via
+   `OLD_AI_ENCRYPTION_KEY` / `NEW_AI_ENCRYPTION_KEY` env, never commit either).
+   Dry-run default (no writes): `node scripts/reencrypt-ai-providers.mjs` (from
+   `packages/backend/`); commit with `--apply`. Full flags + exit codes: see the
+   script header (`--dry-run` / `--only-id` / `--limit` / `--json` / `--selftest`).
 3. Update Render `AI_ENCRYPTION_KEY` → redeploy.
 4. Spot-check one provider decrypt + one `/api/ai` call, then maintenance off.
 
@@ -97,7 +102,7 @@
 
 - [ ] Groq: console → revoke old `gsk_` (the one that was in `test-opencode.js` / `QuizSolver/.env` / `backend/.env:4` comment) → create 2 keys (local + Render `GROQ_API_KEY`) → update Render `campusflow-api` env → redeploy → test one `/api/ai` call.
 - [ ] Neon: dashboard → reset password for all 3 endpoints seen in `.bak` files (young-bread / wispy-haze / patient-smoke) OR delete old roles → create least-privilege `campusflow_app` (not `neondb_owner`) → build new pooled (`-pooler` + `pgbouncer=true&connection_limit=50`) + direct URLs → update Render `DATABASE_URL` + `DIRECT_URL` → redeploy → verify `/api/health {"db":"ok"}`.
-- [ ] JWT / CRON / AI keys: `openssl rand -hex 32` each → update Render (`campusflow-api` + 4 cron services for CRON must match) → redeploy → verify login + `POST /internal/cron/cleanup` 200 with right secret / 401 with wrong.
+- [ ] JWT / CRON / AI keys: `openssl rand -hex 32` each → update Render (`campusflow-api` + 5 cron services for CRON must match — `contests`, `profile-sync`, `contest-reminders`, `opportunities`, `cleanup`; this 2026-09-08 line once said "4" before `contest-reminders` existed) → redeploy → verify login + `POST /internal/cron/cleanup` 200 with right secret / 401 with wrong.
 - [ ] AI re-encrypt (§4): maintenance on → decrypt `AiProvider` rows with OLD key, encrypt with NEW (one-off script, both keys in env, never commit) → update Render `AI_ENCRYPTION_KEY` → spot-check decrypt + `/api/ai` → maintenance off. New rows are `v1:` HKDF.
 - [ ] Purge history (if secrets were ever pushed):
   ```bash

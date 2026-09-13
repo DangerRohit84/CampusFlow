@@ -3,70 +3,498 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Neon pooled: -pooler host + pgbouncer=true&connection_limit=50&pool_timeout=30&channel_binding=prefer&connect_timeout=30 (keeps Render+Neon warm via /api/health; 50 for 10k burst headroom)
+  directUrl = env("DIRECT_URL") // Neon direct (no pooler, no pgbouncer) for migrations, channel_binding=prefer&connect_timeout=30
+}
+
+// Order 4 (V-04 slice 1 + V-30): closed hot domains as native PG enums (P7).
+// Shared where values match (Priority, RegistrationStatus, StagingStatus,
+// StagingDecision, Platform), per-domain where not (HackathonStatus vs
+// InternshipStatus vs ContestStatus vs CollegeStatus vs FormStatus vs
+// ReportStatus vs TaskStatus vs AssignmentStatus vs SubmissionStatus vs
+// SourceHealthStatus). Deferred to Order 12 (stay String): Hackathon/
+// Internship.mode, Notification.type, Task.category, FormField.type,
+// Room.chatMode, Resource.fileType/category, PlatformSettings.platform/type,
+// AuditLog.action/entityType/actorRole, AiUsage.feature, AiRouting.feature,
+// AiProvider.type, UserIntegration.type, Schedule.type, ChatMessage.role,
+// ContestParticipation.contestType-ish open fields, Grade.grade, etc.
+// Migration 20260921000000_order4_enums: census → normalize (legacy role
+// variants ADMIN→COLLEGE_ADMIN, STAFF→TEACHER, SUPER→SUPER_ADMIN; unknowns
+// → safe default + RAISE NOTICE log) → CREATE TYPE → ALTER … USING
+// UPPER(TRIM(col))::"Type" → (collegeId, decision) indexes. Prisma enums are
+// strings at runtime so `user.role === 'STUDENT'` comparisons keep working;
+// validators.ts zod enums are the app SSOT and must match these values.
+enum UserRole {
+  STUDENT
+  TEACHER
+  COLLEGE_ADMIN
+  SUPER_ADMIN
+}
+
+enum StagingDecision {
+  APPROVED
+  REJECTED
+}
+
+enum StagingStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  APPROVED
+  REJECTED
+}
+
+enum HackathonStatus {
+  DRAFT
+  PUBLISHED
+  COMPLETED
+  CANCELLED
+}
+
+enum InternshipStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ContestStatus {
+  UPCOMING
+  ONGOING
+  ENDED
+}
+
+enum CollegeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum FormStatus {
+  ACTIVE
+  CLOSED
+  DRAFT
+}
+
+enum ReportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum ReportScope {
+  COLLEGE
+  WEBSITE
+}
+
+enum ReportIssueType {
+  DESIGN
+  BUG
+  CRASH
+  PERFORMANCE
+  SECURITY
+  FEATURE_REQUEST
+  OTHER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  LATE
+  GRADED
+  RETURNED
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  SELECTED
+  REJECTED
+  COMPLETED
+  ACCEPTED
+}
+
+enum SourceHealthStatus {
+  OK
+  DEGRADED
+  DOWN
+  UNKNOWN
+}
+
+enum Platform {
+  CODEFORCES
+  CODECHEF
+  LEETCODE
+  ATCODER
+  HACKERRANK
+  GFG
+  OTHER
+}
+
+// Order 12 (V-04-rest slice 2 → P7): closed remainder domains as native PG
+// enums. Only truly closed sets with an app SSOT convert; open/source-driven
+// text stays String (Hackathon/Internship.mode per-source ONLINE/OFFLINE/
+// HYBRID/REMOTE/ONSITE divergence in details.ts, Notification.type open,
+// Task.category open, FormField.type open, Room.chatMode locked by
+// db-fix-04-enums slice-boundary test, Resource.fileType/category derived via
+// getFileType() incl. 'doc'/'xls'/'image', PlatformSettings.*, AuditLog.*,
+// AiUsage/AiRouting.feature, AiProvider.type, UserIntegration.type,
+// Grade.grade open letter/score text). Prisma enums are strings at runtime so
+// `x === 'CLASS'` comparisons keep working; validators.ts zod enums are SSOT.
+// Migration 20260925000000_order12_rolesplit: census → normalize unknowns to
+// safe default + RAISE NOTICE → CREATE TYPE → ALTER … USING
+// UPPER(TRIM(col::text))::"Type".
+// Repair 20260926020000_repair_schedule_type_expand: expands to 4 values
+// (CLASS/LAB + SEMINAR/OTHER from seed demo timetable: Placement Prep SEMINAR,
+// Club Meeting OTHER). Additive ALTER TYPE ... ADD VALUE IF NOT EXISTS (no
+// rewrite, existing rows untouched). Validators + route coercions mirror.
+enum ScheduleType {
+  CLASS
+  LAB
+  SEMINAR
+  OTHER
+}
+
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum GradeSource {
+  MANUAL
+  CALCULATOR
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  name         String
-  passwordHash String
-  role         String    @default("STUDENT")
-  collegeId    String?
-  collegeName  String?
-  studentId    String?   @unique
-  empNumber    String?   @unique
-  departmentId String?
+  id             String   @id @default(uuid())
+  email          String   @unique
+  name           String
+  username       String?  @unique
+  passwordHash   String
+  role           UserRole @default(STUDENT)
+  collegeId      String?
+  // Order 6 (V-01): collegeName display copy DROPPED — resolve via college relation
+  // (include college { select name }) or VIEW. Drift census in migration
+  // 20260922000000_order5_9 before DROP. API keeps `collegeName` key as
+  // projection (see routes/auth|reports|publicProfile) for compat.
+  // Order 12 (V-03-full → P3 CTI expand phase): role-conditional columns below
+  // (studentId/incomingYear/outgoingYear → StudentProfile, empNumber →
+  // StaffProfile) are TRANSITION TWINS — KEPT during dual-write. Writers fill
+  // BOTH User cols + profile rows (best-effort, pre-migration safe);
+  // readers use resolveStudentFields()/resolveStaffFields() (profile-first,
+  // User fallback) with IDENTICAL API shapes. Contract (SET NOT NULL on
+  // profiles + DROP old cols) is a LATER order once reconciliation is green —
+  // do NOT drop here. chk_user_role_fields still guards User cols.
+  studentId      String?  @unique
+  empNumber      String?  @unique
+  departmentId   String?
+  // Order 6 (V-02): departmentName display copy DROPPED — resolve via
+  // department relation. Same projection-compat pattern as collegeName.
+  // Order 12 CTI: incoming/outgoingYear canonical home is StudentProfile
+  // (twin kept here during transition — see studentId comment above).
+  incomingYear   Int?
+  outgoingYear   Int?
+  avatar         String?
+  portfolioUrl   String?
+  // Order 9 (V-05): String "{}" → Json (JSONB). GIN + CHECK(jsonb_typeof='object').
+  // Readers handle Json|String via parsePreferencesSafe (validators.ts +
+  // room/mute.ts); writers pass objects (no JSON.stringify). Migration
+  // 20260922000000_order5_9 backfills invalid → '{}' then ALTER USING ::jsonb.
+  preferences    Json?    @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  reports        Report[]
+
+  schedules     Schedule[]
+  notifications Notification[]
+  assignments   Assignment[]
+  grades        Grade[]
+
+  chatSessions            ChatSession[]
+  integrations            UserIntegration[]
+  tasks                   Task[]
+  college                 College?                 @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  department              Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  hackathonsCreated       Hackathon[]              @relation("HackathonCreator")
+  registrations           HackathonRegistration[]
+  hackathonTeamMemberships HackathonTeamMember[]
+  formsCreated            Form[]
+  formResponses           FormResponse[]
+  teachingCourses         Course[]
+  enrollments             Enrollment[]
+  createdRooms            Room[]
+  joinedRooms             RoomMember[]
+  uploadedResources       Resource[]
+  roomNotifications       RoomNotification[]
+  roomMessages            RoomMessage[]              @relation("RoomMessageSender")
+  pinnedMessages          RoomMessage[]              @relation("RoomMessagePinnedBy")
+  roomChatPermissions     RoomChatAllowedMember[]
+  messageHides            MessageHide[]
+  messageReactions        MessageReaction[]
+  formViews               FormView[]
+  auditLogs               AuditLog[]
+  revokedTokens           RevokedToken[]
+  syncThrottle            SyncThrottle?
+  hackathonDecisions      HackathonStagingDecision[] @relation("HackathonDecisionBy")
+  internshipDecisions     InternshipStagingDecision[] @relation("InternshipDecisionBy")
+  internships             Internship[]
+  internshipRegistrations InternshipRegistration[]
+  codingContests          CodingContest[]
+  contestReminders        ContestReminder[]
+  codingProfile           CodingProfile?
+  contestParticipations   ContestParticipation[]
+  codingActivities        CodingActivity[]
+  hackathonStagings       HackathonStaging[]       @relation("HackathonStagingCreator")
+  internshipStagings      InternshipStaging[]      @relation("InternshipStagingCreator")
+   attendanceData          AttendanceData?
+  attendanceRecords       AttendanceRecord[]
+  gradeData               GradeData?
+   announcementsCreated    Announcement[]
+  announcementReads     AnnouncementRead[]
+  roomReads           RoomRead[]
+  createdAssignmentHubs AssignmentHub[]      @relation("AssignmentHubCreator")
+  assignmentSubmissions AssignmentSubmission[]
+  gradedSubmissions     AssignmentSubmission[] @relation("SubmissionGrader")
+  offlineVerifiedSubmissions AssignmentSubmission[] @relation("SubmissionOfflineVerifier")
+  // Order 12 (V-03-full → P3 CTI): 1–1 delegated-type profiles. STUDENT →
+  // StudentProfile, TEACHER/COLLEGE_ADMIN/SUPER_ADMIN → StaffProfile (admins
+  // reuse StaffProfile: no admin-only columns exist today, a third empty
+  // AdminProfile would add join cost for zero facts; add it via the same
+  // expand pattern if admin-only fields ever appear). userId is PK+FK Cascade
+  // (profile dies with User, never orphans). New tables use uuid() (P10 tail:
+  // pick-one for new tables; existing cuid() PKs stay — no PK rewrite).
+  studentProfile StudentProfile?
+  staffProfile   StaffProfile?
+
+  @@index([collegeId, role])
+  // Order 12 tail (P8): redundant @@index([collegeId]) DROPPED — leftmost-covered
+  // by @@index([collegeId, role]). Planner keeps the composite.
+  @@index([role])
+  @@index([departmentId])
+  @@index([collegeId, departmentId])
+  @@index([username])
+  @@index([collegeId, createdAt])
+  @@index([createdAt])
+  @@index([preferences], type: Gin, map: "User_preferences_gin")
+}
+
+// Order 5 (V-03-CHECKs): User role↔field invariant enforced by DB CHECK
+// chk_user_role_fields (see migration 20260922000000_order5_9):
+// (role='STUDENT' AND "empNumber" IS NULL) OR (role<>'STUDENT' AND "studentId" IS NULL).
+// STUDENT must never carry empNumber; non-STUDENT must never carry studentId.
+// incomingYear/outgoingYear documented for CTI split (Order 12) — not in CHECK
+// yet (existing rows vary). Prisma guard mirrors DB (validators.ts
+// validateUserRoleFields, enforced in routes/auth.ts register).
+
+// Order 12 (V-03-full → P3 CTI delegated types, expand phase): class-table
+// inheritance for role-conditional User columns. Shared auth/tenant core stays
+// in User (id/email/name/username/passwordHash/role/collegeId/departmentId/
+// avatar/portfolioUrl/preferences/timestamps); role-conditional facts move here:
+// - StudentProfile: STUDENT-only (studentId UNIQUE, incomingYear, outgoingYear).
+// - StaffProfile: TEACHER/COLLEGE_ADMIN/SUPER_ADMIN (empNumber UNIQUE).
+// 1–1 via userId PK→FK Cascade (same boundary as CodingProfile/GradeData/
+// AttendanceData). Twins in User KEPT during transition (dual-write +
+// profile-first resolvers, same shapes); contract drops later. Backfill in
+// migration 20260925000000_order12_rolesplit (per-role INSERT … WHERE NOT
+// EXISTS + ON CONFLICT DO NOTHING; reconciliation census §5). Timestamps on
+// both (mutable 1–1, V-31 hygiene). No AdminProfile: admins share StaffProfile
+// shape today (see User relation comment).
+model StudentProfile {
+  userId       String   @id
+  studentId    String?  @unique
   incomingYear Int?
   outgoingYear Int?
-  avatar       String?
-  preferences  String?   @default("{}")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  schedules      Schedule[]
-  notifications  Notification[]
-  assignments    Assignment[]
-  grades         Grade[]
-  attendance     Attendance[]
-  chatSessions   ChatSession[]
-  integrations   UserIntegration[]
-  tasks          Task[]
-  college        College?    @relation(fields: [collegeId], references: [id])
-  department     Department? @relation(fields: [departmentId], references: [id])
-  hackathonsCreated Hackathon[] @relation("HackathonCreator")
-  registrations     HackathonRegistration[]
-  formsCreated      Form[]
-  formResponses     FormResponse[]
-  teachingCourses   Course[]
-  enrollments       Enrollment[]
-  createdRooms      Room[]
-  joinedRooms       RoomMember[]
-  uploadedResources Resource[]
-  roomNotifications RoomNotification[]
-  internships         Internship[]
-  internshipRegistrations InternshipRegistration[]
-  codingContests      CodingContest[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([incomingYear])
+  @@map("StudentProfile")
+}
+
+model StaffProfile {
+  userId    String   @id
+  empNumber String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([empNumber])
+  @@map("StaffProfile")
+}
+
+model CodingProfile {
+  id               String    @id @default(uuid())
+  userId           String    @unique
+  leetcodeHandle   String?
+  codeforcesHandle String?
+  codechefHandle   String?
+  hackerrankHandle String?
+  gfgHandle        String?
+  githubUsername   String?
+  // Order 9 (V-06): String? → Json? (JSONB array of per-platform stats).
+  // Minimal Json (read-whole/write-whole); proper child table is Order 10+.
+  // GIN for future containment; readers handle Json|String via
+  // parsePlatformStatsSafe. Migration backfills invalid → '[]'.
+  platformStats    Json?
+  lastSyncedAt     DateTime?
+  // Upgrade 3: per-user sync failure surface (set on fail, cleared on success).
+  // UI shows "updated Xh ago / retry" from lastSyncedAt + this field instead of
+  // silently advancing lastSyncedAt on total failure (masking fix).
+  lastSyncError    String?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Ranked cause #4 (missing composite indexes): per-handle lookups for syncAllUsers
+  // OR-query (leetcode/codeforces/codechef/hackerrank/gfg NOT NULL). Single-column
+  // B-tree indexes are the best-supported shape — a composite (a,b,c) cannot serve
+  // OR branches, while 3 singles let Postgres BitmapOr across branches.
+  @@index([leetcodeHandle])
+  @@index([codeforcesHandle])
+  @@index([codechefHandle])
+  @@index([platformStats], type: Gin, map: "CodingProfile_platformStats_gin")
+}
+
+// Upgrade 3b: DB-backed per-user manual-sync throttle (60s button guard).
+// Multi-instance safe + survives restarts. Until migration
+// 20260910000000_sync_upgrades is applied, code falls back to process-local
+// memory (documented limit — see syncThrottleStore.ts).
+model SyncThrottle {
+  userId          String   @id
+  lastRequestedAt DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("SyncThrottle")
+}
+
+model ContestParticipation {
+  id             String    @id @default(uuid())
+  userId         String
+  contestId      String?
+  platform       Platform
+  contestName    String
+  contestUrl     String?
+  rank           Int?
+  score          Int?
+  rating         Int?
+  ratingChange   Int?
+  problemsSolved Int?
+  totalProblems  Int?
+  participatedAt DateTime?
+  syncedAt       DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contest        CodingContest? @relation(fields: [contestId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, platform, contestName])
+  // Ranked cause #4: per-user history (userId+platform ORDER BY participatedAt),
+  // per-contest roster (contestId), leaderboard/groupBy + fallback scan (platform,
+  // platform+userId). Existing @@unique kept (upsert path).
+  // Order 7 (V-29) snapshot contract: contestName/contestUrl/rating/rank/score/
+  // problemsSolved are SNAPSHOT_AT_SYNC (asOf syncedAt), canonical is CodingContest
+  // when contestId set. Drift census in migration 20260922000000_order5_9
+  // (participation vs CodingContest where contestId set). Readers prefer canonical
+  // via resolveContestDisplay() (validators.ts): contestId ? contest.title/url
+  // : snapshot contestName/contestUrl. syncEngine refreshes snapshot on every
+  // sync (contestId re-resolved + syncedAt advanced). No column dropped
+  // (additive-safe); natural key @@unique kept.
+  @@index([userId, platform, participatedAt])
+  @@index([contestId])
+  @@index([platform])
+  @@index([platform, userId])
+  @@index([contestId, syncedAt])
+}
+
+// Unified heatmap daily activity (additive, 20260911_coding_activity).
+// Per-day SOLVES where honestly obtainable: LeetCode submissionCalendar +
+// Codeforces accepted-per-day + GitHub contributions snapshot. CodeChef /
+// HackerRank / GFG have NO daily API — omitted by design (totals stay in
+// platformStats cards, never faked into this table). `date` is UTC midnight;
+// `source` is 'leetcode' | 'codeforces' | 'github' (validated in app, kept
+// String for additive safety — no enum rewrite). @@unique[userId,date,source]
+// is the idempotency key for sync createMany(skipDuplicates). Deploy: additive
+// CREATE TABLE IF NOT EXISTS (see migration); runtime is pre-migration safe
+// (codingActivity.ts degrades to warn-once skip when the table/client is old).
+model CodingActivity {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime
+  source    String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, source])
+  @@index([userId, date])
+  @@map("CodingActivity")
 }
 
 model Schedule {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  course      String?
-  location    String?
-  teacher     String?
-  dayOfWeek   Int
-  startTime   String
-  endTime     String
-  type        String   @default("CLASS")
-  color       String?
-  recurring   Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  course    String?
+  location  String?
+  teacher   String?
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  // Order 8 (V-22): typed minutes-since-midnight alongside legacy String times.
+  // Recurring weekly template has no absolute date → Int minutes (0-1439) is the
+  // correct temporal type (not TIMESTAMPTZ). Dual-write: validators
+  // timeToMinutes() + CHECK 0-1439 in migration. Ordering migrates to
+  // startMinutes; String cols kept until contract (Order 12).
+  startMinutes Int?
+  endMinutes   Int?
+  // Order 12 (V-04-rest): closed domain → native enum. Repair 20260926020000
+  // expands to 4 real values (seed + app audit): CLASS (default, lectures +
+  // AI-unknown fallback), LAB (lab heuristic), SEMINAR (Placement Prep),
+  // OTHER (Club Meeting). Routes preserve all four (schedules.ts + timetable
+  // save coerce only true ghosts → CLASS). Prisma enum is a string at runtime;
+  // zod ScheduleTypeEnum mirrors (validators.ts).
+  type      ScheduleType @default(CLASS)
+  color     String?
+  // Order 12 (V-23 keep-lite): no RecurrenceRule table — no "occurrences next
+  // week" query exists (recurrence is write-only, Task.recurrence free text
+  // unqueried). Weekly template recurrence = recurring=true + dayOfWeek 0–6
+  // (zod 0–6 guard in schedules.ts). Documented RRULE-lite grammar for future:
+  // Task.recurrence SHOULD be NULL or match ^(DAILY|WEEKLY|MONTHLY)(;INTERVAL=\d+)?(;COUNT=\d+)?$
+  // (≤200 chars); enforce in app via isValidRecurrence() (validators.ts) when
+  // recurrence queries materialize, then add DB CHECK + child table. No DDL here.
+  recurring Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
+  @@index([userId, dayOfWeek])
+  @@index([userId, dayOfWeek, startMinutes])
 }
 
 model Notification {
@@ -75,24 +503,36 @@ model Notification {
   title     String
   message   String
   type      String   @default("GENERAL")
-  priority  String   @default("MEDIUM")
+  priority  Priority @default(MEDIUM)
   read      Boolean  @default(false)
   source    String?
-  metadata  String?
+  // Order 9 (V-19): String? → Json? (JSONB object). No containment query yet;
+  // GIN for future @>/?; readers handle Json|String via parseMetadataSafe.
+  metadata  Json?
   createdAt DateTime @default(now())
+  // Order 12 tail (P10): missing updatedAt added (mutable: read flag flips).
+  // Existing rows backfill to statement time via DEFAULT in migration.
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@index([userId, read, createdAt])
+  @@index([metadata], type: Gin, map: "Notification_metadata_gin")
 }
 
+// @deprecated — legacy per-user assignments; use AssignmentHub for scoped assignments
 model Assignment {
   id          String   @id @default(uuid())
   userId      String
-  courseId     String
+  courseId    String?
   title       String
   description String?
   dueDate     DateTime
-  status      String   @default("PENDING")
-  priority    String   @default("MEDIUM")
+  status      AssignmentStatus @default(PENDING)
+  priority    Priority         @default(MEDIUM)
   progress    Int      @default(0)
   grade       String?
   maxGrade    String?
@@ -100,61 +540,107 @@ model Assignment {
   updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([courseId])
 }
 
 model Grade {
   id         String   @id @default(uuid())
   userId     String
-  courseId    String?
-  courseName String
+  courseId   String?
+  // Order 6 (V-21): courseName display copy DROPPED — resolve via course
+  // relation (include course { select name }). No snapshot: Grade has no
+  // updatedAt so snapshot semantics unprovable; transcript rename history is
+  // out of scope (revisit with gradedAt snapshot if required). API keeps
+  // `courseName` key as projection for compat (see chat.ts/ai.ts).
+  // Order 11 (V-15 → P6/P9): Grade is the RECORD (not cache). Calculator
+  // scratchpad (GradeData.subjects blob) migrates here as rows with
+  // source=CALCULATOR + free-form subject/subjectCode when courseId IS NULL
+  // (no Course row). Institutional/transcript rows keep courseId set and
+  // source=MANUAL (never touched by calculator replace-all sync in
+  // routes/grades.ts). semester=0 buckets calculator rows (real semesters
+  // are 1..N). updatedAt added for V-31 timestamp hygiene (mutable entity).
+  subject     String?
+  subjectCode String?
+  // Order 12 (V-04-rest): closed 2-value domain → native enum. MANUAL =
+  // institutional/transcript (never touched by calculator replace-all);
+  // CALCULATOR = GradeData scratchpad mirror (semester=0 bucket). Writers pass
+  // string literals (Prisma enum is a string at runtime); zod GradeSourceEnum
+  // mirrors (validators.ts). grade stays String (open letter/score text, P7).
+  source      GradeSource @default(MANUAL)
   semester   Int
   credits    Int
   grade      String
   gpa        Float
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course? @relation(fields: [courseId], references: [id])
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, semester])
+  @@index([userId, source])
+  @@index([userId, subject])
 }
 
-model Attendance {
-  id         String   @id @default(uuid())
-  userId     String
-  courseId    String?
-  courseName String
-  date       DateTime
-  status     String
-  createdAt  DateTime @default(now())
+model GradeData {
+  id        String @id @default(uuid())
+  studentId String @unique
+  // Order 11 (V-15 → P6): subjects blob KEPT during expand-phase dual-write
+  // transition (canonical record is Grade rows with source=CALCULATOR; see
+  // Grade comment). Writers fill BOTH blob + rows (routes/grades.ts);
+  // readers prefer rows with blob fallback. Contract (drop subjects) is a
+  // LATER order once reconciliation is green — do NOT drop here.
+  subjects  String @default("[]")
+  scale     String @default("10")
+  // Order 11 (V-31): missing timestamps added (mutable 1–1 profile).
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course? @relation(fields: [courseId], references: [id])
+  user User @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model Course {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  credits   Int      @default(3)
-  teacherId String
-  collegeId String?
-  semester  String?
-  teacher   User     @relation(fields: [teacherId], references: [id])
-  college   College? @relation(fields: [collegeId], references: [id])
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  credits     Int          @default(3)
+  teacherId   String?
+  collegeId   String?
+  semester    String?
+  teacher     User?        @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  college     College?     @relation(fields: [collegeId], references: [id], onDelete: SetNull)
   enrollments Enrollment[]
-  grades     Grade[]
-  attendances Attendance[]
-  createdAt  DateTime @default(now())
+  grades      Grade[]
+  assignments Assignment[]
+  tasks       Task[]
+  assignmentHubs AssignmentHub[]
+
+  createdAt DateTime @default(now())
+  // Order 12 tail (P10): missing updatedAt added (mutable: name/credits/
+  // teacher/college reassignment). Backfill via DEFAULT in migration.
+  updatedAt DateTime @updatedAt
+
+  @@index([collegeId])
+  @@index([teacherId])
+  @@index([collegeId, semester])
 }
 
 model Enrollment {
-  id        String   @id @default(uuid())
-  studentId String
+  id         String   @id @default(uuid())
+  studentId  String
   courseId   String
-  student   User     @relation(fields: [studentId], references: [id])
-  course    Course   @relation(fields: [courseId], references: [id])
+  student    User     @relation(fields: [studentId], references: [id])
+  course     Course   @relation(fields: [courseId], references: [id])
   enrolledAt DateTime @default(now())
 
   @@unique([studentId, courseId])
+  @@index([studentId])
+  @@index([courseId])
 }
 
 model Task {
@@ -165,20 +651,43 @@ model Task {
   date        DateTime
   startTime   String?
   endTime     String?
+  // Order 8 (V-22): absolute range alongside legacy date+String pair.
+  // date stays the day bucket; startAt/endAt are the queryable range
+  // (TIMESTAMPTZ). Dual-write in routes/tasks.ts via combineDateAndTime().
+  // Ordering migrates to startAt; String cols kept until contract.
+  startAt     DateTime?
+  endAt       DateTime?
   duration    Int?
   category    String   @default("personal")
-  priority    String   @default("MEDIUM")
-  status      String   @default("PENDING")
+  priority    Priority   @default(MEDIUM)
+  status      TaskStatus @default(PENDING)
   completed   Boolean  @default(false)
   color       String?
   isClass     Boolean  @default(false)
-  courseId     String?
+  courseId    String?
   location    String?
+  // Order 12 (V-23 keep-lite → P10): recurrence stays free-text String? (no
+  // RecurrenceRule table, no DB CHECK). It is write-only today (no reader
+  // filters/groups by it; tasks list by date/category/status). Intended
+  // RRULE-lite grammar when queries materialize:
+  // NULL | ^(DAILY|WEEKLY|MONTHLY)(;INTERVAL=\d+)?(;COUNT=\d+)?$ (≤200 chars).
+  // App guard isValidRecurrence() in validators.ts documents + validates the
+  // grammar (writers SHOULD use it; legacy rows may predate it so DB CHECK is
+  // deferred to the extraction order). Extract to RecurrenceRule only if an
+  // "occurrences next week" query appears (needs EXPLAIN budget, P8).
   recurrence  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, date])
+  @@index([courseId])
+  @@index([startAt])
+  @@index([userId, startAt])
 }
 
 model ChatSession {
@@ -190,17 +699,29 @@ model ChatSession {
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages ChatMessage[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
 }
 
 model ChatMessage {
   id        String   @id @default(uuid())
   sessionId String
-  role      String
+  // Order 12 (V-04-rest): closed 2-value domain → native enum. Writers emit
+  // only USER (routes/chat.ts user turn) + ASSISTANT (AI turn); lowercase
+  // system/user/assistant in ai/client.ts is in-memory LLM wire format, never
+  // persisted. Prisma enum is a string at runtime; zod ChatMessageRoleEnum mirrors.
+  role      ChatMessageRole
   content   String
-  metadata  String?
+  // Order 9 (V-19): String? → Json? (JSONB). GIN for future containment.
+  metadata  Json?
   createdAt DateTime @default(now())
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@index([metadata], type: Gin, map: "ChatMessage_metadata_gin")
 }
 
 model UserIntegration {
@@ -210,35 +731,53 @@ model UserIntegration {
   accessToken  String?
   refreshToken String?
   expiresAt    DateTime?
-  metadata     String?
+  // Order 9 (V-19): String? → Json? (JSONB object, provider-specific blob).
+  metadata     Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, type])
+  @@index([userId])
+  @@index([metadata], type: Gin, map: "UserIntegration_metadata_gin")
 }
 
 model College {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  code        String   @unique
-  address     String?
-  phone       String?
-  website     String?
-  logo        String?
-  adminEmail  String?
-  status      String   @default("PENDING")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  name       String   @unique
+  code       String   @unique
+  address    String?
+  phone      String?
+  website    String?
+  logo       String?
+  adminEmail String?
+  status     CollegeStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  users       User[]
-  hackathons  Hackathon[]
-  forms       Form[]
-  courses     Course[]
-  departments Department[]
-  internships         Internship[]
-  codingContests      CodingContest[]
+  users              User[]
+  hackathons         Hackathon[]
+  forms              Form[]
+  courses            Course[]
+  departments        Department[]
+  internships        Internship[]
+  codingContests     CodingContest[]
+  hackathonStagings  HackathonStaging[]
+  internshipStagings InternshipStaging[]
+  hackathonDecisions HackathonStagingDecision[]
+  internshipDecisions InternshipStagingDecision[]
+  announcements      Announcement[]
+  announcementColleges AnnouncementCollege[]
+  assignmentHubs AssignmentHub[]
+  reports            Report[]
+  auditLogs          AuditLog[]
+  aiUsages           AiUsage[]
+  aiRoutings         AiRouting[]
+  aiProviders        AiProvider[]
+  aiQuota            AiQuota?
+
+  @@index([status])
 }
 
 model Department {
@@ -247,45 +786,64 @@ model Department {
   collegeId String
   createdAt DateTime @default(now())
 
-  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
-  users   User[]
+  college              College                  @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  users                User[]
+  announcements        AnnouncementDepartment[]
+  assignmentHubs AssignmentHub[]
+  rooms                Room[]
 
   @@unique([collegeId, name])
 }
 
 model Hackathon {
-  id              String   @id @default(uuid())
-  creatorId       String
-  collegeId       String?
-  title           String
-  description     String?
-  url             String?
-  organizer       String?
-  registrationUrl String?
-  startDate       DateTime?
-  endDate         DateTime?
-  deadline        DateTime?
-  teamSize        Int?
-  themes          String?   @default("[]")
-  location        String?
-  mode            String?   @default("OFFLINE")
-  eligibility     String?   @default("{}")
-  prizePool       String?
-  duration        String?
-  schedule        String?
-  bootcamps       String?   @default("[]")
-  highlights      String?   @default("[]")
-  targetDepartments  String?  @default("[]")
-  targetYears        String?  @default("[]")
-  eligibilityEnabled Boolean  @default(false)
-  status          String   @default("DRAFT")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  url                String?
+  organizer          String?
+  registrationUrl    String?
+  startDate          DateTime?
+  endDate            DateTime?
+  deadline           DateTime?
+  teamSize           Int?
+  themes             Json      @default("[]")
+  location           String?
+  mode               String?   @default("OFFLINE")
+  eligibility        String?   @default("{}")
+  prizePool          String?
+  duration           String?
+  schedule           String?
+  bootcamps          String?   @default("[]")
+  highlights         String?   @default("[]")
+  targetDepartments  Json      @default("[]")
+  targetYears        Json      @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  website            String?
+  discord            String?
+  participantsCount  Int       @default(0)
+  inviteOnly         Boolean   @default(false)
+  status             HackathonStatus @default(DRAFT)
+  source             String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  creator       User                   @relation("HackathonCreator", fields: [creatorId], references: [id])
-  college       College?               @relation(fields: [collegeId], references: [id])
+  creator       User                    @relation("HackathonCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  college       College?                @relation(fields: [collegeId], references: [id], onDelete: SetNull)
   registrations HackathonRegistration[]
   rounds        HackathonRound[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([deadline])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
+  // Order 3 (V-07): canonical Json arrays (dropped String + *Json twins).
+  // GIN for future containment (e.g. targetDepartments @> '["CSE"]');
+  // current reads stay app-side via parseJsonArraySafe + EXPLAIN budgets (P8).
+  @@index([targetDepartments], type: Gin, map: "Hackathon_targetDepartments_gin")
+  @@index([targetYears], type: Gin, map: "Hackathon_targetYears_gin")
 }
 
 model HackathonRegistration {
@@ -294,40 +852,122 @@ model HackathonRegistration {
   userId       String
   teamName     String?
   teamMembers  String?
+  // Order 10 (V-18): teamMembers CSV blob KEPT during dual-write transition.
+  // Canonical per-member rows: HackathonTeamMember (registrationId → here
+  // Cascade; userId → User SetNull; name). Writers fill both; readers prefer
+  // teamRows with blob fallback (see routes/hackathons.ts). Contract (drop
+  // blob) is a later order once reconciliation is green — do NOT drop here.
   projectIdea  String?
-  status       String   @default("REGISTERED")
+  status       RegistrationStatus @default(REGISTERED)
   currentRound Int      @default(0)
-  winPosition  String?  // 1st, 2nd, 3rd, or "Completed" if no position
-  review       String?  // Student's review after final round
+  winPosition  String? // 1st, 2nd, 3rd, or "Completed" if no position
+  review       String? // Student's review after final round
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamRows  HackathonTeamMember[]
 
   @@unique([hackathonId, userId])
+  @@index([hackathonId])
+  @@index([userId])
+}
+
+// Order 10 (V-18 → P9): 4NF child table for team membership (one fact per row).
+// Replaces CSV-in-a-cell `HackathonRegistration.teamMembers` for queries like
+// "all teams containing user X" / "team size distribution". Blob kept during
+// transition (dual-write); backfill in migration 20260923000000_order10.
+model HackathonTeamMember {
+  id             String   @id @default(uuid())
+  registrationId String
+  userId         String?
+  name           String
+  createdAt      DateTime @default(now())
+
+  registration HackathonRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  member       User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([registrationId])
+  @@index([userId])
 }
 
 model HackathonRound {
-  id           String   @id @default(uuid())
-  hackathonId  String
-  roundNumber  Int
-  title        String
-  description  String?
-  date         DateTime?
-  resultDate   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String    @id @default(uuid())
+  hackathonId String
+  roundNumber Int
+  title       String
+  description String?
+  date        DateTime?
+  resultDate  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
 
   @@unique([hackathonId, roundNumber])
+  @@index([hackathonId])
 }
 
-model Internship {
+model HackathonStaging {
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  url                String?
+  organizer          String?
+  registrationUrl    String?
+  startDate          DateTime?
+  endDate            DateTime?
+  deadline           DateTime?
+  teamSize           Int?
+  themes             Json      @default("[]")
+  location           String?
+  mode               String?   @default("OFFLINE")
+  eligibility        String?   @default("{}")
+  prizePool          String?
+  duration           String?
+  schedule           String?
+  bootcamps          String?   @default("[]")
+  highlights         String?   @default("[]")
+  targetDepartments  Json      @default("[]")
+  targetYears        Json      @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  website            String?
+  discord            String?
+  participantsCount  Int       @default(0)
+  inviteOnly         Boolean   @default(false)
+  status             StagingStatus @default(DRAFT)
+  // Order 2 V-24 NULL-safe uniqueness: NOT NULL DEFAULT 'MANUAL' so the GLOBAL
+  // @@unique([title, source]) actually dedupes (Postgres NULL!=NULL allowed
+  // unlimited (title, NULL) dupes). Writers map missing/blank -> 'MANUAL' via
+  // normalizeSource() (see services/opportunities/dedup.ts); migration
+  // 20260919000000_order2_nullsafe_uniques backfills NULL->'MANUAL' then
+  // SET NOT NULL. Unique stays GLOBAL (no collegeId) - per-college visibility
+  // lives in HackathonStagingDecision (see model comment below).
+  source             String    @default("MANUAL")  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  creator User     @relation("HackathonStagingCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  decisions HackathonStagingDecision[]
+
+  @@unique([title, source])
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([deadline])
+  @@index([status])
+  // Order 3 (V-08): dropped useless B-tree @@index([targetDepartments]) on
+  // serialized String (P8) + String/*Json twins; GIN on canonical Json.
+  @@index([targetDepartments], type: Gin, map: "HackathonStaging_targetDepartments_gin")
+  @@index([targetYears], type: Gin, map: "HackathonStaging_targetYears_gin")
+}
+
+model InternshipStaging {
   id                 String   @id @default(uuid())
   creatorId          String
-  collegeId          String
+  collegeId          String?
   title              String
   description        String
   company            String
@@ -337,66 +977,256 @@ model Internship {
   duration           String?
   mode               String   @default("REMOTE")
   startDate          String?
-  deadline           String?
-  targetDepartments  String   @default("[]")
-  targetYears        String   @default("[]")
+  // Order 8 (V-22): typed TIMESTAMPTZ alongside legacy String startDate
+  // (free-text like "Immediate" cannot cast — stays NULL + quarantine log).
+  // Dual-write in routes/internships.ts via coerceStartAt().
+  startAt            DateTime?
+  deadline           DateTime?
+  targetDepartments  Json     @default("[]")
+  targetYears        Json     @default("[]")
   eligibilityEnabled Boolean  @default(false)
-  status             String   @default("ACTIVE")
+  status             StagingStatus @default(ACTIVE)
+  // Order 2 V-24 NULL-safe uniqueness: NOT NULL DEFAULT 'MANUAL' (same as HackathonStaging).
+  // Unique stays GLOBAL (no collegeId) - per-college visibility lives in InternshipStagingDecision.
+  source             String    @default("MANUAL")
   createdAt          DateTime @default(now())
-  creator            User     @relation(fields: [creatorId], references: [id])
-  college            College  @relation(fields: [collegeId], references: [id])
+  updatedAt          DateTime @updatedAt
+
+  creator User     @relation("InternshipStagingCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  decisions InternshipStagingDecision[]
+
+  @@unique([title, source])
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([status])
+  @@index([deadline])
+  @@index([startAt])
+  @@index([status, startAt])
+  // Order 3 (V-09): canonical Json arrays; GIN for future containment.
+  @@index([targetDepartments], type: Gin, map: "InternshipStaging_targetDepartments_gin")
+  @@index([targetYears], type: Gin, map: "InternshipStaging_targetYears_gin")
+}
+
+// Per-college independent staging decisions (fix: single global status).
+// WHY: HackathonStaging/InternshipStaging.status was global — College A
+// APPROVE flipped the row to APPROVED so College B never saw it as pending
+// (and REJECT hid it from everyone). @@unique(title,source) stays GLOBAL on
+// purpose (one shared feed row, no per-college duplicates); per-college
+// visibility lives here: (stagingId, collegeId) unique, decision
+// APPROVED/REJECTED, by/at audit. Global row keeps PENDING/DRAFT/ACTIVE;
+// each college's approve creates its OWN published copy + own APPROVED row,
+// reject records own REJECTED row only. Lists: pending = no decision by my
+// college (plus legacy global-status check for pre-migration rows).
+// Deploy: additive tables only (`prisma migrate deploy`); runtime guards
+// `(prisma as any).xxxDecision?` + try/catch so pre-migration returns
+// legacy behavior instead of 500 (SourceHealth pattern).
+// Order 4 (V-30): decision is native StagingDecision enum (APPROVED/REJECTED;
+// pending = absence, no PENDING row). (collegeId, decision) composite serves
+// "my APPROVED / my REJECTED" lists; pending uses anti-join NOT decisions
+// some collegeId (see staging.ts buildStagingWhere) + existing (collegeId)
+// + unique(stagingId, collegeId). Order 12: decidedAt+createdAt twins KEPT —
+// NOT redundant: createdAt = first decision (immutable), decidedAt = last
+// decision (bumped on every upsert in decisions.ts + hackathons/internships
+// approve paths; no reader selects decidedAt yet, but writers depend on it).
+// Dropping either would break writes or lose first-vs-last semantics; keep both.
+model HackathonStagingDecision {
+  id        String   @id @default(uuid())
+  stagingId String
+  collegeId String
+  decision  StagingDecision
+  decidedBy String?
+  decidedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staging HackathonStaging @relation(fields: [stagingId], references: [id], onDelete: Cascade)
+  college College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  decider User?            @relation("HackathonDecisionBy", fields: [decidedBy], references: [id], onDelete: SetNull)
+
+  @@unique([stagingId, collegeId])
+  @@index([collegeId])
+  @@index([stagingId])
+  @@index([decidedBy])
+  @@index([collegeId, decision])
+  @@map("HackathonStagingDecision")
+}
+
+model InternshipStagingDecision {
+  id        String   @id @default(uuid())
+  stagingId String
+  collegeId String
+  decision  StagingDecision
+  decidedBy String?
+  decidedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staging InternshipStaging @relation(fields: [stagingId], references: [id], onDelete: Cascade)
+  college College           @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  decider User?             @relation("InternshipDecisionBy", fields: [decidedBy], references: [id], onDelete: SetNull)
+
+  @@unique([stagingId, collegeId])
+  @@index([collegeId])
+  @@index([stagingId])
+  @@index([decidedBy])
+  @@index([collegeId, decision])
+  @@map("InternshipStagingDecision")
+}
+
+model Internship {
+  id                 String                   @id @default(uuid())
+  creatorId          String
+  collegeId          String
+  title              String
+  description        String
+  company            String
+  role               String
+  url                String
+  stipend            String?
+  duration           String?
+  mode               String                   @default("REMOTE")
+  startDate          String?
+  // Order 8 (V-22): typed TIMESTAMPTZ alongside legacy String startDate.
+  startAt            DateTime?
+  deadline           DateTime?
+  targetDepartments  Json                     @default("[]")
+  targetYears        Json                     @default("[]")
+  eligibilityEnabled Boolean                  @default(false)
+  status             InternshipStatus          @default(ACTIVE)
+  source             String?
+  createdAt          DateTime                 @default(now())
+  creator            User                     @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  college            College                  @relation(fields: [collegeId], references: [id], onDelete: Restrict)
   registrations      InternshipRegistration[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
+  @@index([deadline])
+  @@index([startAt])
+  @@index([status, startAt])
+  // Order 3 (V-10): canonical Json arrays; GIN for future containment.
+  @@index([targetDepartments], type: Gin, map: "Internship_targetDepartments_gin")
+  @@index([targetYears], type: Gin, map: "Internship_targetYears_gin")
 }
 
 model InternshipRegistration {
   id           String     @id @default(uuid())
   internshipId String
   userId       String
-  status       String     @default("REGISTERED")
+  status       RegistrationStatus @default(REGISTERED)
   reportedAt   DateTime?
-  internship   Internship @relation(fields: [internshipId], references: [id])
-  user         User       @relation(fields: [userId], references: [id])
+  internship   Internship @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([internshipId, userId])
+  @@index([internshipId])
+  @@index([userId])
 }
 
 model CodingContest {
   id            String   @id @default(uuid())
   title         String
-  platform      String
+  platform      Platform
   url           String
   startTime     String
+  // Order 8 (V-22): typed TIMESTAMPTZ alongside legacy String startTime.
+  // startTime stays ISO-string for compat; startAt is the queryable range key
+  // (fixes lexicographic "9:00">"10:00" + enables range/order). Dual-write in
+  // routes/contests.ts + contestFetcher.ts. Indexes move to startAt; String
+  // indexes kept until contract. Backfill: startAt = startTime::timestamptz
+  // where pg_input_is_valid.
+  startAt       DateTime?
   duration      Int?
   contestType   String?
-  status        String   @default("UPCOMING")
-  solutions     String   @default("[]")
+  status        ContestStatus @default(UPCOMING)
+  solutions     Json     @default("[]")
+  // Order 3 (V-12): canonical Json (was String + solutionsJson twin).
+  // No GIN: solutions read whole (count/proxy) + appended in app;
+  // no containment query exists. Add GIN only with EXPLAIN budget (P8).
   isAutoFetched Boolean  @default(false)
   creatorId     String?
   collegeId     String?
   createdAt     DateTime @default(now())
-  creator       User?    @relation(fields: [creatorId], references: [id])
-  college       College? @relation(fields: [collegeId], references: [id])
+  creator       User?    @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  college       College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  reminders     ContestReminder[]
+  participations ContestParticipation[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([platform])
+  @@index([status])
+  // Order 12 tail (P8): redundant @@index([collegeId]) DROPPED — covered by
+  // [collegeId, status, createdAt] (leftmost) + [collegeId, status].
+  @@index([collegeId, status])
+  @@index([platform, status])
+  @@index([startTime])
+  @@index([status, startTime])
+  @@index([startAt])
+  @@index([status, startAt])
+  // Ranked cause #4: contestFetcher.findFirst({ platform, url }) + preload
+  // by platform|url (syncEngine + contestFetcher). Exact-match composite.
+  @@index([platform, url])
+}
+
+// #6 contest alarms: per-user "remind me X before" rows. remindAt is computed
+// at POST time (startTime - minutesBefore); the 1-min/5-min cron flips
+// sent=true and writes one Notification per due row. Cascade both sides so
+// contest/user delete never orphans reminders.
+model ContestReminder {
+  id            String       @id @default(uuid())
+  userId        String
+  contestId     String
+  minutesBefore Int
+  remindAt      DateTime
+  sent          Boolean      @default(false)
+  sentAt        DateTime?
+  createdAt     DateTime     @default(now())
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contest CodingContest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contestId, minutesBefore])
+  @@index([userId])
+  @@index([contestId])
+  @@index([sent, remindAt])
+  @@index([userId, sent])
 }
 
 model Form {
-  id                  String    @id @default(uuid())
-  creatorId           String
-  collegeId           String?
-  title               String
-  description         String?
-  status              String    @default("ACTIVE")
-  allowEdit           Boolean   @default(false)
-  expiresAt           DateTime?
-  targetDepartments   String    @default("[]")
-  targetYears         String    @default("[]")
-  eligibilityEnabled  Boolean   @default(false)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  creatorId          String
+  collegeId          String?
+  title              String
+  description        String?
+  status             FormStatus @default(ACTIVE)
+  allowEdit          Boolean   @default(false)
+  expiresAt          DateTime?
+  targetDepartments  Json      @default("[]")
+  targetYears        Json      @default("[]")
+  eligibilityEnabled Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  creator    User           @relation(fields: [creatorId], references: [id])
-  college    College?       @relation(fields: [collegeId], references: [id])
-  fields     FormField[]
-  responses  FormResponse[]
-  formRooms  FormRoom[]
+  creator   User           @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  college   College?       @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  fields    FormField[]
+  responses FormResponse[]
+  formRooms FormRoom[]
+  views     FormView[]
+
+  @@index([collegeId, status, createdAt])
+  @@index([creatorId])
+  @@index([collegeId, status])
+  @@index([status, createdAt])
+  // Order 12 tail (P8): redundant @@index([collegeId]) DROPPED — leftmost-covered
+  // by [collegeId, status, createdAt] + [collegeId, status].
+  // Order 3 (V-11): canonical Json arrays; GIN for future containment.
+  @@index([targetDepartments], type: Gin, map: "Form_targetDepartments_gin")
+  @@index([targetYears], type: Gin, map: "Form_targetYears_gin")
 }
 
 model FormRoom {
@@ -404,58 +1234,162 @@ model FormRoom {
   formId    String
   roomId    String
   createdAt DateTime @default(now())
-  
+
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  
+
   @@unique([formId, roomId])
   @@index([formId])
   @@index([roomId])
 }
 
 model FormField {
-  id          String   @id @default(uuid())
-  formId      String
-  label       String
-  type        String   @default("TEXT")
-  required    Boolean  @default(false)
-  options     String?   @default("[]")
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  formId    String
+  label     String
+  type      String   @default("TEXT")
+  required  Boolean  @default(false)
+  options   String?  @default("[]")
+  // Order 10 (V-13-full): options blob KEPT during dual-write transition.
+  // Canonical per-option rows: FormFieldOption (fieldId → here Cascade;
+  // value/label/points/"order"). Writers fill both (routes/forms.ts);
+  // readers prefer fieldOptions with blob fallback. Contract (drop blob) is
+  // a later order once reconciliation is green — do NOT drop here.
+  order     Int      @default(0)
+  // #9 Forms logic-lite (additive): conditional rules + per-option points.
+  // Order 9 (V-13-ops): logic/scoreMap String → Json (JSONB, typed objects).
+  // options stays String (full FormFieldOption child table is Order 10).
+  // Readers handle Json|String via parseFieldLogic/parseScoreMap; writers pass
+  // objects (sanitizeFieldLogic/sanitizeScoreMap return objects). GIN + CHECK
+  // (jsonb_typeof='object') in migration 20260922000000_order5_9.
+  logic     Json?    @default("{}")
+  scoreMap  Json?    @default("{}")
+  createdAt DateTime @default(now())
 
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@index([formId, order])
+  @@index([logic], type: Gin, map: "FormField_logic_gin")
+  @@index([scoreMap], type: Gin, map: "FormField_scoreMap_gin")
+  views FormView[]
+  fieldOptions FormFieldOption[]
+  answers FormAnswer[]
+}
+
+// Order 10 (V-13-full → P9): 4NF child table for selectable options
+// (one fact per row). Blob `FormField.options` (string[] | {label,points}[])
+// stays during transition. points mirrors sanitizeScoreMap caps (±10000);
+// "order" preserves authoring order. UNIQUE(fieldId, value) is the
+// idempotency key for dual-write + SQL backfill.
+model FormFieldOption {
+  id        String   @id @default(uuid())
+  fieldId   String
+  value     String
+  label     String
+  points    Int      @default(0)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  field FormField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, value])
+  @@index([fieldId])
+  @@index([fieldId, order])
 }
 
 model FormResponse {
-  id         String   @id @default(uuid())
-  formId     String
-  userId     String
-  answers    String   @default("{}")
+  id          String   @id @default(uuid())
+  formId      String
+  userId      String
+  answers     String   @default("{}")
+  // Order 10 (V-14): answers blob KEPT during dual-write transition (worst
+  // analytics blocker — per-field medians/distributions become SQL GROUP BY
+  // on FormAnswer). Writers fill both (routes/forms.ts submit); analytics
+  // reads child rows with blob fallback. Contract (drop blob) is a later
+  // order once reconciliation is green — do NOT drop here.
   submittedAt DateTime @default(now())
+  // #9 Forms logic-lite (additive): quiz-style scoring + time-to-complete.
+  // score: computed server-side from FormField.scoreMap (never trust client).
+  // startedAt/durationMs: respondent open -> submit latency for median analytics.
+  score       Int      @default(0)
+  startedAt   DateTime?
+  durationMs  Int?
 
   form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answerRows FormAnswer[]
 
   @@unique([formId, userId])
+  @@index([formId])
+  @@index([userId])
+}
+
+// Order 10 (V-14 → P9): 4NF child table for answers (one row per answer).
+// value stores the canonical scalar string (answerToString: checkbox arrays
+// joined with ", " — same as blob semantics). Multi-select distribution
+// queries tokenize with string_to_array(value, ', ') (see migration notes).
+// UNIQUE(responseId, fieldId) is the idempotency key for dual-write +
+// SQL backfill; @@index([fieldId, value]) serves "distribution of Q3".
+model FormAnswer {
+  id         String   @id @default(uuid())
+  responseId String
+  fieldId    String
+  value      String   @default("")
+  createdAt  DateTime @default(now())
+
+  response FormResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  field    FormField    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, fieldId])
+  @@index([responseId])
+  @@index([fieldId])
+  @@index([fieldId, value])
+}
+
+model FormView {
+  id        String   @id @default(uuid())
+  formId    String
+  fieldId   String?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+  field FormField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  viewer User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([formId])
+  @@index([formId, fieldId])
+  @@index([formId, createdAt])
+  @@index([fieldId])
+  @@index([userId])
 }
 
 model Room {
-  id            String   @id @default(uuid())
-  name          String
-  description   String   @default("")
-  joinCode      String   @unique
-  teacherId     String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(uuid())
+  name         String
+  description  String    @default("")
+  joinCode     String    @unique
+  teacherId    String
+  departmentId String?
+  chatMode     String    @default("EVERYONE")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  teacher     User          @relation(fields: [teacherId], references: [id])
-  members     RoomMember[]
-  resources   Resource[]
-  notifications RoomNotification[]
-  formRooms   FormRoom[]
+  teacher            User                    @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  department         Department?             @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  members            RoomMember[]
+  resources          Resource[]
+  notifications      RoomNotification[]
+  formRooms          FormRoom[]
+  messages           RoomMessage[]
+  chatAllowedMembers RoomChatAllowedMember[]
+  reads              RoomRead[]
+  assignmentHubs     AssignmentHub[]
 
   @@index([teacherId])
   @@index([joinCode])
+  @@index([departmentId])
 }
 
 model RoomMember {
@@ -473,32 +1407,127 @@ model RoomMember {
   @@index([studentId])
 }
 
-model Resource {
-  id          String   @id @default(uuid())
-  title       String
-  description String   @default("")
-  fileUrl     String
-  fileType    String   @default("other") // pdf, ppt, link, other
-  category    String   @default("other") // lecture, assignment, reference, other
+model RoomMessage {
+  id          String    @id @default(uuid())
   roomId      String
-  uploadedBy  String
-  createdAt   DateTime @default(now())
+  senderId    String
+  content     String
+  fileUrl     String?
+  fileName    String?
+  fileType    String?
+  fileSize    Int?
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  isForwarded Boolean   @default(false)
+  replyToId   String?
+  // Threads-lite (#8): replyToId doubles as the thread parent (no separate
+  // parentId column — quote-replies ARE the thread children; reply counts come
+  // from the replies relation). Pins are first-class columns below.
+  // Order 12 (V-28 keep-lite): no MessagePin extraction — pinned bar query
+  // (roomId + isPinned, cap MAX_PINNED_PER_ROOM=20 in routes/rooms.ts) is
+  // served by @@index([roomId, isPinned]); low-cardinality boolean composite
+  // is acceptable at current scale (partial WHERE "isPinned" index only past
+  // ~1M rows, P8). Extract MessagePin(messageId, pinnedBy, pinnedAt) only if
+  // pin history/audit is required (in-row keeps last pin only by design).
+  // Delete policy (P10 tail): hard-delete + cascade everywhere EXCEPT
+  // RoomMessage soft-delete (isDeleted/deletedAt, visible via [roomId,
+  // isDeleted]); audit coverage via AuditLog (append-only, FK-less by design).
+  isPinned    Boolean   @default(false)
+  pinnedAt    DateTime?
+  pinnedBy    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender   User              @relation("RoomMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  pinnedByUser User?         @relation("RoomMessagePinnedBy", fields: [pinnedBy], references: [id], onDelete: SetNull)
+  replyTo  RoomMessage?      @relation("RoomMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies  RoomMessage[]     @relation("RoomMessageReplies")
+  hides    MessageHide[]
+  reactions MessageReaction[]
+  resources Resource[] @relation("ResourceSourceMessage")
+
+  @@index([roomId, createdAt])
+  @@index([senderId])
+  @@index([replyToId])
+  @@index([roomId, isDeleted])
+  @@index([roomId, isPinned])
+  @@index([pinnedBy])
+}
+
+model MessageHide {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message RoomMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String   @db.VarChar(8)
+  createdAt DateTime @default(now())
+
+  message RoomMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model RoomChatAllowedMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model Resource {
+  id              String   @id @default(uuid())
+  title           String
+  description     String   @default("")
+  fileUrl         String
+  fileType        String   @default("other") // pdf, ppt, link, other
+  category        String   @default("other") // lecture, assignment, reference, other
+  fileSize        Int?
+  sourceMessageId String?  // set when the resource was shared via a room chat attachment
+  roomId          String
+  uploadedBy      String
+  createdAt       DateTime @default(now())
 
   room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  uploader User @relation(fields: [uploadedBy], references: [id])
+  uploader User @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+  sourceMessage RoomMessage? @relation("ResourceSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
 
   @@index([roomId])
   @@index([uploadedBy])
+  @@index([roomId, createdAt])
+  @@index([sourceMessageId])
 }
 
 model RoomNotification {
-  id         String   @id @default(uuid())
-  roomId     String
-  studentId  String
-  message    String
+  id          String   @id @default(uuid())
+  roomId      String
+  studentId   String
+  message     String
   resourceUrl String?
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   room    Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -506,4 +1535,516 @@ model RoomNotification {
   @@index([roomId])
   @@index([studentId])
   @@index([isRead])
+  @@index([studentId, isRead])
+  @@index([roomId, createdAt])
+}
+
+model PlatformSettings {
+  id          String    @id @default(cuid())
+  platform    String
+  type        String
+  fetchLimit  Int       @default(10)
+  enabled     Boolean   @default(true)
+  lastFetchAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([platform, type])
+  @@map("platform_settings")
+}
+
+// Fetch master toggle (SUPER_ADMIN auto-fetch kill-switch, FetchPage).
+// Singleton row id='global': autoFetchEnabled default true (feed runs).
+// Cron (runOpportunitiesJob + runContestsJob) skips when false with a logged
+// reason; manual POST /fetch/* ignores it (explicit action always allowed).
+// Deploy applies via `prisma migrate deploy`; until applied, code defaults to
+// ON + warn (see services/fetch/autoFetch.ts readAutoFetchDb).
+model FetchConfig {
+  id               String   @id @default("global")
+  autoFetchEnabled Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@map("fetch_config")
+}
+
+// #4 source health: per-platform fetch reliability (ok/degraded/down).
+// One row per UPPER-CASE platform key (DEVFOLIO..WELLFOUND + OTHER_*).
+// Updated on every fetch run (POST /fetch/all, /:platform, /other/*,
+// /retry-failed, cron follows). Deploy applies via migrate deploy; code
+// falls back to in-memory + UNKNOWN when the table is absent (see
+// services/fetch/health.ts PrismaSourceHealthStore).
+model SourceHealth {
+  platform         String    @id
+  status           SourceHealthStatus @default(UNKNOWN)
+  lastRunAt        DateTime?
+  lastSuccessAt    DateTime?
+  lastLatencyMs    Int?
+  lastError        String?
+  totalRuns        Int       @default(0)
+  successRuns      Int       @default(0)
+  successRate      Float     @default(0)
+  consecutiveFails Int       @default(0)
+  fetchedCount     Int       @default(0)
+  updatedAt        DateTime  @updatedAt
+
+  @@map("source_health")
+}
+
+model AttendanceData {
+  id          String   @id @default(cuid())
+  studentId   String   @unique
+  // Order 11 (V-16 → P6/P9): subjects blob KEPT during expand-phase
+  // dual-write transition (canonical record is AttendanceRecord rows; see
+  // AttendanceRecord comment). Writers fill BOTH blob + rows
+  // (routes/attendance.ts); readers prefer rows with blob fallback.
+  // requiredPct stays here as the per-student low-attendance threshold for
+  // "below-X%" queries over AttendanceRecord aggregates. Contract (drop
+  // subjects) is a LATER order — do NOT drop here.
+  subjects    String   @default("[]")
+  requiredPct Int      @default(75)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  // Order 11 (V-31 → P8): redundant @@index([studentId]) DROPPED — @unique
+  // already creates the index. (Five dup indexes tracked in Order 12 tail;
+  // this one ships here with its violation.)
+}
+
+// Order 11 (V-16 → P6/P9): per-subject attendance as rows (one fact per row),
+// replacing app-parse blob math + enabling SQL "below-X%" queries.
+// Grain: one row per (student, subject) aggregate snapshot carrying the last
+// event's date/status PLUS exact present/total counters. Backfilled from
+// AttendanceData.subjects {name, held, attended} (date=CURRENT_DATE,
+// status derived from pct vs requiredPct). New calculator saves replace-all
+// per student (deleteMany + createMany, same as Order 10); a future daily
+// marking endpoint can upsert per (studentId, subject, date) and maintain
+// present/total incrementally — SUM(present)/SUM(total) GROUP BY subject
+// stays the aggregate contract either way (see migration reconciliation).
+// Task shorthand "(student+date+status)" + audit "(student,subject,present,
+// total)" are both present here (superset, no divergence: counters are the
+// record, date/status the last-event projection, not a second truth).
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+  LATE
+}
+
+model AttendanceRecord {
+  id        String           @id @default(uuid())
+  studentId String
+  subject   String
+  date      DateTime         @default(now()) @db.Date
+  status    AttendanceStatus @default(PRESENT)
+  present   Int              @default(0)
+  total     Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, subject])
+  @@index([studentId])
+  @@index([studentId, subject])
+  @@index([studentId, date])
+}
+
+enum AnnouncementTarget {
+  ALL_DEPARTMENTS
+  SPECIFIC_DEPARTMENTS
+}
+
+enum AnnouncementTargetScope {
+  ALL_COLLEGES
+  SPECIFIC_COLLEGES
+  MY_COLLEGES
+}
+
+model Announcement {
+  id          String                  @id @default(uuid())
+  title       String                  @db.VarChar(200)
+  content     String                  @db.Text
+  target      AnnouncementTarget      @default(ALL_DEPARTMENTS)
+  targetScope AnnouncementTargetScope @default(MY_COLLEGES)
+  creatorId   String
+  collegeId   String?
+  publishAt   DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  creator      User                     @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  college      College?                 @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  departments  AnnouncementDepartment[]
+  colleges     AnnouncementCollege[]
+  reads        AnnouncementRead[]
+
+  @@index([collegeId, createdAt])
+  @@index([targetScope, createdAt])
+  @@index([creatorId])
+}
+
+model AnnouncementDepartment {
+  id             String       @id @default(uuid())
+  announcementId String
+  departmentId   String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, departmentId])
+  @@index([announcementId])
+  @@index([departmentId])
+}
+
+model AnnouncementCollege {
+  id             String   @id @default(uuid())
+  announcementId String
+  collegeId      String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  college      College      @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, collegeId])
+  @@index([announcementId])
+  @@index([collegeId])
+}
+
+model AnnouncementRead {
+  id             String       @id @default(uuid())
+  announcementId String
+  userId         String
+  createdAt      DateTime     @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+  @@index([announcementId])
+}
+
+model RoomRead {
+  id         String   @id @default(uuid())
+  roomId     String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId])
+}
+
+enum AssignmentScope {
+  ALL
+  DEPARTMENT
+  ROOM
+}
+
+enum SubmissionMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+model AssignmentHub {
+  id                   String         @id @default(uuid())
+  title                String         @db.VarChar(200)
+  description          String?        @db.Text
+  courseId             String?
+  dueDate              DateTime
+  creatorId            String
+  collegeId            String?
+  // Order 5 (V-27): polymorphic scope enforced by DB CHECK
+  // chk_assignmenthub_scope (see migration 20260922000000_order5_9):
+  // (ALL AND dept NULL AND room NULL) OR (DEPARTMENT AND dept NOT NULL AND
+  // room NULL) OR (ROOM AND room NOT NULL AND dept NULL). App mirrors in
+  // validators.ts isValidAssignmentScope + routes/assignmentHub.ts 400s.
+  scope                AssignmentScope @default(ALL)
+  departmentId         String?
+  roomId               String?
+  submissionMode       SubmissionMode  @default(ONLINE)
+  showGrades           Boolean         @default(true)
+  showFeedback         Boolean         @default(true)
+  showSubmissionStatus Boolean         @default(true)
+  showStats            Boolean         @default(false)
+  maxPoints            Int             @default(100)
+  maxGrade             String?
+  allowLateSubmission  Boolean         @default(false)
+  attachments          String?         @default("[]")
+  // Order 10 (V-17): attachments blob KEPT during dual-write transition.
+  // Canonical per-file rows: AssignmentAttachment (assignmentId → here
+  // Cascade; url/fileName/fileType/fileSize/"order"). Writers fill both
+  // (routes/assignmentHub.ts); readers prefer attachmentRows with blob
+  // fallback. Contract (drop blob) is a later order — do NOT drop here.
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  creator    User       @relation("AssignmentHubCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  college    College?   @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  room       Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  course     Course?     @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  submissions AssignmentSubmission[]
+  attachmentRows AssignmentAttachment[]
+
+  @@index([collegeId, scope])
+  @@index([departmentId])
+  @@index([roomId])
+  @@index([creatorId])
+  @@index([dueDate])
+  @@index([collegeId, dueDate])
+  @@index([scope, dueDate])
+  @@index([courseId])
+}
+
+model AssignmentSubmission {
+  id           String   @id @default(uuid())
+  assignmentId String
+  studentId    String
+  content      String?  @db.Text
+  fileUrl      String?
+  fileName     String?
+  fileType     String?
+  fileSize     Int?
+  status       SubmissionStatus @default(SUBMITTED)
+  grade        String?
+  points       Int?
+  feedback     String?  @db.Text
+  submittedAt  DateTime @default(now())
+  gradedAt     DateTime?
+  gradedBy     String?
+  // offline marking support — teacher can mark paper submissions via same UI
+  submissionChannel SubmissionMode @default(ONLINE)
+  offlineNote       String?  @db.Text
+  offlineVerifiedBy String?
+  offlineVerifiedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignment AssignmentHub @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  grader     User?         @relation("SubmissionGrader", fields: [gradedBy], references: [id], onDelete: SetNull)
+  offlineVerifier User?    @relation("SubmissionOfflineVerifier", fields: [offlineVerifiedBy], references: [id], onDelete: SetNull)
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId])
+  @@index([studentId])
+  @@index([status])
+  @@index([submissionChannel])
+  // Order 12 tail (P8): redundant @@index([assignmentId, studentId]) DROPPED —
+  // duplicates @@unique (unique already indexes the pair; planner keeps it).
+  // Ranked cause #4 roster/count path stays covered by the unique + the two
+  // single-column FK indexes above.
+}
+
+// Order 10 (V-17 → P9): 4NF child table for hub attachments (one fact per
+// row), mirroring Resource-per-file shape. Blob `AssignmentHub.attachments`
+// (JSON array of URL strings) stays during transition. "order" preserves
+// upload order for display. Backfill in migration 20260923000000_order10.
+model AssignmentAttachment {
+  id           String   @id @default(uuid())
+  assignmentId String
+  url          String
+  fileName     String?
+  fileType     String?
+  fileSize     Int?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  assignment AssignmentHub @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+  @@index([assignmentId, order])
+}
+
+// Order 2 V-25 NULL-trap fix: @@unique([name, collegeId]) allows duplicate
+// global (NULL collegeId) names because NULL!=NULL. Enforced by partial
+// UNIQUE INDEX "AiProvider_name_global_unique" ON "AiProvider"("name")
+// WHERE "collegeId" IS NULL (see migration 20260919000000_order2_nullsafe_uniques).
+// collegeId stays nullable (NULL = global provider); per-tenant rows use the
+// composite @@unique. Same pattern for AiRouting below.
+// Order 9 (V-19): headers String? → Json? (JSONB object of extra HTTP headers).
+// Readers handle Json|String via parseHeadersSafe; writers pass objects.
+model AiProvider {
+  id        String   @id @default(cuid())
+  name      String
+  baseUrl   String
+  apiKey    String
+  model     String
+  type      String   @default("openai-compatible")
+  headers   Json?
+  enabled   Boolean  @default(true)
+  isBuiltIn Boolean  @default(false)
+  collegeId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  routings AiRouting[]
+
+  @@unique([name, collegeId])
+  @@index([collegeId])
+  @@index([headers], type: Gin, map: "AiProvider_headers_gin")
+}
+
+// Order 2 V-25 (AiRouting): @@unique([feature, fallbackOrder, collegeId]) has the
+// same NULL trap for global routings. Partial UNIQUE INDEX
+// "AiRouting_feature_order_global_unique" ON "AiRouting"("feature", "fallbackOrder")
+// WHERE "collegeId" IS NULL closes it (see same migration).
+model AiRouting {
+  id            String     @id @default(cuid())
+  feature       String
+  providerId    String
+  provider      AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  fallbackOrder Int
+  collegeId     String?
+  createdAt     DateTime   @default(now())
+
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@unique([feature, fallbackOrder, collegeId])
+  @@index([providerId])
+  @@index([feature])
+  @@index([collegeId])
+}
+
+model Report {
+  id            String   @id @default(uuid())
+  userId        String
+  collegeId     String?
+  scope         ReportScope      @default(WEBSITE)
+  issueType     ReportIssueType
+  title         String   @db.VarChar(200)
+  description   String   @db.Text
+  priority      Priority         @default(MEDIUM)
+  status        ReportStatus     @default(OPEN)
+  attachmentUrl String?
+  // Order 6 (V-20): collegeName display copy DROPPED — resolve via college
+  // relation (include college { select name }). API keeps `collegeName` key as
+  // projection for compat (see routes/reports.ts).
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId, status])
+  @@index([userId])
+  @@index([scope])
+  @@index([status])
+  @@index([createdAt])
+  @@index([issueType])
+  @@index([priority])
+}
+
+// Prod P0 auth hardening stub (jti revocation + login-attempt audit).
+// Middleware currently uses in-memory Set/Map (see utils/authHardening.ts) for
+// single-instance correctness; these tables persist the same data when
+// multi-replica (Render) lands. Migration pending — run `prisma migrate dev`
+// after review; until then the in-memory stub is authoritative.
+model RevokedToken {
+  id        String   @id @default(uuid())
+  jti       String   @unique
+  userId    String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  email     String
+  ip        String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+// #11 bulk CSV (dry-run) + audit log UI + AI metering/cost caps + platform KPIs.
+// Additive only (deploy applies via `prisma migrate deploy`). All new tables are
+// optional at runtime — routes/services guard with `(prisma as any).xxx?` +
+// try/catch so pre-migration deploys return empty/fallback instead of 500
+// (same pattern as SourceHealth / SyncThrottle).
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+  action     String
+  entityType String?
+  entityId   String?
+  collegeId  String?
+  // Order 9 (V-19): String? → Json? (JSONB object, caller-built diff payload).
+  // buildAuditMetadata now returns an object (not a JSON string); recordAudit
+  // accepts object|String for rollout compat. GIN for future field queries;
+  // proper AuditLogField child table is Order 10+.
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId, createdAt])
+  @@index([action, createdAt])
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([collegeId])
+  @@index([metadata], type: Gin, map: "AuditLog_metadata_gin")
+  @@map("AuditLog")
+}
+
+// Per-college per-feature daily AI counters (requests/tokens/cost).
+// Written best-effort from aiQuota middleware (fire-and-forget, never blocks).
+// Order 8 (V-32): day String (producer-discipline "YYYY-MM-DD") + dayDate DATE
+// (typed, queryable). Dual-write via dayBucket()/dayDateFromBucket(); unique
+// stays on day until contract, new unique on dayDate added alongside.
+// Ordering/range uses dayDate; String kept until contract (Order 12).
+model AiUsage {
+  id        String   @id @default(uuid())
+  collegeId String
+  feature   String
+  day       String
+  dayDate   DateTime? @db.Date
+  requests  Int      @default(0)
+  tokens    Int      @default(0)
+  costCents Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  college College @relation(fields: [collegeId], references: [id], onDelete: Restrict)
+
+  @@unique([collegeId, feature, day])
+  @@unique([collegeId, feature, dayDate], map: "AiUsage_college_feature_dayDate_unique")
+  @@index([collegeId, day])
+  @@index([day])
+  @@index([dayDate])
+  @@index([collegeId, dayDate])
+  @@map("AiUsage")
+}
+
+// Per-college AI budget caps (SUPER_ADMIN editable via /ai-manager/quota).
+// dailyTokenCap defaults to the in-memory 10k/day (see middleware/aiQuota.ts).
+model AiQuota {
+  collegeId          String   @id
+  dailyTokenCap      Int      @default(10000)
+  monthlyTokenCap    Int?
+  totalCostCapCents  Int?
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+
+  @@map("AiQuota")
 }

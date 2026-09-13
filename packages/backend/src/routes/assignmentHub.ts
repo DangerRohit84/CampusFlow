@@ -219,7 +219,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         res.json({ data: [], pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
         return
       }
-      // Batch: 2 queries instead of 2*N (e.g., 40 -> 2 for limit 20) to keep pool under connection_limit=20
+      // Batch: 2 queries instead of 2*N (e.g., 40 -> 2 for limit 20) to keep pool under connection_limit=50
       const pagedIds = paged.map(h => h.id)
       const [groupedCounts, mySubs] = await Promise.all([
         prisma.assignmentSubmission.groupBy({

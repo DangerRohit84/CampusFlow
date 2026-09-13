@@ -27,8 +27,8 @@ services:
     startCommand: node packages/backend/dist/index.js
     healthCheckPath: /api/health
     envVars:
-      # Neon pooled URL REQUIRED: host must contain `-pooler` + `?sslmode=require&pgbouncer=true&connection_limit=20&pool_timeout=30`
-      # Example: postgresql://user:pass@ep-xxx-pooler.c-5.us-east-2.aws.NEONHOST_REMOVED/neondb?sslmode=require&channel_binding=prefer&connect_timeout=30&pgbouncer=true&connection_limit=20&pool_timeout=30
+      # Neon pooled URL REQUIRED: host must contain `-pooler` + `?sslmode=require&pgbouncer=true&connection_limit=50&pool_timeout=30`
+      # Example: postgresql://user:pass@ep-xxx-pooler.c-5.us-east-2.aws.NEONHOST_REMOVED/neondb?sslmode=require&channel_binding=prefer&connect_timeout=30&pgbouncer=true&connection_limit=50&pool_timeout=30
       - key: DATABASE_URL
         sync: false
       # Neon direct URL (no -pooler, no pgbouncer) REQUIRED for `prisma migrate deploy` via datasource directUrl
