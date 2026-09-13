@@ -46,3 +46,8 @@ test-results/
 .ai/reports/
 packages/backend/.ai/reports/
 
+# Duplicate brand assets (canonical copy is apps/web/public/brand/, test-only reference)
+apps/web/src/assets/brand/
+# Brand source files (Illustrator/.ai/.eps + guides, local only)
+campusflow-brand-kit/
+
