@@ -188,7 +188,7 @@ export default function StudentRoomDetailPage() {
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
       <h1 className="sr-only">My Room Detail</h1>
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<DoorOpen size={18} />}
         eyebrow="Rooms · My Space"

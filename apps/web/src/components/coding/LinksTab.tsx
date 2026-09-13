@@ -1,6 +1,6 @@
 // components/coding/LinksTab.tsx — curated CodeChef/HackerRank/GFG/AtCoder links (plan §4).
 // WHY: no official public practice catalog exists for these platforms
-// (unofficial scrapers break — StopStalk sunset 01-08-2025), so this tab is
+// (unofficial scrapers break — third-party aggregator sunset 01-08-2025), so this tab is
 // STATIC link cards only: platform icon + Browse link + honest "no live
 // catalog — browse there, track manually" notice. No fetch, no backend, no
 // auto-verify. Totals (where a handle exists) stay in the My Stats platform

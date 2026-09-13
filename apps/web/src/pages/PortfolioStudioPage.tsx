@@ -343,7 +343,7 @@ export default function PortfolioStudioPage() {
 
   return (
     <div className="max-w-[1280px] mx-auto space-y-6">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<Layout size={18} />}
         eyebrow="Career · Portfolio"

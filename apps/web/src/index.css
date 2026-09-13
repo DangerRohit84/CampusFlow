@@ -79,7 +79,7 @@
 .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
-/* Base — Spotify surfaces · Light #ffffff / Dark #121212/#000 · Green #1ed760 */
+/* Base — Brand surfaces · Light #ffffff / Dark #121212/#000 · Green #1ed760 */
 @layer base {
   * { @apply border-surface-200; }
   html {
@@ -100,7 +100,7 @@
     font-feature-settings: "ss01" 1, "cv01" 1, "cv11" 1;
     letter-spacing: -0.01em;
     color: #121212;
-    /* Spotify washes — green 5% + muted secondary */
+    /* Brand washes — green 5% + muted secondary */
     background-image:
       radial-gradient(ellipse 900px 520px at 8% -8%, rgba(30,215,96,0.06), transparent 60%),
       radial-gradient(ellipse 720px 460px at 92% -6%, rgba(29,185,84,0.05), transparent 60%),
@@ -111,12 +111,12 @@
   h1 { @apply font-extrabold; }
   ::selection { @apply bg-slate-800 text-white dark:bg-white dark:text-black; }
   button, a, [role="button"] { min-height: 0; }
-  /* scrollbar — Spotify */
+  /* scrollbar — Brand */
   ::-webkit-scrollbar { width:5px; height:5px; }
   ::-webkit-scrollbar-track { @apply bg-transparent; }
   ::-webkit-scrollbar-thumb { @apply bg-zinc-300 dark:bg-[#282828] rounded-full; }
   ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-400 dark:bg-[#3a3a3a]; }
-  /* focus ring — Spotify green #1ed760 */
+  /* focus ring — Brand green #1ed760 */
   :focus-visible { @apply outline-none ring-2 ring-primary-500/25 ring-offset-2 ring-offset-surface-50; }
   /*
    * WHY: programmatic route-change focus targets (main#main-content, main#public-main,
@@ -138,7 +138,7 @@
   }
 }
 
-/* Dark mode — Spotify #000 / #121212 with green mist */
+/* Dark mode — Brand #000 / #121212 with green mist */
 .dark body {
   background-color:#000000 !important; color:#ffffff !important;
   background-image:
@@ -278,7 +278,7 @@
   .campus-shell { @apply max-w-[1280px] mx-auto px-4 lg:px-6; }
   .campus-grid { @apply grid grid-cols-12 gap-4 lg:gap-6; }
 
-  /* Card and paper — Spotify */
+  /* Card and paper — Brand */
   .paper {
     @apply bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] rounded-2xl shadow-sm;
     color: #121212;
@@ -292,7 +292,7 @@
   }
   .dark .card, .dark .paper, .dark .paper-hover { background-color:#121212; border-color:#282828; color:#ffffff; }
 
-  /* Left accent strip — Spotify green */
+  /* Left accent strip — Brand green */
   .due-slip {
     @apply relative bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] rounded-2xl overflow-hidden shadow-sm;
     border-left-width: 3px;
@@ -323,7 +323,7 @@
   .dark .due-slip--neutral { background: linear-gradient(90deg, rgba(246,246,246,0.04) 0%, transparent 40%), #121212 !important; }
   .dark .due-slip--rose { background: linear-gradient(90deg, rgba(255,75,92,0.06) 0%, transparent 40%), #121212 !important; }
 
-/* Gradient border — Spotify green */
+/* Gradient border — Brand green */
 .gradient-border-emerald {
   background-image: linear-gradient(white, white), linear-gradient(135deg, #1ed760, #1db954, #1ed760);
   background-origin: border-box;
@@ -333,7 +333,7 @@
   background-image: linear-gradient(#121212, #121212), linear-gradient(135deg, #1ed760, #1db954, #1ed760) !important;
 }
 
-  /* Live dot — Spotify green */
+  /* Live dot — Brand green */
   .live-dot {
     @apply w-2 h-2 rounded-full animate-pulse;
     background: #1ed760;
@@ -341,7 +341,7 @@
   }
   .live-dot--on { background:#1db954; box-shadow: 0 0 0 4px rgba(29,185,84,0.18); }
 
-  /* Buttons — Spotify green primary */
+  /* Buttons — Brand green primary */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 min-h-[44px] font-semibold rounded-xl
            active:scale-[0.98] transition-all duration-150 shadow-sm
@@ -412,7 +412,7 @@
   .mesh-blue { background-image: radial-gradient(ellipse 600px 220px at 80% 0%, rgba(2,132,199,0.06), transparent 60%); }
   .mesh-emerald { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(29,185,84,0.04), transparent 60%); }
   .mesh-neutral { background-image: radial-gradient(ellipse 600px 220px at 50% 0%, rgba(246,246,246,0.8), transparent 60%); }
-  /* Per-section tints — Spotify green (assignments/forms now green 5% like hackathons — not neutral gray) */
+  /* Per-section tints — Brand green (assignments/forms now green 5% like hackathons — not neutral gray) */
   .section--hackathons { background: radial-gradient(ellipse 700px 240px at 15% 0%, rgba(30,215,96,0.05), transparent 65%); }
   .section--internships { background: radial-gradient(ellipse 700px 240px at 85% 0%, rgba(30,215,96,0.05), transparent 65%); }
   .section--rooms { background: radial-gradient(ellipse 700px 240px at 50% 0%, rgba(29,185,84,0.04), transparent 65%); }
@@ -461,7 +461,7 @@
   }
   .dark .locker-stripe { background: #1ed760; }
 
-  /* Badges — Spotify */
+  /* Badges — Brand */
   .badge { @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border; }
   .badge-primary { @apply badge border-primary-200 dark:border-primary-500/40; background:#e8f8ee; color:#0a7a3a; }
   .dark .badge-primary { background:rgba(30,215,96,0.14) !important; color:#1ed760 !important; }
@@ -479,7 +479,7 @@
   .badge-rose { @apply badge bg-[#fff1f2] text-[#ff4b5c] border-[#fecdd3] dark:bg-[#ff4b5c]/15 dark:text-[#ff8a94] dark:border-[#ff4b5c]/30; }
   .badge-neutral { @apply badge bg-surface-50 text-slate-700 border-surface-200 dark:bg-[#1f1f1f] dark:text-[#a7a7a7] dark:border-[#282828]; }
 
-  /* Stat card — Spotify green top line */
+  /* Stat card — Brand green top line */
   .stat-card {
     @apply paper p-5 relative overflow-hidden;
   }
@@ -495,7 +495,7 @@
   .stat-card--danger::before { background: linear-gradient(90deg, transparent, #ff4b5c, transparent); opacity:0.85; }
   .stat-card--neutral::before { background: linear-gradient(90deg, transparent, #e5e7eb, transparent); opacity:0.9; }
   .stat-card--warning::before { background: linear-gradient(90deg, transparent, #f5b700, transparent); opacity:0.85; }
-  /* subtle card tint on hover — Spotify green */
+  /* subtle card tint on hover — Brand green */
   .card-accent--brass:hover { border-color: rgba(30,215,96,0.25) !important; box-shadow: 0 4px 20px rgba(30,215,96,0.08); }
   .card-accent--blue:hover { border-color: rgba(30,215,96,0.20) !important; box-shadow: 0 4px 20px rgba(30,215,96,0.08); }
   .card-accent--emerald:hover { border-color: rgba(29,185,84,0.20) !important; box-shadow: 0 4px 20px rgba(29,185,84,0.08); }
@@ -552,7 +552,7 @@
   .dark input::placeholder, .dark textarea::placeholder { color: #a1a1aa; }
 }
 
-/* Hanging lamp — theme toggle — Spotify green glow */
+/* Hanging lamp — theme toggle — Brand green glow */
 .theme-lamp { display:flex; flex-direction:column; align-items:center; cursor:pointer; transition:transform .3s cubic-bezier(0.34,1.56,0.64,1); animation:lampSwing 4s ease-in-out infinite; transform-origin:top center; }
 @keyframes lampSwing { 0%,100%{transform:rotate(0deg)}25%{transform:rotate(1.5deg)}75%{transform:rotate(-1.5deg)} }
 .theme-lamp:hover{ animation-duration:1.3s; }

@@ -232,7 +232,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 max-w-[840px] mx-auto">
       <h1 className="sr-only">Settings — Manage your profile and preferences</h1>
-      {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
+      {/* ─── Premium Hero — Brand mesh, glass stats ─── */}
       <PremiumHero
         icon={<Settings2 size={18} />}
         eyebrow="Account · Settings"
@@ -681,7 +681,7 @@ export default function SettingsPage() {
           </div>
         </motion.div>
 
-        {/* Sign Out — premium danger but Spotify style */}
+        {/* Sign Out — premium danger but Brand style */}
         <motion.div variants={{ hidden:{opacity:0,y:14}, show:{opacity:1,y:0, transition:{ duration:0.45, ease:[0.22,1,0.36,1] as any } } }}>
           <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] overflow-hidden">
             <div className="h-1.5 bg-gradient-to-r from-[#ff4b5c] to-[#ff4b5c]" />

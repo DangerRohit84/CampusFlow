@@ -146,7 +146,7 @@ export default function AddTeacherPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<UserPlus size={18} />}
         eyebrow="Admin · Teachers"

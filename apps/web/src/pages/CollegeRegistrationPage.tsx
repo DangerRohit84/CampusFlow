@@ -73,7 +73,7 @@ export default function CollegeRegistrationPage() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-50 dark:bg-night-800">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<Building2 size={18} />}
         eyebrow="CampusFlow · Register"

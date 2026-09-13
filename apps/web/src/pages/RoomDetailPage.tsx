@@ -254,7 +254,7 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
       <h1 className="sr-only">Room Detail</h1>
-      {/* ─── Premium Hero — Spotify mesh, glass stats ─── */}
+      {/* ─── Premium Hero — Brand mesh, glass stats ─── */}
       <PremiumHero
         icon={<DoorOpen size={18} />}
         eyebrow="Rooms · Channel"

@@ -104,7 +104,7 @@ export default function LoginPage() {
         {/* mesh + orbs + grid + fade — mirror PremiumHero tokens: bg-[#0a0a0a] backdrop-blur-xl #1ed760 */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-[#1ed760]/[0.07] via-white/[0.015] to-transparent" />
-          {/* Spotify green orbs */}
+          {/* Brand green orbs */}
           <motion.div
             aria-hidden
             animate={shouldReduce ? undefined : { x: [0, 18, 0], y: [0, -12, 0], scale: [1, 1.06, 1] }}
@@ -279,7 +279,7 @@ export default function LoginPage() {
 
       {/* ── RIGHT — Form bento ── */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-10 relative overflow-hidden min-h-[100dvh] lg:min-h-screen bg-[#f6f6f6] dark:bg-black">
-        {/* subtle green wash — Spotify #1ed760 5% */}
+        {/* subtle green wash — Brand #1ed760 5% */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -top-28 -right-28 w-[520px] h-[520px] rounded-full bg-[#1ed760]/[0.06] blur-[72px]" />
           <div className="absolute -bottom-40 -left-28 w-[600px] h-[600px] rounded-full bg-[#1db954]/[0.05] blur-[80px]" />

@@ -10,7 +10,7 @@
 // explicit width/height attrs + aspect-ratio so layout is pre-sized (no CLS)
 // and the SVG stays vector-crisp at 100%/200% zoom. No CSS stretch: width
 // derives from height via intrinsic ratio (3302/859 ≈ 3.84).
-// Sizes follow top-site standard (Google/Amazon/Spotify/Flipkart): 36–40px
+// Sizes follow top-site standard: 36–40px
 // desktop / 28–32px mobile. Desktop default 38px, mobile 32px via responsive
 // class. 32px-min rule exception: header legibility allows 28–32 on mobile.
 

@@ -57,7 +57,7 @@ export default function InsightsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-4xl">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<BarChart3 size={18} />}
         eyebrow="Campus · Insights"

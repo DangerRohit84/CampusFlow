@@ -154,7 +154,7 @@ export default function FetchPage() {
 
   return (
     <div className="space-y-6 max-w-[1280px] mx-auto">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<Download size={18} />}
         eyebrow="Platform · Fetch"

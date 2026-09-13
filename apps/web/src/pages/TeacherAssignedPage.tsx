@@ -107,7 +107,7 @@ export default function TeacherAssignedPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-50 dark:bg-night-800 to-primary-50/30 dark:from-night-950 dark:via-night-950 dark:to-night-950">
-      {/* ─── Premium Dark Hero — bento 12-col, glass, Spotify green ─── */}
+      {/* ─── Premium Dark Hero — bento 12-col, glass, Brand green ─── */}
       <PremiumHero
         icon={<BookOpen size={18} />}
         eyebrow="Teaching · Assigned"
