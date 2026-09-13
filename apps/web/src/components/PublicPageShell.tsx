@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { GraduationCap } from 'lucide-react'
 import type { ReactNode } from 'react'
+import BrandLogo from './BrandLogo'
 
 const FOOT_LINKS = [
   { to: '/about', label: 'About' },
@@ -24,14 +24,10 @@ export default function PublicPageShell({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <header className="sticky top-0 z-40 backdrop-blur-2xl bg-white/70 dark:bg-black/60 border-b border-zinc-200/60 dark:border-zinc-800/60">
-        <div className="max-w-[980px] mx-auto px-6 h-11 flex items-center justify-between gap-4">
+        <div className="max-w-[980px] mx-auto px-6 h-11 sm:h-14 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-2.5 shrink-0" aria-label="CampusFlow home">
-            <span className="w-7 h-7 rounded-lg bg-black dark:bg-white flex items-center justify-center">
-              <GraduationCap className="w-4 h-4 text-white dark:text-black" aria-hidden="true" />
-            </span>
-            <span className="font-display font-semibold tracking-tight text-[15px] leading-none">
-              CampusFlow
-            </span>
+            {/* WHY brand kit v1.0: primary on light, reversed on dark #121212, 38px desktop / 32px mobile + wrapper clearspace. Header grows to 56px on sm+ so 38+8 fits without clip. */}
+            <BrandLogo variant="auto" height={38} />
           </Link>
           <nav className="flex items-center gap-1 text-[12px] font-medium text-zinc-600 dark:text-zinc-300" aria-label="Public">
             <Link to="/about" className="px-3 py-1.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors">About</Link>
@@ -62,7 +58,11 @@ export default function PublicPageShell({ children }: { children: ReactNode }) {
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800">
         <div className="max-w-[980px] mx-auto px-6 py-8 flex flex-wrap items-center justify-between gap-4">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">© 2026 CampusFlow · Built for the quad.</p>
+          {/* WHY brand kit v1.0 footer: © CampusFlow + canonical campus-flow.tech + tagline. */}
+          <div className="space-y-1">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">© 2026 CampusFlow · campus-flow.tech</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">A more connected campus.</p>
+          </div>
           <nav className="flex flex-wrap items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300" aria-label="Footer">
             {FOOT_LINKS.map((l) => (
               <Link key={l.to} to={l.to} className="px-3 py-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors min-h-[44px] inline-flex items-center">

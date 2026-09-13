@@ -6,8 +6,20 @@
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1ed760",
+  "theme_color": "#1ED760",
   "icons": [
+    {
+      "src": "/campusflow-icon-64.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/campusflow-icon-32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
@@ -27,7 +39,7 @@
       "purpose": "maskable"
     },
     {
-      "src": "/favicon.svg",
+      "src": "/campusflow-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

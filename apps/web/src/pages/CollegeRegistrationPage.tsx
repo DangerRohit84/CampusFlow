@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import { adminAPI, authAPI } from '../lib/api'
 import { validateCollegeRegistration } from '../lib/validation'
 import { motion } from 'framer-motion'
-import { GraduationCap, Loader2, CheckCircle, ArrowLeft, Building2 } from 'lucide-react'
+import { Loader2, CheckCircle, ArrowLeft, Building2 } from 'lucide-react'
+import BrandLogo from '../components/BrandLogo'
 import toast from 'react-hot-toast'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
@@ -108,8 +109,9 @@ export default function CollegeRegistrationPage() {
         </Link>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-primary-600 flex items-center justify-center">
-            <GraduationCap className="w-7 h-7 text-white" />
+          {/* WHY brand kit v1.0: square 48px slot → C-icon only (below full-lockup aspect), white tile for ink contrast in light/dark. */}
+          <div className="w-12 h-12 rounded-xl bg-white dark:bg-white flex items-center justify-center p-[4px] border border-surface-200 dark:border-night-600">
+            <BrandLogo variant="icon" height={32} alt="CampusFlow" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-surface-900 dark:text-night-50">Register Your College</h1>

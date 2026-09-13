@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Brand tokens — single primary source (#1ed760) + info blue (#0284c7) ── */
+/* ── Brand tokens — CampusFlow brand kit v1.0 locked (#1ED760 / #0A7A3A / #121212 / #FFFFFF) + info blue (#0284c7) ── */
 :root {
   --background: #F5F3FF;
   --foreground: #18181b;
@@ -45,6 +45,34 @@
 .dark .hackathon-premium {
   --background: #0a0a0a;
   --foreground: #fafafa;
+}
+
+/* ── Brand logo — crisp vector lockup (logo-apply) ──
+ * WHY: header logo was 32px fixed + p-[4px] ON the <img> (border-box →
+ * content squeezed to 24px: small + soft). Now: clearspace lives on the
+ * BrandLogo wrapper, <img> has zero padding + intrinsic width/height attrs +
+ * aspect-ratio (no CLS, no CSS stretch). Heights follow top-site band:
+ * 28–32px mobile / 36–40px desktop via CSS vars set by BrandLogo.tsx
+ * (--logo-h-mobile / --logo-h-desktop). SVG stays vector → retina-crisp at
+ * 100%/200% zoom in light + dark. shape-rendering keeps thin C-strokes sharp.
+ */
+.brand-logo-lockup {
+  height: var(--logo-h-mobile, 32px);
+  width: auto;
+  max-width: none;
+  padding: 0;
+  image-rendering: auto;
+  shape-rendering: geometricPrecision;
+}
+@media (min-width: 640px) {
+  .brand-logo-lockup {
+    height: var(--logo-h-desktop, 38px);
+  }
+}
+.brand-logo-icon {
+  padding: 0;
+  image-rendering: auto;
+  shape-rendering: geometricPrecision;
 }
 
 /* scrollbars hide for PillTabs */

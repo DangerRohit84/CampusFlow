@@ -2,12 +2,13 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { useAppStore } from '../../store/appStore'
 import {
-  LayoutDashboard, Bell, Settings, LogOut, Menu, X, GraduationCap,
+  LayoutDashboard, Bell, Settings, LogOut, Menu, X,
   Sparkles, Search, Award, Target, Clock, Trophy,
   ClipboardList, Shield, DoorOpen, Briefcase,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
   Medal, UserCheck, Code2, FileText, Globe, Building2, ArrowLeft, Flag, AlertTriangle, CircleHelp
 } from 'lucide-react'
+import BrandLogo from '../BrandLogo'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import clsx from 'clsx'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
@@ -494,14 +495,17 @@ export default function Layout() {
     const expanded = forceExpanded || sidebarOpen
     return (
     <div className="flex flex-col h-full max-h-screen">
-      {/* Logo — hallway plate — chrome-trimmed padding (§7 Phase 1b) */}
+      {/* Logo — brand kit v1.0 lockup (primary on light, reversed on dark #121212, 38px desktop / 32px mobile + 4px wrapper clearspace). Collapsed rail uses C-icon only per guide (<32px rule). */}
       <div className="px-3 py-2 flex items-center gap-2 border-b border-surface-200 dark:border-night-600/70 shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shrink-0">
-          <GraduationCap className="w-5 h-5 text-white" />
-        </div>
+        {expanded ? (
+          <BrandLogo variant="auto" height={38} />
+        ) : (
+          <span className="w-8 h-8 rounded-lg bg-white dark:bg-white flex items-center justify-center shrink-0 p-[4px]" title="CampusFlow">
+            <BrandLogo variant="icon" height={24} alt="CampusFlow" />
+          </span>
+        )}
         {expanded && (
           <div>
-            <span className="text-[13px] font-bold tracking-tight text-surface-900 dark:text-night-50 font-display">CampusFlow</span>
             <p className="text-[10px] font-semibold tracking-widest uppercase text-surface-500 dark:text-night-300">Hall 01 · Campus OS</p>
           </div>
         )}

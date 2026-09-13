@@ -81,13 +81,14 @@ export function Seo({ title, description, noindex, canonicalPath, ogImage, ogIma
 }
 
 /** JSON-LD: Organization for `/` (logo + sameAs placeholders). */
+// WHY brand kit v1.0: logo must be the approved lockup (primary PNG), not legacy icon-512 placeholder.
 export function organizationJsonLd() {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: 'CampusFlow',
     url: `${SITE_URL}/`,
-    logo: `${SITE_URL}/icon-512.png`,
+    logo: `${SITE_URL}/brand/campusflow-logo-primary.png`,
     description:
       'CampusFlow pins your timetable, rooms, assignments and career boards — live in seconds.',
   }

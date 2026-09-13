@@ -5,6 +5,14 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Brand kit v1.0 locked palette — no new colors.
+        // WHY: single source (Primary Green #1ED760, Deep Green #0A7A3A, Ink #121212, White #FFFFFF).
+        // primary-500 already #1ed760; brand.* aliases lock exact guide HEX (uppercase) for logo-adjacent surfaces.
+        brand: {
+          DEFAULT: '#1ED760',
+          deep: '#0A7A3A',
+          ink: '#121212',
+        },
         // Primary — single brand source (Spotify Green #1ed760 / #1db954). All green
         // tints derive from here. Success reuses the same hue for feedback (semantic alias).
         // WHY: one green source avoids drift (was primary/accent/success/brass/gold all duped).

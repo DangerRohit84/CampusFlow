@@ -4,7 +4,6 @@ import {
   Mail,
   Lock,
   ArrowRight,
-  GraduationCap,
   MapPin,
   Clock3,
   LogIn,
@@ -16,6 +15,7 @@ import {
   Github,
   Chrome,
 } from 'lucide-react'
+import BrandLogo from '../components/BrandLogo'
 import toast from 'react-hot-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
@@ -151,12 +151,10 @@ export default function LoginPage() {
         <div className="relative z-10 flex flex-col w-full p-8 xl:p-10">
           {/* top nav */}
           <div className="flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-3 group">
-              <span className="w-10 h-10 rounded-xl bg-white text-black grid place-items-center shadow-[0_8px_24px_rgba(0,0,0,0.22)] group-hover:scale-[1.02] transition-transform">
-                <GraduationCap size={18} />
-              </span>
+            <Link to="/" className="flex items-center gap-3 group" aria-label="CampusFlow home">
+              {/* WHY brand kit v1.0 splash: hero is dark #0a0a0a → reversed lockup, 38px desktop / 32px mobile + wrapper clearspace. */}
+              <BrandLogo variant="reversed" height={38} />
               <span>
-                <span className="block font-display font-extrabold tracking-tight leading-none text-white text-[15px]">CampusFlow</span>
                 <span className="block text-[10px] font-bold tracking-[0.16em] uppercase text-white/55">Hall 01 · Campus OS</span>
               </span>
             </Link>
@@ -295,11 +293,9 @@ export default function LoginPage() {
         >
           {/* mobile masthead — hidden on lg because left hero carries it */}
           <div className="flex lg:hidden items-center gap-3 mb-6">
-            <span className="w-10 h-10 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black grid place-items-center">
-              <GraduationCap size={18} />
-            </span>
+            {/* WHY brand kit v1.0: auto swaps primary/reversed for light/dark, 38px desktop / 32px mobile. */}
+            <BrandLogo variant="auto" height={38} />
             <span>
-              <span className="block font-display font-extrabold tracking-tight leading-none text-[#0a0a0a] dark:text-white">CampusFlow</span>
               <span className="block text-[10px] font-bold tracking-[0.14em] uppercase text-zinc-500 dark:text-zinc-400">Hall 01 · Campus OS</span>
             </span>
             <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
