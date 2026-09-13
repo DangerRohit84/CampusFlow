@@ -4,7 +4,7 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { toApiParticipations, toPlatformEnum } from '../lib/platform'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
-import { emitToUser, broadcastContestMutation, broadcastCodingProfileMutation } from '../services/socket'
+import { emitToUser, broadcastCodingProfileMutation } from '../services/socket'
 import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
 import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
 import { checkAndClaimSyncThrottle, clearSyncThrottleStore } from '../services/syncThrottleStore'
@@ -21,9 +21,29 @@ const router = Router()
 const SYNC_THROTTLE_MS = 60 * 1000
 const syncThrottle = new Map<string, number>()
 
-// Github throttle for calendar fetches — per IP or per user
+// Github throttle for calendar fetches — per IP or per user.
+// Track D (10k): shared via Redis `gh:{scope}:{id}` SET PX 60s (4× window,
+// same eviction horizon as the memory cleanup below) with the Map as L1
+// fast-path + fallback when REDIS_URL is unset/blipping. Advisory only
+// (never 429s — upstream githubActivity has its own 10m cache); sharing
+// prevents N replicas × burst hammering github.com/users pages.
 const githubThrottle = new Map<string, number>()
-const GITHUB_THROTTLE_MS = 15 * 1000 // 15s per user/IP
+export const GITHUB_THROTTLE_MS = 15 * 1000 // 15s per user/IP
+export const GITHUB_THROTTLE_REDIS_TTL_MS = GITHUB_THROTTLE_MS * 4
+export function githubThrottleRedisKey(key: string): string {
+  return `gh:${key}`
+}
+/** Test-only: clear github throttle memory (Redis cleared via __resetRedisForTests). */
+export function __resetGithubThrottleForTests(): void {
+  githubThrottle.clear()
+}
+async function noteGithubThrottleShared(key: string): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getRedisClient, redisSet } = require('../lib/redis') as typeof import('../lib/redis')
+    if (getRedisClient()) await redisSet(githubThrottleRedisKey(key), String(Date.now()), GITHUB_THROTTLE_REDIS_TTL_MS)
+  } catch {}
+}
 
 // Periodic cleanup to prevent unbounded memory growth (every 10 min evict expired entries)
 setInterval(() => {
@@ -52,13 +72,14 @@ router.get('/github-calendar', authenticate, async (req: AuthRequest, res: Respo
       res.status(404).json({ error: 'GitHub username not set. Add it in your coding profile first.', code: 'NO_GITHUB_USERNAME' })
       return
     }
-    // per-user throttle
+    // per-user throttle (L1 memory + L2 Redis shared, advisory — never 429s)
     const key = `cal:${req.userId}`
     const last = githubThrottle.get(key)
     if (last && Date.now() - last < GITHUB_THROTTLE_MS) {
       // still serve cached data (githubActivity service has its own cache), just avoid hammering
     }
     githubThrottle.set(key, Date.now())
+    void noteGithubThrottleShared(key)
 
     const daysParam = parseInt(String(req.query.days || '364'), 10)
     const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364
@@ -89,6 +110,7 @@ router.get('/github/:githubUsername', authenticate, async (req: AuthRequest, res
       // allow but update timestamp
     }
     githubThrottle.set(key, Date.now())
+    void noteGithubThrottleShared(key)
 
     const daysParam = parseInt(String(req.query.days || '364'), 10)
     const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364
@@ -390,8 +412,10 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
             platforms: result.platforms,
             completedAt: new Date().toISOString(),
           })
-          broadcastContestMutation({ userId, action: 'participations:synced', synced: result.synced })
-          broadcastCodingProfileMutation({ userId, action: 'sync:completed' })
+          // Track D: single broadcast per mutation (was 2 broadcasts = 3 scoped
+          // emits). broadcastCodingProfileMutation already includes
+          // contest:mutated for leaderboard (2 events, cross-entity budget).
+          broadcastCodingProfileMutation({ userId, action: 'sync:completed', synced: result.synced })
         } catch { /* socket.io not initialized — push is best-effort */ }
       })
       .catch((err) => logger.error({ err: err }, `Background coding-profile sync failed for ${userId}:`))

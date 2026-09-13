@@ -4,27 +4,28 @@ import jwt from 'jsonwebtoken'
 import { config } from '../config'
 import prisma, { withRetry } from '../config/db'
 import { logger } from '../utils/logger'
+import { isJtiRevoked, isJtiRevokedWithDb } from '../utils/authHardening'
 import { getRedisClient, redisDel, redisGet, redisSet } from '../lib/redis'
 
 // ---------------------------------------------------------------------------
-// Multi-instance scale-out (10k concurrent sockets).
-// Presence is SHARED today (Redis `presence:{userId}` with 24h TTL +
-// best-effort DEL, L1 memory fast-path). Emit fan-out still needs the
-// Redis adapter for cross-instance delivery (deferred dep):
+// Multi-instance scale-out (10k concurrent sockets) — Track D.
+// Presence is SHARED (Redis `presence:{userId}` with 24h TTL +
+// best-effort DEL, L1 memory fast-path). Emit fan-out is SHARED via
+// `@socket.io/redis-adapter` when REDIS_URL is set (fail-open to single-
+// replica memory when unset — dev works with zero infra).
 //
-//   npm i @socket.io/redis-adapter redis
-//   import { createAdapter } from '@socket.io/redis-adapter'
-//   import { createClient } from 'redis'
-//   const pubClient = createClient({ url: process.env.REDIS_URL })
-//   const subClient = pubClient.duplicate()
-//   await Promise.all([pubClient.connect(), subClient.connect()])
-//   io.adapter(createAdapter(pubClient, subClient))
+// Render sticky sessions: Socket.IO long-poll → websocket upgrade needs
+// stickiness. With the Redis adapter, emits work across replicas WITHOUT
+// stickiness, but the handshake/upgrade is still stickier/faster WITH it.
+// Render: run API with `numInstances >= 2` + session affinity when available
+// (see docs/adr/scale-10k-shard-redis.md §5 + config.socketAdapter). Without
+// affinity, clients transparently re-poll another replica (correct, +1 RTT).
+// Config flag SOCKET_ADAPTER=redis|memory (default: redis when REDIS_URL,
+// else memory) forces the mode for staging proofs.
 //
 // Presence design: false-positive safe (stale "online" → extra no-op emit,
 // never a dropped notification). Crash leaks expire in 24h; clean
-// disconnects DEL immediately. Without the adapter, `emitToUser` on
-// instance A still only reaches sockets on A — presence sharing is step 1,
-// the adapter is step 2 (see scale10k-redis report §5).
+// disconnects DEL immediately.
 // ---------------------------------------------------------------------------
 
 let io: Server
@@ -90,6 +91,58 @@ export function resetSocketStateForTests(): void {
   userSockets.clear()
 }
 
+export function getSocketAdapterMode(): 'redis' | 'memory' {
+  try {
+    // Fresh env first (tests mutate process.env per-case), config SSOT as fallback.
+    // config.socketAdapter is evaluated at boot import; env may change after (staging proofs).
+    const fresh = String(process.env.SOCKET_ADAPTER || '').trim().toLowerCase()
+    const configured = String((config as { socketAdapter?: string }).socketAdapter || '').trim().toLowerCase()
+    const forced = fresh || configured
+    if (forced === 'memory') return 'memory'
+    if (forced === 'redis') return getRedisClient() ? 'redis' : 'memory'
+  } catch {}
+  return getRedisClient() ? 'redis' : 'memory'
+}
+
+/**
+ * Attach the Redis adapter for cross-replica emit fan-out (Track D P0-1).
+ * Fail-open: REDIS_URL unset / adapter dep missing / Redis blip → single-
+ * replica memory (dev works, prod single-replica works; multi-replica
+ * without REDIS_URL silently drops cross-instance delivery — boot logs warn).
+ * Never throws, never blocks initSocket.
+ */
+export function attachSocketAdapter(target: Server): 'redis' | 'memory' {
+  const mode = getSocketAdapterMode()
+  if (mode !== 'redis') {
+    logger.info('[socket] adapter=memory (single-replica; set REDIS_URL + SOCKET_ADAPTER=redis for multi-replica fan-out)')
+    return 'memory'
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const adapterMod = require('@socket.io/redis-adapter') as any
+    const createAdapter = adapterMod?.createAdapter as ((pub: never, sub: never) => never) | undefined
+    if (!createAdapter) throw new Error('redis-adapter createAdapter missing')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const IORedis = require('ioredis') as new (url: string, opts?: unknown) => { on?: (e: string, l: (...a: unknown[]) => void) => void; quit?: () => Promise<void>; disconnect?: () => void }
+    const url = String(process.env.REDIS_URL || '').trim()
+    if (!url) return 'memory'
+    const pub = new IORedis(url, { lazyConnect: true, maxRetriesPerRequest: 2, enableReadyCheck: true })
+    const sub = new IORedis(url, { lazyConnect: true, maxRetriesPerRequest: 2, enableReadyCheck: true })
+    try {
+      ;(pub as { on?: (e: string, l: () => void) => void }).on?.('error', () => {})
+      ;(sub as { on?: (e: string, l: () => void) => void }).on?.('error', () => {})
+      void (pub as unknown as { connect?: () => Promise<void> }).connect?.()?.catch(() => {})
+      void (sub as unknown as { connect?: () => Promise<void> }).connect?.()?.catch(() => {})
+    } catch {}
+    target.adapter(createAdapter(pub as never, sub as never))
+    logger.info('[socket] adapter=redis (cross-replica fan-out shared; sticky sessions recommended, not required)')
+    return 'redis'
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message || err }, '[socket] redis adapter unavailable, falling back to memory (single-replica)')
+    return 'memory'
+  }
+}
+
 export function initSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
@@ -97,6 +150,9 @@ export function initSocket(httpServer: HttpServer): Server {
       methods: ['GET', 'POST'],
     },
   })
+
+  // Track D: share emit fan-out across replicas when REDIS_URL is set.
+  attachSocketAdapter(io)
 
   io.on('connection', (socket: Socket) => {
     // Verify JWT from handshake auth
@@ -108,9 +164,30 @@ export function initSocket(httpServer: HttpServer): Server {
     }
 
     let userId: string
+    let tokenJti: string | undefined
     try {
-      const decoded = jwt.verify(token, config.jwtSecret) as { userId: string }
+      const decoded = jwt.verify(token, config.jwtSecret) as { userId: string; jti?: string }
       userId = decoded.userId
+      tokenJti = decoded.jti
+      // Revocation bypass fix: reject revoked jtis at handshake (fail-closed).
+      // Sync memory check first (no await on hot path); DB read-through async
+      // covers multi-replica revocations (logout/change-password on another
+      // instance). DB miss/failure fails open to memory (authHardening).
+      if (tokenJti && isJtiRevoked(tokenJti)) {
+        logger.warn('[socket] connection rejected: token revoked')
+        socket.disconnect()
+        return
+      }
+      if (tokenJti) {
+        void isJtiRevokedWithDb(tokenJti)
+          .then((revoked) => {
+            if (revoked) {
+              logger.warn('[socket] connection rejected: token revoked (db)')
+              try { socket.disconnect() } catch {}
+            }
+          })
+          .catch(() => {})
+      }
     } catch {
       logger.warn('[socket] connection rejected: invalid token')
       socket.disconnect()
@@ -415,6 +492,38 @@ export function emitToCollege(collegeId: string | null | undefined, event: strin
   }
 }
 
+/**
+ * Per-user college resolution (fan-out fix without caller churn).
+ * Mutations for per-user entities (schedule/task/attendance/grade) carry
+ * userId but no collegeId. Resolving the owner's college scopes the emit to
+ * that college room (≈college size wake-ups) instead of global (10k).
+ * Best-effort fire-and-forget: lookup failure fails open to global (compat),
+ * never blocks the response, never throws.
+ */
+function emitPerUserScoped(
+  events: Array<{ event: string; basePayload: any }>,
+  collegeId?: string | null,
+  userId?: string | null,
+) {
+  if (collegeId) {
+    for (const e of events) emitToCollege(collegeId, e.event, { ...e.basePayload, collegeId })
+    return
+  }
+  if (userId) {
+    void prisma.user
+      .findUnique({ where: { id: userId }, select: { collegeId: true } })
+      .then((u) => {
+        const cid = u?.collegeId ?? null
+        for (const e of events) emitToCollege(cid, e.event, { ...e.basePayload, collegeId: cid ?? undefined })
+      })
+      .catch(() => {
+        for (const e of events) emitToCollege(null, e.event, e.basePayload)
+      })
+    return
+  }
+  for (const e of events) emitToCollege(null, e.event, e.basePayload)
+}
+
 /** Batched emit: one socket round-trip for N events (reduces wake-ups). */
 export function emitBatch(toUserId: string | null, events: Array<{ event: string; data: unknown }>, collegeId?: string | null) {
   try {
@@ -425,127 +534,194 @@ export function emitBatch(toUserId: string | null, events: Array<{ event: string
   }
 }
 
-export function emitAssignmentSubmissionUpdated(hubId: string, submission: any, extra: any = {}) {
-  safeEmit('assignment:submission:updated', { hubId, submission, ...extra })
+export function emitAssignmentSubmissionUpdated(hubId: string, submission: any, extra: any = {}, collegeId?: string | null) {
+  const cid = collegeId ?? extra?.collegeId ?? submission?.collegeId ?? submission?.assignment?.collegeId ?? null
+  emitToCollege(cid, 'assignment:submission:updated', { hubId, submission, ...extra, collegeId: cid ?? extra?.collegeId ?? undefined })
 }
 
-export function emitAssignmentGraded(hubId: string, submission: any) {
-  safeEmit('assignment:graded', { hubId, submission })
+export function emitAssignmentGraded(hubId: string, submission: any, collegeId?: string | null) {
+  const cid = collegeId ?? submission?.collegeId ?? submission?.assignment?.collegeId ?? null
+  emitToCollege(cid, 'assignment:graded', { hubId, submission, collegeId: cid ?? undefined })
 }
 
-export function emitAssignmentOfflineMarked(hubId: string, submission: any) {
-  safeEmit('assignment:offline:marked', { hubId, submission })
+export function emitAssignmentOfflineMarked(hubId: string, submission: any, collegeId?: string | null) {
+  const cid = collegeId ?? submission?.collegeId ?? submission?.assignment?.collegeId ?? null
+  emitToCollege(cid, 'assignment:offline:marked', { hubId, submission, collegeId: cid ?? undefined })
 }
 
-export function emitAssignmentBulkGraded(hubId: string, submissions: any[]) {
-  safeEmit('assignment:bulk:graded', { hubId, submissions })
+export function emitAssignmentBulkGraded(hubId: string, submissions: any[], collegeId?: string | null) {
+  const cid = collegeId ?? (Array.isArray(submissions) ? submissions[0]?.collegeId : null) ?? null
+  emitToCollege(cid, 'assignment:bulk:graded', { hubId, submissions, collegeId: cid ?? undefined })
 }
 
-export function emitAssignmentStatsUpdated(hubId: string) {
-  safeEmit('assignment:stats:updated', { hubId })
+export function emitAssignmentStatsUpdated(hubId: string, collegeId?: string | null) {
+  emitToCollege(collegeId ?? null, 'assignment:stats:updated', { hubId, collegeId: collegeId ?? undefined })
 }
 
-export function emitAssignmentPendingUpdated(hubId: string) {
-  safeEmit('assignment:pending:updated', { hubId })
+export function emitAssignmentPendingUpdated(hubId: string, collegeId?: string | null) {
+  emitToCollege(collegeId ?? null, 'assignment:pending:updated', { hubId, collegeId: collegeId ?? undefined })
 }
 
-export function broadcastAssignmentMutation(hubId: string) {
-  safeEmit('assignment:mutated', { hubId })
-  safeEmit('assignment:hub:updated', { hubId })
-  // also emit generic submission update so older clients listening to that still refresh
-  safeEmit('assignment:submission:updated', { hubId })
+export function broadcastAssignmentMutation(hubId: string, collegeId?: string | null) {
+  // Track D (10k): 1 scoped event per mutation (was 3×). Frontend entitySync
+  // maps every `assignment:*` prefix to the assignment entity + RELATED busts
+  // hubs/submissions/dashboard, so single `assignment:mutated` refreshes all.
+  // Callers pass hub.collegeId (global fallback when null for compat).
+  emitToCollege(collegeId ?? null, 'assignment:mutated', { hubId, collegeId: collegeId ?? undefined })
 }
-export function emitAssignmentHubUpdated(hubId: string, hub: any) {
-  safeEmit('assignment:hub:updated', { hubId, hub })
-}
-
-// Forms realtime — mirrors assignment pattern (global emit, client filters by formId)
-export function emitFormUpdated(formId: string, form?: any) {
-  safeEmit('form:updated', { formId, form })
-}
-export function emitFormResponseUpdated(formId: string, response: any, extra: any = {}) {
-  safeEmit('form:response:updated', { formId, response, ...extra })
-}
-export function emitFormExtended(formId: string, expiresAt: string) {
-  safeEmit('form:extended', { formId, expiresAt })
-}
-export function broadcastFormMutation(formId: string) {
-  safeEmit('form:mutated', { formId })
-  safeEmit('form:updated', { formId })
-  safeEmit('form:response:updated', { formId })
+export function emitAssignmentHubUpdated(hubId: string, hub: any, collegeId?: string | null) {
+  const cid = collegeId ?? hub?.collegeId ?? null
+  emitToCollege(cid, 'assignment:hub:updated', { hubId, hub, collegeId: cid ?? undefined })
 }
 
-// Announcements realtime — college-scoped when collegeId present, else global (compat)
+// Forms realtime — college-scoped (was global emit, client filters by formId)
+export function emitFormUpdated(formId: string, form?: any, collegeId?: string | null) {
+  const cid = collegeId ?? form?.collegeId ?? null
+  emitToCollege(cid, 'form:updated', { formId, form, collegeId: cid ?? undefined })
+}
+export function emitFormResponseUpdated(formId: string, response: any, extra: any = {}, collegeId?: string | null) {
+  const cid = collegeId ?? extra?.collegeId ?? response?.collegeId ?? null
+  emitToCollege(cid, 'form:response:updated', { formId, response, ...extra, collegeId: cid ?? extra?.collegeId ?? undefined })
+}
+export function emitFormExtended(formId: string, expiresAt: string, collegeId?: string | null) {
+  emitToCollege(collegeId ?? null, 'form:extended', { formId, expiresAt, collegeId: collegeId ?? undefined })
+}
+export function broadcastFormMutation(formId: string, collegeId?: string | null) {
+  // Track D: 1 scoped event per mutation (was 3×). `form:mutated` busts forms
+  // + dashboard via RELATED; detail/response pages refetch on mutated.
+  emitToCollege(collegeId ?? null, 'form:mutated', { formId, collegeId: collegeId ?? undefined })
+}
+
+// Announcements realtime — 1 scoped event per mutation (was 4×). All
+// `announcement:*` map to the announcement entity + RELATED busts dashboard.
 export function broadcastAnnouncementMutation(payload: any = {}) {
   scopedEmit('announcement:mutated', payload)
-  scopedEmit('announcement:created', payload)
-  scopedEmit('announcement:updated', payload)
-  scopedEmit('announcement:deleted', payload)
 }
 
-// Rooms realtime — college-scoped when collegeId present (chat already has dedicated per-user events)
+// Rooms realtime — 1 scoped event per mutation (was 4×, chat has dedicated per-user events)
 export function broadcastRoomMutation(payload: any = {}) {
   scopedEmit('room:mutated', payload)
-  scopedEmit('room:updated', payload)
-  scopedEmit('room:created', payload)
-  scopedEmit('room:deleted', payload)
 }
 
-// Internships realtime — covers internships + internshipStaging approvals
+// Internships realtime — 1 scoped event per mutation (was 5×, covers staging approvals via RELATED admin-staging)
 export function broadcastInternshipMutation(payload: any = {}) {
   scopedEmit('internship:mutated', payload)
-  scopedEmit('internship:updated', payload)
-  scopedEmit('internship:created', payload)
-  scopedEmit('internship:deleted', payload)
-  scopedEmit('internship:staging:updated', payload)
 }
 
-// Hackathons realtime — covers hackathons + hackathonStaging approvals
+// Hackathons realtime — 1 scoped event per mutation (was 5×, covers staging approvals via RELATED admin-staging)
 export function broadcastHackathonMutation(payload: any = {}) {
   scopedEmit('hackathon:mutated', payload)
-  scopedEmit('hackathon:updated', payload)
-  scopedEmit('hackathon:created', payload)
-  scopedEmit('hackathon:deleted', payload)
-  scopedEmit('hackathon:staging:updated', payload)
 }
 
-// Contests realtime — coding contests CRUD + solution mutations + fetch
+// Contests realtime — 1 scoped event per mutation (was 4×).
+// CodingContest.collegeId is nullable (null = global feed); scoped emits only
+// wake the owning college room instead of all 10k sockets.
 export function broadcastContestMutation(payload: any = {}) {
-  safeEmit('contest:mutated', payload)
-  safeEmit('contest:updated', payload)
-  safeEmit('contest:created', payload)
-  safeEmit('contest:deleted', payload)
+  const cid = payload?.collegeId ?? payload?.contest?.collegeId ?? null
+  emitToCollege(cid, 'contest:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
 }
 
-// Timetable / Calendar realtime — schedule mutations
+// Timetable / Calendar realtime — college-scoped when collegeId present.
+// Schedule rows are per-user; when only userId is present the owner's college
+// is resolved best-effort (see emitPerUserScoped) so only the owning college
+// room wakes (cross-device refresh preserved, global storm gone).
 export function broadcastScheduleMutation(payload: any = {}) {
-  safeEmit('schedule:mutated', payload)
-  safeEmit('calendar:mutated', payload)
+  // Track D: 1 scoped event per mutation (was 2× schedule+calendar).
+  // Both map to the schedule entity (bridge `calendar:` → schedule +
+  // SOCKET_EVENTS[schedule] includes task:mutated/schedule:mutated), and
+  // RELATED busts timetable/dashboard. Task pages listen schedule:mutated
+  // via SOCKET_EVENTS[task], so cross-freshness preserved.
+  const cid = payload?.collegeId ?? null
+  const uid = payload?.userId ?? null
+  if (cid || !uid) {
+    emitToCollege(cid, 'schedule:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    return
+  }
+  emitPerUserScoped(
+    [
+      { event: 'schedule:mutated', basePayload: { ...payload } },
+    ],
+    null,
+    uid,
+  )
 }
 
-// Coding profile realtime — per-user handled via emitToUser('profile-sync'), plus global refresh for leaderboard
+// Coding profile realtime — 2 scoped events max (cross-entity: profile + leaderboard).
+// Kept at 2 (within 1–2 budget) because contest pages subscribe to
+// `contest:mutated` directly via SOCKET_EVENTS[contest] (manual leaderboard),
+// while `coding:profile:mutated` alone would only bridge to coding-profile
+// (RELATED does bust contests, but direct-socket manual pages would miss).
+// Per-user handled via emitToUser('profile-sync') elsewhere.
 export function broadcastCodingProfileMutation(payload: any = {}) {
-  safeEmit('coding:profile:mutated', payload)
-  safeEmit('contest:mutated', payload)
+  const cid = payload?.collegeId ?? null
+  const uid = payload?.userId ?? null
+  if (cid || !uid) {
+    emitToCollege(cid, 'coding:profile:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    emitToCollege(cid, 'contest:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    return
+  }
+  emitPerUserScoped(
+    [
+      { event: 'coding:profile:mutated', basePayload: { ...payload } },
+      { event: 'contest:mutated', basePayload: { ...payload } },
+    ],
+    null,
+    uid,
+  )
 }
 
-// Attendance / Grades per-user — global mutated keeps Dashboard/Schedule/Calendar fresh across tabs/devices
+// Attendance / Grades per-user — 1 scoped mutated per mutation (was 2×).
+// `*:mutated` busts dashboard via RELATED; direct-socket manual pages listen
+// to `*:mutated` in SOCKET_EVENTS[attendance|grade].
 export function broadcastAttendanceMutation(payload: any = {}) {
-  safeEmit('attendance:mutated', payload)
-  safeEmit('attendance:updated', payload)
+  const cid = payload?.collegeId ?? null
+  const uid = payload?.userId ?? null
+  if (cid || !uid) {
+    emitToCollege(cid, 'attendance:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    return
+  }
+  emitPerUserScoped(
+    [
+      { event: 'attendance:mutated', basePayload: { ...payload } },
+    ],
+    null,
+    uid,
+  )
 }
 export function broadcastGradeMutation(payload: any = {}) {
-  safeEmit('grade:mutated', payload)
-  safeEmit('grade:updated', payload)
+  const cid = payload?.collegeId ?? null
+  const uid = payload?.userId ?? null
+  if (cid || !uid) {
+    emitToCollege(cid, 'grade:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    return
+  }
+  emitPerUserScoped(
+    [
+      { event: 'grade:mutated', basePayload: { ...payload } },
+    ],
+    null,
+    uid,
+  )
 }
 
-// Tasks — STATE-SYNC FIX: tasks.ts previously emitted ONLY schedule:mutated,
-// so cross-device TasksPage (listening for task:mutated) never refreshed.
-// Emit BOTH: task:mutated for the planner + schedule/calendar for the grid.
+// Tasks — Track D: 1 scoped event per mutation (was 3× task+schedule+calendar).
+// `task:mutated` busts schedules/timetable/dashboard via RELATED[task], and
+// SOCKET_EVENTS[schedule] includes `task:mutated`, so Schedule/Calendar pages
+// refresh cross-device without waking 10k sockets 3×.
 export function broadcastTaskMutation(payload: any = {}) {
-  safeEmit('task:mutated', payload)
-  safeEmit('schedule:mutated', payload)
-  safeEmit('calendar:mutated', payload)
+  const cid = payload?.collegeId ?? null
+  const uid = payload?.userId ?? null
+  if (cid || !uid) {
+    emitToCollege(cid, 'task:mutated', { ...payload, collegeId: cid ?? payload?.collegeId ?? undefined })
+    return
+  }
+  emitPerUserScoped(
+    [
+      { event: 'task:mutated', basePayload: { ...payload } },
+    ],
+    null,
+    uid,
+  )
 }
 
 // Colleges / users / departments / reports — STATE-SYNC FIX: entitySync.ts

@@ -3,13 +3,18 @@ import { io } from 'socket.io-client'
 let socket: ReturnType<typeof io> | null = null
 let currentToken: string | null = null
 
-export function connectSocket(token: string) {
+export function connectSocket(token?: string | null) {
+  // WHY cookie-only: HttpOnly migration (authStore dual-support) means token
+  // may be null while user session lives in cookies. Gate on user/auth in
+  // Layout, not token-only — connect with empty auth + withCredentials so
+  // cookie session still gets realtime.
+  const nextToken = token ?? null
   // Singleton guard: reuse existing socket if token unchanged - prevents orphaning
   // a "connecting" socket when Layout re-renders rapidly (e.g., StrictMode, HMR, or pathname churn).
   // Previously: `if (socket?.connected) return` would create a NEW socket while old was still
   // connecting (connected === false), overwriting the variable and leaking the old connection.
   if (socket) {
-    if (currentToken === token) {
+    if (currentToken === nextToken) {
       // Same session - reuse instance; if it was disconnected (manual or network), reconnect via same instance
       if (socket.disconnected) {
         socket.connect()
@@ -28,10 +33,11 @@ export function connectSocket(token: string) {
   const WS_URL = API_BASE.endsWith('/api') ? API_BASE.slice(0, -4) : API_BASE
 
   socket = io(WS_URL, {
-    auth: { token },
+    auth: nextToken ? { token: nextToken } : {},
     transports: ['websocket', 'polling'],
+    withCredentials: true,
   })
-  currentToken = token
+  currentToken = nextToken
 
   socket.on('connect', () => {
     console.log('[Socket] Connected', socket?.id)

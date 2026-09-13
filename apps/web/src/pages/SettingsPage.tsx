@@ -145,6 +145,16 @@ export default function SettingsPage() {
     if (!/^https?:\/\//i.test(c)) c = 'https://' + c
     try { const u = new URL(c); if (u.protocol!=='http:' && u.protocol!=='https:') return null; if (!u.hostname.includes('.') && u.hostname!=='localhost') return null; return u.toString() } catch { return null }
   }
+  // WHY render-crash: `new URL(portfolioUrl)` in JSX threw on invalid input
+  // (e.g. "not a url") and unmounted Settings. Validate + try/catch before
+  // constructing URL in render — invalid shows fallback, never throws.
+  const safePortfolioHostname = (input: string): string | null => {
+    try {
+      const normalized = normalizePortfolio(input)
+      if (!normalized) return null
+      return new URL(normalized).hostname
+    } catch { return null }
+  }
   const handleSavePortfolio = async () => {
     setPortfolioError(null)
     const raw = portfolioUrl.trim()
@@ -263,7 +273,7 @@ export default function SettingsPage() {
               <div className="rounded-2xl bg-primary-500 p-3 text-black">
                 <p className="text-[10px] font-black tracking-widest uppercase text-black/60">Portfolio</p>
                 <p className="mt-1 text-[11px] font-black leading-tight truncate">{portfolioUrl ? 'Linked ✓' : 'Not linked'}</p>
-                <p className="mt-1 text-[11px] font-bold text-black/70 truncate">{portfolioUrl ? new URL(portfolioUrl.startsWith('http')?portfolioUrl:'https://'+portfolioUrl).hostname : 'Add your site'}</p>
+                <p className="mt-1 text-[11px] font-bold text-black/70 truncate">{portfolioUrl ? (safePortfolioHostname(portfolioUrl) ?? 'Invalid URL') : 'Add your site'}</p>
               </div>
               <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/10 p-3 col-span-2">
                 <div className="flex items-center justify-between">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Download, Layers, Loader2, Zap, RefreshCw
+  Download, Layers, Loader2, Zap, RefreshCw, Timer, Save, ChevronDown
 } from 'lucide-react'
 import api from '../lib/api'
 import PlatformCard from '../components/fetch/PlatformCard'
@@ -34,6 +34,53 @@ interface Stats {
   totalPending: number
   platforms: PlatformStats[]
   health?: SourceHealth[]
+}
+
+// ─── Unified fetch config (master auto-fetch toggle + per-platform targets) ───
+// Backed by GET/PUT /fetch/config (SUPER_ADMIN). Manual fetch buttons below
+// ignore the master flag — explicit action is always allowed; only cron skips.
+interface FetchConfigPlatform {
+  platform: string
+  type: 'HACKATHON' | 'INTERNSHIP'
+  enabled: boolean
+  fetchLimit: number
+}
+
+interface FetchConfigState {
+  autoFetchEnabled: boolean
+  effectiveAutoFetch: boolean
+  source: 'env' | 'db' | 'default'
+  platforms: FetchConfigPlatform[]
+}
+
+type PlatformEdits = Record<string, { enabled: boolean; fetchLimit: number }>
+
+function editKey(platform: string, type: string): string {
+  return `${platform}|${type}`
+}
+
+// ─── Automatic Fetch panel collapse (persisted, collapsed by default) ───
+// WHY: fetch config grid is noisy on load; badge summary stays visible in the
+// header so cron state is glanceable without expanding. Collapsed by default,
+// last state restored from localStorage. Pure helpers exported for tests.
+export const AUTO_FETCH_PANEL_KEY = 'campusflow:fetch:autoFetchExpanded'
+
+export function getInitialAutoFetchExpanded(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false
+    return localStorage.getItem(AUTO_FETCH_PANEL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function persistAutoFetchExpanded(expanded: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(AUTO_FETCH_PANEL_KEY, expanded ? '1' : '0')
+  } catch {
+    // WHY: private-mode/quota errors must never break the fetch UI.
+  }
 }
 
 const HACKATHON_PLATFORMS = [
@@ -72,6 +119,24 @@ export default function FetchPage() {
   const [enrichingAll, setEnrichingAll] = useState(false)
   const [retryingFailed, setRetryingFailed] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // Master toggle + per-platform targets (SUPER_ADMIN config section)
+  const [fetchConfig, setFetchConfig] = useState<FetchConfigState | null>(null)
+  const [configLoading, setConfigLoading] = useState(true)
+  const [configError, setConfigError] = useState<string | null>(null)
+  const [togglingAuto, setTogglingAuto] = useState(false)
+  const [edits, setEdits] = useState<PlatformEdits>({})
+  const [savingTargets, setSavingTargets] = useState(false)
+  const [configSaved, setConfigSaved] = useState<string | null>(null)
+  // Collapsible Automatic Fetch panel — collapsed by default, persisted.
+  const [autoFetchExpanded, setAutoFetchExpanded] = useState<boolean>(() => getInitialAutoFetchExpanded())
+
+  const toggleAutoFetchExpanded = () => {
+    setAutoFetchExpanded((prev) => {
+      const next = !prev
+      persistAutoFetchExpanded(next)
+      return next
+    })
+  }
 
   const fetchStats = async () => {
     setStatsError(null)
@@ -90,11 +155,99 @@ export default function FetchPage() {
   const healthByPlatform = (id: string): SourceHealth | undefined =>
     stats?.health?.find((h) => h.platform === id)
 
+  // Per-card limit edits write the same PlatformSettings table — refresh the
+  // config section too so the toggle/targets panel never goes stale.
+  const handleCardRefresh = () => {
+    fetchStats()
+    fetchFetchConfig()
+  }
+
   const failedSources = (stats?.health || []).filter((h) => h.status === 'DOWN' || h.status === 'DEGRADED')
 
   useEffect(() => {
     fetchStats()
+    fetchFetchConfig()
   }, [])
+
+  const fetchFetchConfig = async () => {
+    setConfigError(null)
+    setConfigLoading(true)
+    try {
+      const { data } = await api.get('/fetch/config')
+      setFetchConfig(data)
+      const next: PlatformEdits = {}
+      for (const p of (data.platforms || []) as FetchConfigPlatform[]) {
+        next[editKey(p.platform, p.type)] = { enabled: p.enabled !== false, fetchLimit: p.fetchLimit ?? 10 }
+      }
+      setEdits(next)
+      setConfigSaved(null)
+    } catch (error: any) {
+      setConfigError(error?.response?.data?.error || 'Could not load fetch config.')
+    } finally {
+      setConfigLoading(false)
+    }
+  }
+
+  const configRows = (fetchConfig?.platforms || []).map((p) => {
+    const meta =
+      HACKATHON_PLATFORMS.find((h) => h.id === p.platform) ||
+      INTERNSHIP_PLATFORMS.find((h) => h.id === p.platform)
+    return { ...p, name: meta?.name || p.platform, icon: meta?.icon || '📦' }
+  })
+
+  const isTargetsDirty = configRows.some((r) => {
+    const e = edits[editKey(r.platform, r.type)]
+    if (!e) return false
+    return e.enabled !== (r.enabled !== false) || e.fetchLimit !== r.fetchLimit
+  })
+
+  const handleAutoToggle = async () => {
+    if (!fetchConfig || togglingAuto) return
+    setTogglingAuto(true)
+    setConfigSaved(null)
+    try {
+      const { data } = await api.put('/fetch/config', { autoFetchEnabled: !fetchConfig.autoFetchEnabled })
+      setFetchConfig(data)
+    } catch (error: any) {
+      setConfigError(error?.response?.data?.error || 'Could not save auto-fetch toggle.')
+    } finally {
+      setTogglingAuto(false)
+    }
+  }
+
+  const handleSaveTargets = async () => {
+    if (!fetchConfig || savingTargets) return
+    setSavingTargets(true)
+    setConfigSaved(null)
+    setConfigError(null)
+    try {
+      const platforms = configRows
+        .filter((r) => {
+          const e = edits[editKey(r.platform, r.type)]
+          return e && (e.enabled !== (r.enabled !== false) || e.fetchLimit !== r.fetchLimit)
+        })
+        .map((r) => {
+          const e = edits[editKey(r.platform, r.type)]
+          return { platform: r.platform, type: r.type, enabled: e.enabled, fetchLimit: e.fetchLimit }
+        })
+      if (platforms.length === 0) {
+        setConfigSaved('No changes to save.')
+        return
+      }
+      const { data } = await api.put('/fetch/config', { platforms })
+      setFetchConfig(data)
+      const next: PlatformEdits = {}
+      for (const p of (data.platforms || []) as FetchConfigPlatform[]) {
+        next[editKey(p.platform, p.type)] = { enabled: p.enabled !== false, fetchLimit: p.fetchLimit ?? 10 }
+      }
+      setEdits(next)
+      setConfigSaved(`Saved targets for ${platforms.length} platform${platforms.length > 1 ? 's' : ''}.`)
+    } catch (error: any) {
+      setConfigError(error?.response?.data?.error || 'Could not save platform targets.')
+    } finally {
+      setSavingTargets(false)
+    }
+  }
 
   const handleFetchAll = async () => {
     setFetchingAll(true)
@@ -214,6 +367,140 @@ export default function FetchPage() {
         </div>
       </div>
 
+      {/* ─── Automatic fetch (master toggle + per-platform targets, collapsible) ─── */}
+      <div className="rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-sm overflow-hidden">
+        <div className="h-[3px] bg-brass-400" />
+        <div className="px-5 py-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={toggleAutoFetchExpanded}
+              aria-expanded={autoFetchExpanded}
+              aria-controls="auto-fetch-panel-body"
+              aria-label={`${autoFetchExpanded ? 'Collapse' : 'Expand'} Automatic Fetch panel`}
+              className="flex flex-1 min-w-0 items-center gap-3 min-h-[44px] text-left rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            >
+              <span className="w-10 h-10 rounded-xl bg-surface-900 flex items-center justify-center shrink-0"><Timer size={18} className="text-brass-400" /></span>
+              <span className="flex-1 min-w-0">
+                <span className="font-display text-lg font-extrabold text-surface-900 dark:text-night-50 leading-none block">Automatic Fetch</span>
+                <span className="text-xs text-surface-500 dark:text-night-400 mt-1 block">Scheduled runs (cron). Manual Fetch buttons below always work.</span>
+              </span>
+              <ChevronDown
+                size={20}
+                aria-hidden="true"
+                className={`shrink-0 text-surface-500 dark:text-night-400 transition-transform ${autoFetchExpanded ? 'rotate-180' : ''}`}
+              />
+            </button>
+            <div className="flex items-center gap-3">
+              {fetchConfig && (
+                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  fetchConfig.effectiveAutoFetch
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'
+                }`}>
+                  {fetchConfig.effectiveAutoFetch ? '● Cron will run' : '● Cron will skip'}
+                </span>
+              )}
+              <button
+                onClick={handleAutoToggle}
+                disabled={configLoading || togglingAuto || !fetchConfig}
+                role="switch"
+                aria-checked={fetchConfig?.autoFetchEnabled === true}
+                aria-label="Toggle automatic fetch"
+                className={`relative inline-flex min-h-[32px] min-w-[56px] items-center rounded-full transition-colors disabled:opacity-50 ${
+                  fetchConfig?.autoFetchEnabled ? 'bg-primary-600' : 'bg-surface-300 dark:bg-night-600'
+                }`}
+              >
+                {togglingAuto ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white mx-auto" />
+                ) : (
+                  <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition-transform ${
+                    fetchConfig?.autoFetchEnabled ? 'translate-x-7' : 'translate-x-1'
+                  }`} />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div id="auto-fetch-panel-body" hidden={!autoFetchExpanded}>
+          {configLoading && !fetchConfig ? (
+            <div className="h-10 rounded-xl bg-surface-100 dark:bg-night-700 animate-pulse" aria-label="Loading fetch config" />
+          ) : configError && !fetchConfig ? (
+            <div className="p-4 rounded-xl bg-red-50 text-red-800 border border-red-200 text-sm" role="alert">
+              <span className="font-semibold">Couldn&apos;t load fetch config: </span>{configError}{' '}
+              <button onClick={fetchFetchConfig} className="ml-2 underline font-semibold">Retry</button>
+            </div>
+          ) : fetchConfig ? (
+            <div className="space-y-4">
+              <p className={`text-sm ${fetchConfig.effectiveAutoFetch ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
+                {fetchConfig.effectiveAutoFetch
+                  ? 'Automatic fetch is ON — scheduled runs will fetch from enabled platforms.'
+                  : 'Automatic fetch is OFF — scheduled runs will skip. Manual Fetch buttons still work.'}
+              </p>
+              {fetchConfig.source === 'env' && (
+                <p className="text-xs text-surface-500 dark:text-night-400">
+                  Controlled by the AUTO_FETCH_ENABLED environment variable (overrides this switch). Unset it to let this switch decide.
+                </p>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {configRows.map((r) => {
+                  const k = editKey(r.platform, r.type)
+                  const e = edits[k] || { enabled: r.enabled !== false, fetchLimit: r.fetchLimit }
+                  return (
+                    <div key={k} className="flex items-center gap-3 rounded-xl border border-surface-200 dark:border-night-600 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={e.enabled}
+                        onChange={(ev) => setEdits((prev) => ({ ...prev, [k]: { ...e, enabled: ev.target.checked } }))}
+                        aria-label={`Enable ${r.name}`}
+                        className="h-4 w-4 accent-primary-600"
+                      />
+                      <span className="text-lg" aria-hidden="true">{r.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-surface-900 dark:text-night-50 truncate">{r.name}</p>
+                        <p className="text-[11px] text-surface-500 dark:text-night-400">{r.type === 'HACKATHON' ? 'Hackathons' : 'Internships'}</p>
+                      </div>
+                      <label className="flex items-center gap-1.5 text-xs text-surface-500 dark:text-night-400">
+                        Target
+                        <input
+                          type="number"
+                          min={0}
+                          max={50}
+                          value={e.fetchLimit}
+                          disabled={!e.enabled}
+                          onChange={(ev) => {
+                            const n = Number(ev.target.value)
+                            const clamped = Number.isFinite(n) ? Math.min(50, Math.max(0, Math.floor(n))) : 0
+                            setEdits((prev) => ({ ...prev, [k]: { ...e, fetchLimit: clamped } }))
+                          }}
+                          aria-label={`${r.name} target (0 = All, max 50)`}
+                          title="0 = All, max 50"
+                          className="w-16 text-xs border border-surface-300 dark:border-night-600 rounded-lg px-2 py-1 bg-white dark:bg-night-800 text-surface-700 dark:text-night-200 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:opacity-50"
+                        />
+                      </label>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleSaveTargets}
+                  disabled={savingTargets || !isTargetsDirty}
+                  className="inline-flex items-center gap-2 min-h-[40px] px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-semibold disabled:opacity-50"
+                >
+                  {savingTargets ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save Targets
+                </button>
+                {configSaved && <span className="text-sm text-green-700 dark:text-green-300">{configSaved}</span>}
+                {configError && <span className="text-sm text-red-600 dark:text-red-300" role="alert">{configError}</span>}
+                <span className="text-xs text-surface-500 dark:text-night-400">Target 0 = All · disabled platforms are skipped by Fetch All and cron.</span>
+              </div>
+            </div>
+          ) : null}
+          </div>
+        </div>
+      </div>
+
       {/* Message */}
       {message && (
         <motion.div
@@ -284,7 +571,7 @@ export default function FetchPage() {
               }}
               type="hackathons"
               health={healthByPlatform(platform.id)}
-              onRefresh={fetchStats}
+              onRefresh={handleCardRefresh}
             />
           ))}
         </div>
@@ -309,7 +596,7 @@ export default function FetchPage() {
               }}
               type="internships"
               health={healthByPlatform(platform.id)}
-              onRefresh={fetchStats}
+              onRefresh={handleCardRefresh}
             />
           ))}
         </div>

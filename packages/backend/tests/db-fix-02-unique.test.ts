@@ -154,8 +154,11 @@ describe('order-2: save.ts NULL-safe dedupe + MANUAL default (behavioral)', () =
     };
     await saveItems([{ type: 'HACKATHON', title: 'T', url: 'https://x.test/u', source: null }], 'a', null, fakeDb);
     expect(seenWhere).toBeTruthy();
-    // sources list must not contain null/undefined
-    const sources = (seenWhere as any).source?.in ?? [];
+    // Pair-match shape { OR: [{ title, source }] } or legacy { source: { in } }:
+    // sources must not contain null/undefined and must normalize to MANUAL.
+    const sources: unknown[] = Array.isArray((seenWhere as any)?.OR)
+      ? (seenWhere as any).OR.map((p: any) => p?.source)
+      : ((seenWhere as any).source?.in ?? []);
     expect(sources).not.toContain(null);
     expect(sources).not.toContain(undefined);
     expect(sources).toContain('MANUAL');

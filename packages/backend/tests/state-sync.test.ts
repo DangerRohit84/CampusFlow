@@ -216,8 +216,15 @@ describe('effects + socket — one bridge, no per-page drift', () => {
       // by checking the socket service itself emits the canonical set.
     }
     // Canonical socket events the frontend must bridge (from socket.ts service).
+    // College-scoped fan-out fix: broadcasts use emitToCollege/scopedEmit
+    // (global safeEmit retained only as deprecated fallback). Count all three
+    // so the bridge coverage invariant survives the scoping migration.
+    // safeEmit/scopedEmit take (event, payload); emitToCollege takes
+    // (collegeId, event, payload) — hence two patterns.
     const socketSvc = fs.readFileSync(path.join(BACKEND_SRC, 'services/socket.ts'), 'utf8');
-    const emittedEvents = Array.from(socketSvc.matchAll(/safeEmit\('([^']+)'/g)).map((m) => m[1]);
+    const directEvents = Array.from(socketSvc.matchAll(/(?:safeEmit|scopedEmit)\(\s*'([^']+)'/g)).map((m) => m[1]);
+    const collegeEvents = Array.from(socketSvc.matchAll(/emitToCollege\(\s*[^,]+,\s*'([^']+)'/g)).map((m) => m[1]);
+    const emittedEvents = [...directEvents, ...collegeEvents];
     expect(emittedEvents.length).toBeGreaterThan(10);
     for (const ev of emittedEvents) {
       expect(syncSrc, `socket event '${ev}' has no frontend bridge`).toContain(ev.split(':')[0]);

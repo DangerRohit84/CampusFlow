@@ -13,6 +13,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- GSC verification is injected at runtime by Seo.tsx from VITE_GSC_VERIFICATION (no build placeholder, no warning when unset). -->
     <!-- WHY CSR fallback: crawlers without JS read these static tags (title/description/canonical/OG/Twitter 1200x630 PNG). Client Helmet (Seo.tsx) then refines per-route. For bot parity, prerender the 10 PUBLIC_EXACT paths; no framework swap (Vite SPA + SPA fallback). -->
+    <!-- WHY canonical SSOT: VITE_SITE_URL (Vercel env) is the single source of truth. Static hrefs below use the https://campusflow.dev fallback placeholder — at build/deploy, replace this host in index.html + public/sitemap.xml + public/robots.txt Sitemap + public/.well-known/security.txt Canonical with the same VITE_SITE_URL host (Vercel URL or custom domain). Verify dist/index.html canonical == Seo.tsx canonical == sitemap == robots Sitemap post-build. -->
     <!-- WHY brand kit v1.0 palette: theme-color locks Primary Green #1ED760 (uppercase per guide); TileColor locks Ink #121212 for Windows dark tabs. -->
     <meta name="theme-color" content="#1ED760" />
     <meta name="msapplication-TileColor" content="#121212" />

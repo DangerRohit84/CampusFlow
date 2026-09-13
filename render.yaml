@@ -43,6 +43,10 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      # CRON_SECRET single source of truth: generated ONCE on the API. Every cron job needing
+      # it (contests/profile-sync/reminders/opportunities/cleanup) holds a MANUAL COPY of this
+      # SAME value (`sync: false` — Blueprint cannot auto-propagate generateValue). Keepalive holds
+      # none (public /api/health). Rotation: regenerate here + paste into all 5 job crons together.
       - key: CRON_SECRET
         generateValue: true
       - key: AI_ENCRYPTION_KEY
@@ -59,8 +63,18 @@ services:
       # Singapore recreate. Same service name reuses *.onrender.com; if renamed,
       # update FRONTEND_URL + API_BASE_URL + VITE_API_URL + VITE_SITE_URL + cron
       # API_BASE_URL together (and CSP connect-src in this file).
+      # Vercel cutover: frontend prod moves to Vercel (vercel.json owns SPA rewrites +
+      # headers). Append the Vercel origin alongside onrender during dual-serve via
+      # comma-separated FRONTEND_URL (or FRONTEND_URLS csv) — e.g.
+      # FRONTEND_URL=https://campusflow-web.onrender.com,https://campusflow.vercel.app.
+      # Backend CORS + Socket.IO allowlist (config.frontendUrls) is explicit — never `*` in prod.
       - key: FRONTEND_URL
         value: https://campusflow-web.onrender.com
+      # Optional extra origins (combined with FRONTEND_URL csv). Set in dashboard when
+      # dual-serving Vercel + Render static, e.g. FRONTEND_URLS=https://campusflow.vercel.app.
+      # Leave unset for single-origin (FRONTEND_URL only). Never `*` in prod.
+      - key: FRONTEND_URLS
+        sync: false
       # TODO(first-deploy): same as above — must point at the live Singapore API.
       - key: API_BASE_URL
         value: https://campusflow-api.onrender.com
@@ -101,6 +115,10 @@ services:
       # Prod hardening: same security headers as nginx.conf (Render static has no nginx).
       # CSP hash must match apps/web/index.html inline theme script:
       #   sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4= (regen cmd in nginx.conf)
+      # Vercel parity: vercel.json headers mirror this CSP (+ HSTS/DENY/nosniff/Referrer/
+      # Permissions-Policy). connect-src 'self' covers the Vercel origin at runtime +
+      # explicit API (https) + wss + Cloudinary below — keep all five in sync on move:
+      # FRONTEND_URL(S) + API_BASE_URL + VITE_API_URL + VITE_SITE_URL + CSP connect-src.
       - path: /*
         name: Content-Security-Policy
         value: "default-src 'self'; script-src 'self' 'sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://res.cloudinary.com https://images.unsplash.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://campusflow-api.onrender.com wss://campusflow-api.onrender.com https://res.cloudinary.com; frame-src https://www.loom.com https://loom.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'deny'; upgrade-insecure-requests"
@@ -121,11 +139,15 @@ services:
         value: camera=(), microphone=(), geolocation=(), payment=(), usb=()
     envVars:
       # TODO(first-deploy): must match the live Singapore API URL (same TODO as above).
+      # Vercel dashboard must set the SAME VITE_API_URL (Production + Preview) — Vite bakes
+      # VITE_* at build time (client.ts + socket.ts + chatUtils + RoomResourcesPanel). Rebuild on change.
       - key: VITE_API_URL
         value: https://campusflow-api.onrender.com
-      # Canonical site URL for SEO (apps/web/src/components/Seo.tsx + index.html og/canonical).
-      # TODO(first-deploy): replace with real custom domain (e.g., https://campusflow.dev) when DNS cuts over.
-      # Must match <link rel=canonical> in apps/web/index.html and Seo.tsx SITE_URL fallback.
+      # Canonical site URL for SEO (SSOT: VITE_SITE_URL — Seo.tsx + index.html canonical/OG +
+      # sitemap.xml + robots.txt Sitemap + security.txt Canonical must share this host).
+      # TODO(first-deploy): replace with the Vercel canonical (Vercel URL or custom domain after DNS).
+      # Vercel dashboard must set the SAME VITE_SITE_URL. Never leave unset (fallback indexes placeholder).
+      # Static fallback strings (`campusflow.dev`) are replaced at build/deploy with this host.
       - key: VITE_SITE_URL
         value: https://campusflow-web.onrender.com
       - key: NODE_VERSION
@@ -139,6 +161,9 @@ services:
     schedule: "0 */6 * * *"
     command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contests -H "x-cron-secret: $CRON_SECRET"'
     envVars:
+      # CRON_SECRET single source: API `generateValue` (campusflow-api). Paste the SAME value
+      # here (manual copy — Blueprint `sync: false` does not auto-propagate). Rotate all together
+      # (API + every cron needing it); mismatch → 401, unset → 503 (fail-closed routes).
       - key: CRON_SECRET
         sync: false
       # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
@@ -153,6 +178,7 @@ services:
     schedule: "0 * * * *"
     command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/profile-sync -H "x-cron-secret: $CRON_SECRET"'
     envVars:
+      # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
         sync: false
       # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
@@ -169,6 +195,7 @@ services:
     schedule: "*/5 * * * *"
     command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contest-reminders -H "x-cron-secret: $CRON_SECRET"'
     envVars:
+      # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
         sync: false
       - key: API_BASE_URL
@@ -182,6 +209,7 @@ services:
     schedule: "0 */12 * * *"
     command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/opportunities -H "x-cron-secret: $CRON_SECRET"'
     envVars:
+      # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
         sync: false
       # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
@@ -196,6 +224,7 @@ services:
     schedule: "0 3 * * 0"
     command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"'
     envVars:
+      # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
         sync: false
       # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
@@ -210,8 +239,8 @@ services:
     schedule: "*/5 * * * *"
     command: 'curl -fsS $API_BASE_URL/api/health > /dev/null && echo "keepalive ok"'
     envVars:
-      - key: CRON_SECRET
-        sync: false
+      # NOTE: keepalive hits public GET /api/health (no secret) — no CRON_SECRET here by design
+      # (removes the unused 7th slot; rotate API + 5 job crons together, keepalive unaffected).
       # TODO(first-deploy): must match the live Singapore API URL (see api TODO).
       - key: API_BASE_URL
         value: https://campusflow-api.onrender.com

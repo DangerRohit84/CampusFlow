@@ -63,6 +63,15 @@ Sitemap: https://campusflow.dev/sitemap.xml
 
 > Tenant lists (`/hackathons`, `/internships`, `/contests`) are allowed by `Allow: /` at crawl level but carry `noindex` meta via `Seo.tsx` (not in `PUBLIC_EXACT`) — they stay out of the index until F01–F04 gates land. `/u/` is both disallowed and `noindex`. Canonical host comes from `VITE_SITE_URL` at deploy (see `Seo.tsx` + `index.html` + sitemap note below); `https://campusflow.dev` is the fallback placeholder.
 
+## Canonical SSOT — Vercel + Render deploy note (2026-09-13 Track C)
+
+- **Single source:** `VITE_SITE_URL` (Vercel env: Production + Preview; e.g. `https://campusflow.vercel.app` or custom domain after DNS).
+- **Fallback:** `https://campusflow.dev` in `apps/web/index.html` canonical/OG, `Seo.tsx` fallback, `public/sitemap.xml` locs, `public/robots.txt` Sitemap, `public/.well-known/security.txt` Canonical/Policy — placeholder only, never ship unset in prod.
+- **Build-time replace:** at build/deploy, replace the `campusflow.dev` fallback host in `index.html` + `sitemap.xml` + `robots.txt` Sitemap + `security.txt` Canonical with the SAME `VITE_SITE_URL` host (e.g. `sed -i 's#https://campusflow.dev#https://<vercel-host>#g'` on those four files pre-build, or Vercel buildCommand hook). Static files cannot read `import.meta.env` at serve time.
+- **Verify post-build:** `dist/index.html` canonical == `Seo.tsx` canonical == sitemap locs == robots Sitemap (grep `campusflow.dev` in `dist/` must be empty when a real host is set; `grep -R "campusflow-web.onrender.com\|vercel.app" dist/index.html` shows the live host).
+- **Vercel wiring:** `vercel.json` (root) owns SPA rewrites (`/(.*) → /index.html`), `Cache-Control: /assets/* immutable`, and security headers mirroring `render.yaml`/`nginx.conf` (same CSP hash + connect-src API/wss/Cloudinary). `VITE_API_URL` + `VITE_SITE_URL` are set in the Vercel Dashboard (Production + Preview, rebuild on change — Vite bakes at build time). `trailingSlash: false` avoids duplicate index entries (`/landing` alias canonicalizes to `/` in `Seo.tsx`).
+- **Backend origins:** `FRONTEND_URL` (+ optional `FRONTEND_URLS` csv) allowlists the Vercel origin alongside onrender during dual-serve (comma-separated, never `*` in prod) for CORS + Socket.IO (`config.frontendUrls` SSOT). `VITE_GROQ_API_KEY` must NEVER be set in Vercel (client-bundle leak — backend proxy only).
+
 ## CSR + prerender note (no framework swap)
 
 - SPA is CSR (Vite, no SSR). `index.html` carries fallback title/description/canonical/OG (`og-cover.png` 1200×630) + Twitter for bots without JS.

@@ -24,6 +24,14 @@ import { logger } from './logger';
 
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 const LOCKOUT_MAX_FAILS = 5;
+// Unbounded-store fix: process-local maps are DoS-amplifiers without bounds
+// (attacker-controlled keys: emails + jtis). LRU + TTL caps keep memory flat:
+// attempts evict oldest past MAX_ATTEMPT_KEYS (15m window entries expire
+// lazily on read + opportunistically on insert); revoked jtis carry a 24h
+// expiry (matches access-token TTL) and evict oldest past MAX_REVOKED_JTIS.
+const MAX_ATTEMPT_KEYS = 5000;
+const MAX_REVOKED_JTIS = 10_000;
+const REVOKED_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface AttemptState {
   count: number;
@@ -32,7 +40,47 @@ interface AttemptState {
 }
 
 const attempts = new Map<string, AttemptState>();
-const revokedJtis = new Set<string>();
+// jti -> expiresAt (epoch ms). Map preserves insertion order for LRU eviction.
+const revokedJtis = new Map<string, number>();
+
+function pruneAttempts(now = Date.now()): void {
+  if (attempts.size < MAX_ATTEMPT_KEYS) return;
+  // Opportunistic: drop expired windows/locks first, then oldest-first to cap.
+  for (const [key, s] of attempts) {
+    if (attempts.size < MAX_ATTEMPT_KEYS) break;
+    if (s.lockedUntil && now < s.lockedUntil) continue;
+    if (now - s.firstAt <= LOCKOUT_WINDOW_MS) continue;
+    attempts.delete(key);
+  }
+  while (attempts.size >= MAX_ATTEMPT_KEYS) {
+    const oldest = attempts.keys().next();
+    if (oldest.done) break;
+    attempts.delete(oldest.value);
+  }
+}
+
+function pruneRevoked(now = Date.now()): void {
+  if (revokedJtis.size < MAX_REVOKED_JTIS) {
+    // Still drop expired hits opportunistically when small (cheap scan only
+    // when oversized to avoid O(n) on every revoke in the common case).
+    return;
+  }
+  for (const [jti, exp] of revokedJtis) {
+    if (revokedJtis.size < MAX_REVOKED_JTIS) break;
+    if (exp <= now) revokedJtis.delete(jti);
+  }
+  while (revokedJtis.size >= MAX_REVOKED_JTIS) {
+    const oldest = revokedJtis.keys().next();
+    if (oldest.done) break;
+    revokedJtis.delete(oldest.value);
+  }
+}
+
+/** Test-only: clear lockout + revocation state (isolates hermetic tests). */
+export function clearAuthHardeningForTests(): void {
+  attempts.clear();
+  revokedJtis.clear();
+}
 
 // --- Defensive: pre-migration / stale-client tolerance ----------------------
 // Production incident (2026-09-09, same class as lastSyncError): the live DB
@@ -92,6 +140,7 @@ export function recordFailedLogin(email: string): void {
   const now = Date.now();
   const s = attempts.get(key);
   if (!s || now - s.firstAt > LOCKOUT_WINDOW_MS) {
+    if (!s) pruneAttempts(now);
     attempts.set(key, { count: 1, firstAt: now });
     return;
   }
@@ -112,7 +161,10 @@ export function signJwtWithJti(userId: string): { token: string; jti: string } {
 }
 
 export function revokeJti(jti: string): void {
-  if (jti) revokedJtis.add(jti);
+  if (jti) {
+    pruneRevoked();
+    revokedJtis.set(jti, Date.now() + REVOKED_TTL_MS);
+  }
   // Persist revocation (fail-open documented): in-memory Set is authoritative
   // this process; best-effort async persist to RevokedToken degrades to
   // warn-once when the table/client is missing (P2021/P2022-tolerant) and
@@ -169,20 +221,26 @@ export async function persistRevocationAttempt(jti: string, prismaClient?: any, 
 
 export function isJtiRevoked(jti: string | undefined): boolean {
   if (!jti) return false;
-  return revokedJtis.has(jti);
+  const exp = revokedJtis.get(jti);
+  if (exp === undefined) return false;
+  if (Date.now() >= exp) {
+    revokedJtis.delete(jti);
+    return false;
+  }
+  return true;
 }
 
 /**
- * Best-effort DB read-through for future multi-replica use. Memory Set is
+ * Best-effort DB read-through for future multi-replica use. Memory Map is
  * checked first (authoritative, sync-safe for middleware); on miss it tries
  * RevokedToken.findUnique and memoizes hits. Missing table/client degrades to
  * warn-once + false (fail-open to memory — auth continues). Never throws.
- * Current callers (middleware/auth.ts, socket.ts) stay on sync isJtiRevoked;
- * use this only where async is already available (refresh/logout audit).
+ * Socket handshake uses this async read-through; sync middleware stays on
+ * isJtiRevoked until callers go async.
  */
 export async function isJtiRevokedWithDb(jti: string | undefined, prismaClient?: any): Promise<boolean> {
   if (!jti) return false;
-  if (revokedJtis.has(jti)) return true;
+  if (isJtiRevoked(jti)) return true;
   try {
     const client: any = prismaClient ?? (await import('../config/db')).default;
     const delegate = client?.revokedToken;
@@ -194,7 +252,8 @@ export async function isJtiRevokedWithDb(jti: string | undefined, prismaClient?:
     }
     const row = await delegate.findUnique({ where: { jti }, select: { jti: true } });
     if (row) {
-      revokedJtis.add(jti);
+      pruneRevoked();
+      revokedJtis.set(jti, Date.now() + REVOKED_TTL_MS);
       return true;
     }
     return false;

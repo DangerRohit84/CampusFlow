@@ -137,10 +137,34 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 }
 
 function SuperAdminGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const user = useAuthStore((s) => s.user)
+  // WHY: logged-out (user null) must go to /login, not /403 — 403 is for
+  // wrong-role authed users. Checking auth first fixes logged-out → /403.
+  if (!isEffectivelyAuthenticated(isAuthenticated, user)) return <Navigate to={LOGOUT_DEST} replace />
   // WHY: wrong-role access is a 403 with request ID + support link, not a
   // silent redirect — users learn why they were blocked and how to appeal.
   if (user?.role !== 'SUPER_ADMIN') return <Navigate to="/403" replace />
+  return <>{children}</>
+}
+
+function CollegeAdminGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const user = useAuthStore((s) => s.user)
+  // WHY: /admin/opportunities + /reports are COLLEGE_ADMIN surfaces (SUPER_ADMIN
+  // scoped view mirrors COLLEGE_ADMIN). Logged-out → /login, STUDENT/TEACHER → /403.
+  if (!isEffectivelyAuthenticated(isAuthenticated, user)) return <Navigate to={LOGOUT_DEST} replace />
+  if (user?.role !== 'COLLEGE_ADMIN' && user?.role !== 'SUPER_ADMIN') return <Navigate to="/403" replace />
+  return <>{children}</>
+}
+
+function StaffGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const user = useAuthStore((s) => s.user)
+  // WHY: /admin + /teacher/opportunities are staff surfaces (TEACHER +
+  // COLLEGE_ADMIN + SUPER_ADMIN scoped). STUDENT → /403, logged-out → /login.
+  if (!isEffectivelyAuthenticated(isAuthenticated, user)) return <Navigate to={LOGOUT_DEST} replace />
+  if (user?.role !== 'TEACHER' && user?.role !== 'COLLEGE_ADMIN' && user?.role !== 'SUPER_ADMIN') return <Navigate to="/403" replace />
   return <>{children}</>
 }
 
@@ -253,7 +277,7 @@ export default function App() {
             <Route path="hackathons/:id" element={<LazyRoute label="Loading hackathon..."><HackathonDetailPage /></LazyRoute>} />
             <Route path="internships" element={<LazyRoute label="Loading internships..."><InternshipsPage /></LazyRoute>} />
             <Route path="internships/:id" element={<LazyRoute label="Loading internship..."><InternshipDetailPage /></LazyRoute>} />
-            <Route path="teacher/opportunities" element={<LazyRoute label="Loading opportunities..."><TeacherAssignedPage /></LazyRoute>} />
+            <Route path="teacher/opportunities" element={<StaffGuard><LazyRoute label="Loading opportunities..."><TeacherAssignedPage /></LazyRoute></StaffGuard>} />
             <Route path="contests" element={<LazyRoute label="Loading contests..."><CodingContestsPage /></LazyRoute>} />
             <Route path="contests/leaderboard" element={<LazyRoute label="Loading leaderboard..."><ContestLeaderboardPage /></LazyRoute>} />
             <Route path="coding-profile" element={<LazyRoute label="Loading coding profile..."><CodingProfilePage /></LazyRoute>} />
@@ -264,9 +288,9 @@ export default function App() {
             <Route path="forms/:id" element={<LazyRoute label="Loading form..."><FormDetailPage /></LazyRoute>} />
             <Route path="rooms" element={<LazyRoute label="Loading rooms..."><RoomsRoute /></LazyRoute>} />
             <Route path="rooms/:id" element={<LazyRoute label="Loading room..."><RoomDetailRoute /></LazyRoute>} />
-            <Route path="reports" element={<LazyRoute label="Loading reports..."><ReportsPage /></LazyRoute>} />
-            <Route path="admin" element={<LazyRoute label="Loading admin..."><AdminPage /></LazyRoute>} />
-            <Route path="admin/opportunities" element={<LazyRoute label="Loading opportunities..."><AdminOpportunitiesPage /></LazyRoute>} />
+            <Route path="reports" element={<CollegeAdminGuard><LazyRoute label="Loading reports..."><ReportsPage /></LazyRoute></CollegeAdminGuard>} />
+            <Route path="admin" element={<StaffGuard><LazyRoute label="Loading admin..."><AdminPage /></LazyRoute></StaffGuard>} />
+            <Route path="admin/opportunities" element={<CollegeAdminGuard><LazyRoute label="Loading opportunities..."><AdminOpportunitiesPage /></LazyRoute></CollegeAdminGuard>} />
             <Route path="superadmin" element={<SuperAdminGuard><LazyRoute label="Loading dashboard..."><SuperAdminDashboardPage /></LazyRoute></SuperAdminGuard>} />
             <Route path="superadmin/colleges" element={<SuperAdminGuard><LazyRoute label="Loading colleges..."><SuperAdminCollegesPage /></LazyRoute></SuperAdminGuard>} />
             <Route path="superadmin/colleges/:collegeId" element={<SuperAdminGuard><LazyRoute label="Loading college..."><SuperAdminCollegeView /></LazyRoute></SuperAdminGuard>} />

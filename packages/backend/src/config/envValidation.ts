@@ -147,8 +147,20 @@ export function validateEnv(
   }
 
   // --- FRONTEND_URL (prod-fatal, dev has localhost fallback) ---
-  if (isProd && isBlank(env.FRONTEND_URL)) {
-    errors.push('FRONTEND_URL is required in production (no localhost fallback — CORS/cookie allowlist must trust the real web origin).')
+  // SSOT allowlist is FRONTEND_URL + FRONTEND_URLS csv (combined, comma-split).
+  // Vercel cutover: append the Vercel origin alongside onrender (dual-serve) via
+  // either var; never `*` in prod (explicit origins only — fail-closed).
+  const frontendCombined = [env.FRONTEND_URL, env.FRONTEND_URLS]
+    .filter(Boolean)
+    .join(',')
+    .split(',')
+    .map((o: string) => o.trim())
+    .filter(Boolean)
+  if (isProd && frontendCombined.length === 0) {
+    errors.push('FRONTEND_URL is required in production (no localhost fallback — CORS/cookie allowlist must trust the real web origin). Set FRONTEND_URL or FRONTEND_URLS csv (e.g. https://campusflow-web.onrender.com,https://campusflow.vercel.app).')
+  }
+  if (isProd && frontendCombined.some((o) => o === '*' || o.includes('*'))) {
+    errors.push('Wildcard origin "*" is not allowed in production (set explicit FRONTEND_URL/FRONTEND_URLS csv).')
   }
 
   // --- JWT_EXPIRES_IN shape ---

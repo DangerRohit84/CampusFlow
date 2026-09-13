@@ -104,7 +104,9 @@ app.use((_req, res, next) => {
 })
 // High-scale: per-page weak ETag + CDN SWR (GitHub/Cloudflare pattern) — keep before routes so res.json is wrapped
 app.use(etagCacheMiddleware)
-// CORS allowlist is centralized in config.frontendUrls (SSOT from FRONTEND_URL).
+// CORS allowlist is centralized in config.frontendUrls (SSOT from FRONTEND_URL + FRONTEND_URLS csv).
+// Vercel cutover: append the Vercel origin alongside onrender via env (comma-separated, no wildcard in prod).
+// Socket.IO uses the same SSOT (services/socket.ts) — no per-file origin lists.
 const allowedOrigins = config.frontendUrls
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true) } else { callback(new Error('Not allowed by CORS')) } }, credentials: true }))
 // Body limits (I-8): default 1mb (was 10mb — JSON-parse DoS). Auth payloads are

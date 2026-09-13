@@ -7,6 +7,7 @@ import { runContestRemindersJob } from '../services/contestReminderService'
 import { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging, listFetchAllPlatforms, platformTypeMap } from '../services/opportunityAgent'
 import { logger } from '../utils/logger'
 import { normalizeSource } from '../services/opportunities/dedup'
+import { isAutoFetchEnabled } from '../services/fetch/autoFetch'
 
 const ENRICH_DELAY_MS = 12000
 
@@ -34,7 +35,18 @@ function requireCronSecret(req: Request, res: Response, next: () => void) {
   next()
 }
 
-export async function runContestsJob(): Promise<{ fetched: number; updated: number }> {
+export async function runContestsJob(opts?: {
+  /** Injectable gate for hermetic tests (defaults to the DB+env master toggle). */
+  isEnabled?: () => Promise<boolean>;
+}): Promise<{ fetched: number; updated: number }> {
+  // Master toggle: scheduled auto-fetch skips when SUPER_ADMIN paused it
+  // (FetchPage) or AUTO_FETCH_ENABLED=false. Manual POST /fetch/* + contest
+  // routes never consult this flag — explicit user action always allowed.
+  const enabled = await (opts?.isEnabled ? opts.isEnabled() : isAutoFetchEnabled());
+  if (!enabled) {
+    logger.info('[Cron] Auto-fetch disabled (master toggle OFF) — skipping contest fetch (manual fetch still allowed)');
+    return { fetched: 0, updated: 0 };
+  }
   logger.info('[Cron] Running contest fetch...')
   return fetchAndStoreContests()
 }
@@ -72,7 +84,18 @@ export interface OpportunitiesJobResult {
   internshipsEnriched: number
 }
 
-export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
+export async function runOpportunitiesJob(opts?: {
+  /** Injectable gate for hermetic tests (defaults to the DB+env master toggle). */
+  isEnabled?: () => Promise<boolean>;
+}): Promise<OpportunitiesJobResult> {
+  // Master toggle FIRST (before any DB/admin lookup): scheduled auto-fetch
+  // skips when SUPER_ADMIN paused it (FetchPage) or AUTO_FETCH_ENABLED=false.
+  // Manual POST /fetch/all + /:platform + /other/* never consult this flag.
+  const enabled = await (opts?.isEnabled ? opts.isEnabled() : isAutoFetchEnabled());
+  if (!enabled) {
+    logger.info('[Cron] Auto-fetch disabled (master toggle OFF) — skipping opportunity fetch (manual fetch still allowed)');
+    return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
+  }
   // BUILD MODE (operational mode build): Cron now respects PlatformSettings tick/target saved via Fetch All.
   // OTHER_HACKATHON / OTHER_INTERNSHIP remain detached manual-only (POST /fetch/other/*).
   // Cron reads platform_settings (platform, type, enabled, fetchLimit): enabled=false → skip, fetchLimit → target (0=All, else 1-50), default 10.
@@ -219,10 +242,19 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
   async function filterExistingStaging(rows: any[], model: 'hackathonStaging' | 'internshipStaging'): Promise<any[]> {
     if (rows.length === 0) return []
     try {
-      const titles = [...new Set(rows.map((r) => r.title))]
-      const sources = [...new Set(rows.map((r) => normalizeSource((r as { source?: unknown }).source)))]
+      // Pair-match dedupe (cross-product fix): title IN × source IN over-fetches
+      // (e.g. titles [A,B] × sources [S1,S2] fetches (A,S2) that never existed
+      // as a pair). Query exact (title, source) pairs via OR so the prefetch
+      // touches only candidate pairs; JS Set still decides exact membership.
+      const pairMap = new Map<string, { title: string; source: string }>()
+      for (const r of rows) {
+        const title = r.title as string
+        const source = normalizeSource((r as { source?: unknown }).source)
+        pairMap.set(`${String(title).trim().toLowerCase()}|${source}`, { title, source })
+      }
+      const pairs = [...pairMap.values()]
       const existing: any[] = await (prisma as any)[model].findMany({
-        where: { title: { in: titles }, source: { in: sources } },
+        where: { OR: pairs.map((p) => ({ title: p.title, source: p.source })) },
         select: { title: true, source: true },
       })
       const existingKeys = new Set(existing.map((e: any) => `${String(e.title).trim().toLowerCase()}|${normalizeSource((e as { source?: unknown }).source)}`))
@@ -246,11 +278,12 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
       hackathonFetched = res.count
       hackathonSkipped += hackFiltered.length - res.count
       try {
+        // Pair-match post-fetch (same cross-product fix as prefetch): resolve
+        // enrichment IDs via exact (title, source) OR pairs, then keep only
+        // wanted pairs in JS (createMany returns count only).
+        const hackPairs = [...new Map(hackFiltered.map((r) => [`${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`, { title: r.title as string, source: normalizeSource((r as { source?: unknown }).source) }])).values()]
         const createdRows: any[] = await prisma.hackathonStaging.findMany({
-          where: {
-            title: { in: [...new Set(hackFiltered.map((r) => r.title))] },
-            source: { in: [...new Set(hackFiltered.map((r) => normalizeSource((r as { source?: unknown }).source)))] },
-          },
+          where: { OR: hackPairs.map((p) => ({ title: p.title, source: p.source })) },
           select: { id: true, title: true, source: true },
         })
         const wanted = new Set(hackFiltered.map((r) => `${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`))
@@ -271,11 +304,9 @@ export async function runOpportunitiesJob(): Promise<OpportunitiesJobResult> {
       internshipFetched = res.count
       internshipSkipped += internFiltered.length - res.count
       try {
+        const internPairs = [...new Map(internFiltered.map((r) => [`${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`, { title: r.title as string, source: normalizeSource((r as { source?: unknown }).source) }])).values()]
         const createdRows: any[] = await prisma.internshipStaging.findMany({
-          where: {
-            title: { in: [...new Set(internFiltered.map((r) => r.title))] },
-            source: { in: [...new Set(internFiltered.map((r) => normalizeSource((r as { source?: unknown }).source)))] },
-          },
+          where: { OR: internPairs.map((p) => ({ title: p.title, source: p.source })) },
           select: { id: true, title: true, source: true },
         })
         const wanted = new Set(internFiltered.map((r) => `${String(r.title).trim().toLowerCase()}|${normalizeSource((r as { source?: unknown }).source)}`))

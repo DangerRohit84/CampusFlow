@@ -141,13 +141,21 @@ export async function saveItems(items: any[], adminId: string, collegeId: string
 
   // Single pre-fetch per table for existing (title,source) — avoids N findFirst.
   // Order 2 V-24 NULL-safe: both sides normalized (legacy NULL rows read as MANUAL).
+  // Pair-match (cross-product fix): title IN × source IN over-fetches phantom
+  // pairs; query exact (title, source) OR pairs so the prefetch touches only
+  // candidate pairs (≤N, not |titles|×|sources|).
   async function filterExisting(rows: any[], model: 'hackathonStaging' | 'internshipStaging'): Promise<any[]> {
     if (rows.length === 0) return []
     try {
-      const titles = [...new Set(rows.map((r) => r.title))]
-      const sources = [...new Set(rows.map((r) => normalizeSource((r as { source?: unknown }).source)))]
+      const pairMap = new Map<string, { title: string; source: string }>()
+      for (const r of rows) {
+        const title = r.title as string
+        const source = normalizeSource((r as { source?: unknown }).source)
+        pairMap.set(`${String(title).trim().toLowerCase()}|${source}`, { title, source })
+      }
+      const pairs = [...pairMap.values()]
       const existing: any[] = await (db as any)[model].findMany({
-        where: { title: { in: titles }, source: { in: sources } },
+        where: { OR: pairs.map((p) => ({ title: p.title, source: p.source })) },
         select: { title: true, source: true },
       })
       const existingKeys = new Set(existing.map((e: any) => `${String(e.title).trim().toLowerCase()}|${normalizeSource((e as { source?: unknown }).source)}`))

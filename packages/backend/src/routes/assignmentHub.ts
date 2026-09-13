@@ -160,7 +160,7 @@ router.post('/', hubUpload.array('attachments', 5), handleHubMulterError, async 
         })
       }
     } catch (err) { logger.debug({ err }, '[hub] attachments dual-write non-fatal') }
-    try { broadcastAssignmentMutation(hub.id) } catch {}
+    try { broadcastAssignmentMutation(hub.id, (hub as { collegeId?: string | null }).collegeId ?? null) } catch {}
     res.status(201).json(hub)
   } catch (e: any) {
     if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
@@ -192,20 +192,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let where: any = buildHubListWhere(user as any, { search, scope, submissionMode, collegeId, status })
 
     if (user.role === 'STUDENT') {
-      // Optimized: fetch hubs + roomMembers in parallel, then batch submission queries to avoid N*2 connection burst (fixes P2024 pool timeout)
-      const [allHubs, roomMembers] = await Promise.all([
-        prisma.assignmentHub.findMany({ where, orderBy: { dueDate: 'asc' } }),
-        prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } }),
-      ])
+      // Bounded Reads fix: was unbounded findMany(all college hubs) + JS filter
+      // + slice (10k rows per list call). AFTER: membership prefetch (≤user's
+      // rooms, small) then DB-side visibility OR + skip/take + count — every
+      // query bounded to `limit` (≤50). Same response shape + pagination.
+      const roomMembers = await prisma.roomMember.findMany({ where: { studentId: user.id }, select: { roomId: true } })
       const roomIds = roomMembers.map(r => r.roomId)
-      const visible = allHubs.filter(h => {
-        if (h.scope === 'ALL') return true
-        if (h.scope === 'DEPARTMENT') return h.departmentId === user.departmentId
-        if (h.scope === 'ROOM') return !!h.roomId && roomIds.includes(h.roomId!)
-        return false
-      })
-      const total = visible.length
-      const paged = visible.slice(skip, skip + limit)
+      const visibleWhere: any = {
+        AND: [
+          where,
+          {
+            OR: [
+              { scope: 'ALL' },
+              { scope: 'DEPARTMENT', departmentId: user.departmentId },
+              ...(roomIds.length ? [{ scope: 'ROOM', roomId: { in: roomIds } }] : []),
+            ],
+          },
+        ],
+      }
+      const [paged, total] = await Promise.all([
+        prisma.assignmentHub.findMany({ where: visibleWhere, orderBy: { dueDate: 'asc' }, skip, take: limit }),
+        prisma.assignmentHub.count({ where: visibleWhere }),
+      ])
       if (paged.length === 0) {
         res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
         res.json({ data: [], pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
@@ -484,7 +492,7 @@ router.put('/:id', hubUpload.array('attachments', 5), handleHubMulterError, asyn
         }
       } catch (err) { logger.debug({ err }, '[hub] attachments re-sync non-fatal') }
     }
-    try { broadcastAssignmentMutation(updated.id) } catch {}
+    try { broadcastAssignmentMutation(updated.id, (updated as { collegeId?: string | null }).collegeId ?? (existing as { collegeId?: string | null }).collegeId ?? null) } catch {}
     res.json(updated)
   } catch (e: any) {
     if (e instanceof z.ZodError) { res.status(400).json({ error: 'Validation error', details: e.errors ?? (e as any).issues }); return }
@@ -510,7 +518,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const isSuper = user.role === 'SUPER_ADMIN'
     if (!isOwner && !isCollegeAdmin && !isSuper) { res.status(403).json({ error: 'Only creator or college admin can delete' }); return }
     await prisma.assignmentHub.delete({ where: { id: existing.id } })
-    try { broadcastAssignmentMutation(existing.id) } catch {}
+    try { broadcastAssignmentMutation(existing.id, (existing as { collegeId?: string | null }).collegeId ?? null) } catch {}
     res.json({ message: 'Deleted' })
   } catch (e) { logger.error({ err: e }, 'Delete hub error'); res.status(500).json({ error: 'Failed to delete' }) }
 })

@@ -35,6 +35,7 @@ export interface RedisLike {
   set(key: string, value: string, ...args: Array<string | number>): Promise<string | null>
   del(...keys: string[]): Promise<number>
   incr(key: string): Promise<number>
+  incrby?(key: string, increment: number): Promise<number>
   pexpire(key: string, ms: number): Promise<number>
   pttl(key: string): Promise<number>
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>
@@ -232,6 +233,44 @@ export async function redisIncr(key: string, ttlMs?: number): Promise<number | n
     return n
   } catch (e) {
     warnErrorOnce(e, `INCR ${key}`)
+    return null
+  }
+}
+
+/**
+ * Track D — atomic INCRBY for token-bucket quotas (AI college tokens).
+ * Uses native INCRBY when available (ioredis), else GET+SET fallback for
+ * mocks (single-threaded OK; racy under true concurrency — over-admits by
+ * the racing increment, never 500s). TTL set on first increment only,
+ * mirroring redisIncr. Returns null when Redis unavailable (memory fallback).
+ */
+export async function redisIncrBy(key: string, increment: number, ttlMs?: number): Promise<number | null> {
+  const c = getRedisClient()
+  if (!c) return null
+  const delta = Math.floor(increment)
+  if (!Number.isFinite(delta) || delta <= 0) return redisIncr(key, ttlMs)
+  try {
+    if (typeof c.incrby === 'function') {
+      const n = await c.incrby(key, delta)
+      if (n === delta && typeof ttlMs === 'number' && ttlMs > 0) {
+        try {
+          await c.pexpire(key, Math.floor(ttlMs))
+        } catch {}
+      }
+      return n
+    }
+    // Fallback for mocks without INCRBY: read-modify-write.
+    const raw = await c.get(key)
+    const cur = raw == null ? 0 : parseInt(raw, 10) || 0
+    const next = cur + delta
+    if (cur === 0 && typeof ttlMs === 'number' && ttlMs > 0) {
+      await c.set(key, String(next), 'PX', Math.floor(ttlMs))
+    } else {
+      await c.set(key, String(next))
+    }
+    return next
+  } catch (e) {
+    warnErrorOnce(e, `INCRBY ${key}`)
     return null
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { tryToPlatformEnumStrict } from '../lib/enums'
+import { isAssignmentVisibleToUser } from '../utils/assignmentVisibility'
 
 const router = Router()
 router.use(authenticate)
@@ -37,10 +38,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const query = trimmed.toLowerCase()
     const userId = req.userId!
 
-    // HALF2: narrow auth read (was full row incl. passwordHash/preferences; only collegeId used)
+    // HALF2: narrow auth read (was full row incl. secrets/preferences; only college/role/dept used for scoping)
     // topbottom F12a: auth-read failure must degrade to global scope, not 500.
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { collegeId: true } }).catch(() => null)
-    const collegeId = (user as any)?.collegeId || null
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { collegeId: true, role: true, departmentId: true } }).catch(() => null)
+    const collegeId = (user as { collegeId?: string | null } | null)?.collegeId || null
+    const userRole = (user as { role?: string } | null)?.role || null
+    const userDepartmentId = (user as { departmentId?: string | null } | null)?.departmentId || null
+    const isSuperSearch = userRole === 'SUPER_ADMIN'
     // Use mode insensitive for Postgres; contains is sufficient
     const like = { contains: query, mode: 'insensitive' as const }
     // topbottom F12a: EVERY branch isolated — one table blip degrades to [],
@@ -53,23 +57,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: { userId, OR: [{ title: like }, { courseId: like }, { description: like }] }, take: 6,
       }).catch(() => [] as any[]),
       // AssignmentHub — college-scoped, visible via assignmentVisibility OR at least by college/global where
+      // ROOM-scope leak fix: null-college scopes to global-only (collegeId null),
+      // never the whole table. ROOM/DEPARTMENT scope is post-filtered below via
+      // membership (see safeAssignmentHubs).
       prisma.assignmentHub.findMany({
-        where: collegeId ? { collegeId, OR: [{ title: like }, { description: like }] } : { OR: [{ title: like }, { description: like }] },
+        where: collegeId ? { collegeId, OR: [{ title: like }, { description: like }] } : { collegeId: null, OR: [{ title: like }, { description: like }] },
         take: 6, orderBy: { dueDate: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.notification.findMany({
         where: { userId, OR: [{ title: like }, { message: like }] }, take: 6,
       }).catch(() => [] as any[]),
       prisma.hackathon.findMany({
-        where: collegeId ? { collegeId, OR: [{ title: like }, { organizer: like }] } : { OR: [{ title: like }, { organizer: like }] },
+        where: collegeId ? { collegeId, OR: [{ title: like }, { organizer: like }] } : { collegeId: null, OR: [{ title: like }, { organizer: like }] },
         take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.internship.findMany({
-        where: collegeId ? { collegeId, OR: [{ title: like }, { company: like }, { role: like }] } : { OR: [{ title: like }, { company: like }] },
+        // Internship.collegeId is required (no global rows): null-college
+        // callers match nothing (fail-closed, never the whole table).
+        where: collegeId ? { collegeId, OR: [{ title: like }, { company: like }, { role: like }] } : { id: '__no_college__' },
         take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.form.findMany({
-        where: collegeId ? { collegeId, OR: [{ title: like }, { description: like }] } : { OR: [{ title: like }, { description: like }] },
+        where: collegeId ? { collegeId, OR: [{ title: like }, { description: like }] } : { collegeId: null, OR: [{ title: like }, { description: like }] },
         take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.room.findMany({
@@ -114,10 +123,46 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       accessibleRoomIds.has(r.id) ? r : { ...r, joinCode: undefined },
     )
 
+    // ROOM-scope leak fix: assignmentHub search must not expose DEPARTMENT/ROOM
+    // rows the requester cannot open. Reuse the canonical visibility helper
+    // (single source of truth with assignmentHub list/detail). STUDENT and
+    // null-college callers are filtered; staff (TEACHER/COLLEGE_ADMIN) keep
+    // college-filtered results (ownership/admin checked at detail routes).
+    let safeAssignmentHubs: typeof assignmentHubs = assignmentHubs
+    try {
+      const needsScopeFilter = !isSuperSearch && (userRole === 'STUDENT' || !collegeId || !userRole)
+      if (needsScopeFilter && safeAssignmentHubs.length) {
+        const hubRoomIds = [...new Set(
+          safeAssignmentHubs
+            .filter((h: any) => h?.scope === 'ROOM' && typeof h?.roomId === 'string' && h.roomId)
+            .map((h: any) => h.roomId as string),
+        )]
+        const hubMemberIds = new Set<string>()
+        for (const id of accessibleRoomIds) hubMemberIds.add(id)
+        if (hubRoomIds.length) {
+          const missing = hubRoomIds.filter((id) => !hubMemberIds.has(id))
+          if (missing.length) {
+            const rows = await prisma.roomMember
+              .findMany({ where: { studentId: userId, roomId: { in: missing } }, select: { roomId: true } })
+              .catch(() => [] as Array<{ roomId: string }>)
+            for (const m of rows || []) hubMemberIds.add(m.roomId)
+          }
+        }
+        const viewer = { id: userId, role: userRole || 'STUDENT', collegeId, departmentId: userDepartmentId }
+        safeAssignmentHubs = safeAssignmentHubs.filter((h: any) =>
+          isAssignmentVisibleToUser(
+            { id: h.id, collegeId: h.collegeId ?? null, scope: h.scope, departmentId: h.departmentId ?? null, roomId: h.roomId ?? null },
+            viewer,
+            hubMemberIds,
+          ),
+        )
+      }
+    } catch { /* fail-closed: on lookup failure keep DB college-filtered rows (no extra leak beyond prior behavior) */ }
+
     const results = [
       ...schedules.map((s: any) => ({ type: 'schedule', id: s.id, title: s.title, subtitle: `${s.course || ''} · ${s.location || ''}`.replace(/^ · | · $/g,''), data: s })),
       ...assignments.map((a: any) => ({ type: 'assignment', id: a.id, title: a.title, subtitle: `${a.courseId} · Due: ${a.dueDate.toISOString().split('T')[0]}`, data: a })),
-      ...(assignmentHubs as any[]).map((h: any) => ({ type: 'assignmentHub', id: h.id, title: h.title, subtitle: `Due ${new Date(h.dueDate).toLocaleDateString()} · ${h.scope}`, data: h })),
+      ...safeAssignmentHubs.map((h: { id: string; title: string; dueDate: Date | string; scope: string }) => ({ type: 'assignmentHub', id: h.id, title: h.title, subtitle: `Due ${new Date(h.dueDate).toLocaleDateString()} · ${h.scope}`, data: h })),
       ...notifications.map((n: any) => ({ type: 'notification', id: n.id, title: n.title, subtitle: n.message, data: n })),
       ...(hackathons as any[]).map((h: any) => ({ type: 'hackathon', id: h.id, title: h.title, subtitle: `${h.organizer || ''} · ${h.mode || ''}`.replace(/^ · | · $/g,''), data: h })),
       ...(internships as any[]).map((i: any) => ({ type: 'internship', id: i.id, title: i.title, subtitle: `${i.company || ''} · ${i.role || ''}`.replace(/^ · | · $/g,''), data: i })),

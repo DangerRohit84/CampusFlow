@@ -80,29 +80,54 @@ function getDepartmentEligibleWhere(hub: any) {
 }
 
 // Helper: fetch eligible students for a hub (for pending) — include extra fields for frontend filtering (dept/year)
-async function fetchEligibleStudents(hub: any) {
+// Unbounded-read fix: paginated (take<=50, deterministic name+id order) so a
+// 10k-student college cannot blow the pool on one /pending call. Callers pass
+// page/limit; total comes from count queries (see /pending below), not from
+// fetching every row.
+async function fetchEligibleStudents(hub: any, opts?: { take?: number; skip?: number }) {
+  const take = Math.min(50, Math.max(1, opts?.take ?? 50));
+  const skip = Math.max(0, opts?.skip ?? 0);
   // Order 6: departmentName via join (DB copy dropped). baseSelect includes department relation; callers map to departmentName for compat.
   const baseSelect = { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } as const
+  const orderBy = [{ name: 'asc' } as const, { id: 'asc' } as const]
   if (hub.scope === 'ALL' && hub.collegeId) {
     return prisma.user.findMany({
       where: { collegeId: hub.collegeId, role: 'STUDENT' },
-      select: baseSelect
+      select: baseSelect,
+      orderBy, take, skip,
     })
   }
   if (hub.scope === 'DEPARTMENT' && hub.departmentId) {
     return prisma.user.findMany({
       where: getDepartmentEligibleWhere(hub),
-      select: baseSelect
+      select: baseSelect,
+      orderBy, take, skip,
     })
   }
   if (hub.scope === 'ROOM' && hub.roomId) {
     const members = await prisma.roomMember.findMany({
       where: { roomId: hub.roomId },
-      include: { student: { select: baseSelect } }
+      include: { student: { select: baseSelect } },
+      orderBy: { student: { name: 'asc' } },
+      take, skip,
     })
     return members.map(m => m.student).filter(Boolean) as any[]
   }
   return []
+}
+
+// Bounded counts for /pending pagination metadata (O(1) index counts, no row fetch).
+async function countEligibleStudents(hub: any): Promise<number> {
+  if (hub.scope === 'ALL' && hub.collegeId) {
+    return prisma.user.count({ where: { collegeId: hub.collegeId, role: 'STUDENT' } })
+  }
+  if (hub.scope === 'DEPARTMENT' && hub.departmentId) {
+    return prisma.user.count({ where: getDepartmentEligibleWhere(hub) })
+  }
+  if (hub.scope === 'ROOM' && hub.roomId) {
+    return prisma.roomMember.count({ where: { roomId: hub.roomId } })
+  }
+  return 0
 }
 
 // ---------------------------------------------------------------------------
@@ -187,14 +212,15 @@ router.post('/hub/:hubId/submissions/offline', async (req: AuthRequest, res: Res
       }
     })
 
-    // Real-time: notify all clients viewing this hub (and student)
+    // Real-time: notify college room viewing this hub (and student)
     try {
-      if (shouldGrade) emitAssignmentGraded(hub.id, submission)
-      else emitAssignmentOfflineMarked(hub.id, submission)
-      emitAssignmentSubmissionUpdated(hub.id, submission, { channel: 'OFFLINE' })
-      emitAssignmentPendingUpdated(hub.id)
-      emitAssignmentStatsUpdated(hub.id)
-      broadcastAssignmentMutation(hub.id)
+      const hubCollegeId = (hub as { collegeId?: string | null }).collegeId ?? null
+      if (shouldGrade) emitAssignmentGraded(hub.id, submission, hubCollegeId)
+      else emitAssignmentOfflineMarked(hub.id, submission, hubCollegeId)
+      emitAssignmentSubmissionUpdated(hub.id, submission, { channel: 'OFFLINE' }, hubCollegeId)
+      emitAssignmentPendingUpdated(hub.id, hubCollegeId)
+      emitAssignmentStatsUpdated(hub.id, hubCollegeId)
+      broadcastAssignmentMutation(hub.id, hubCollegeId)
     } catch {}
 
     res.status(201).json(submission)
@@ -228,14 +254,73 @@ router.post('/hub/:hubId/submissions/bulk-grade', async (req: AuthRequest, res: 
     const now = new Date()
     const results: any[] = []
 
-    await prisma.$transaction(async (tx) => {
-      for (const g of grades) {
-        const student: any = await tx.user.findFirst({ where: { OR: [{ id: g.studentId }, { studentId: g.studentId }] } })
-        if (!student || student.role !== 'STUDENT') throw new Error(`Student not found: ${g.studentId}`)
-        const eligibilityErr = await validateStudentEligibility(hub, student, tx)
-        if (eligibilityErr) throw new Error(eligibilityErr)
+    // Prefetch-then-batch (long-TX fix): all reads OUTSIDE the transaction
+    // (was 3 sequential reads per student INSIDE one long TX holding it open
+    // for 50×3 round-trips). AFTER: 3 bounded prefetch queries + short
+    // write-only TX. Same validation semantics, same 400s for unknown/
+    // ineligible students (thrown inside TX maps to 400 below).
+    const identifiers = [...new Set(grades.map((g) => g.studentId))]
+    const [studentRows, existingRows, roomRows] = await Promise.all([
+      prisma.user.findMany({
+        where: { OR: [{ id: { in: identifiers } }, { studentId: { in: identifiers } }] },
+        select: { id: true, studentId: true, role: true, collegeId: true, departmentId: true },
+      }),
+      // Existing submissions for these students (single IN query, no per-row lookup).
+      prisma.assignmentSubmission.findMany({
+        where: { assignmentId: hub.id, studentId: { in: identifiers } },
+      }).catch(() => [] as Array<{ studentId: string }>),
+      // ROOM membership prefetch (single IN query when needed).
+      hub.scope === 'ROOM' && hub.roomId
+        ? prisma.roomMember.findMany({
+            where: { roomId: hub.roomId, studentId: { in: identifiers } },
+            select: { studentId: true },
+          }).catch(() => [] as Array<{ studentId: string }>)
+        : Promise.resolve([] as Array<{ studentId: string }>),
+    ])
+    // existingRows used studentId IN identifiers, but identifiers may be roll
+    // numbers (User.studentId), not User.id — re-fetch by resolved ids below
+    // for exactness when rolls were used. Keep first pass as-is; correct map
+    // built after student resolution.
+    const byId = new Map(studentRows.map((s) => [s.id, s]))
+    const byRoll = new Map(studentRows.filter((s) => s.studentId).map((s) => [s.studentId as string, s]))
+    const resolved = grades.map((g) => byId.get(g.studentId) ?? byRoll.get(g.studentId) ?? null)
+    const resolvedIds = [...new Set(resolved.filter(Boolean).map((s) => (s as { id: string }).id))]
+    const existingByStudent = new Map<string, any>()
+    if (resolvedIds.length) {
+      const exactExisting = await prisma.assignmentSubmission
+        .findMany({ where: { assignmentId: hub.id, studentId: { in: resolvedIds } } })
+        .catch(() => [] as Array<{ studentId: string }>)
+      for (const e of exactExisting) existingByStudent.set(e.studentId, e)
+      // Merge the identifier-pass rows that already match resolved ids.
+      for (const e of existingRows) {
+        if (resolvedIds.includes(e.studentId) && !existingByStudent.has(e.studentId)) existingByStudent.set(e.studentId, e)
+      }
+    }
+    const roomMemberIds = new Set((roomRows || []).map((r) => r.studentId))
+    // Synchronous eligibility against prefetched state (mirrors
+    // validateStudentEligibility without per-row DB hits).
+    for (let i = 0; i < grades.length; i++) {
+      const g = grades[i]
+      const student = resolved[i] as { id: string; role: string; collegeId: string | null; departmentId: string | null } | null
+      if (!student || student.role !== 'STUDENT') throw new Error(`Student not found: ${g.studentId}`)
+      if (hub.collegeId && hub.collegeId !== student.collegeId) throw new Error('Student not in hub college')
+      if (hub.scope === 'DEPARTMENT' && hub.departmentId !== student.departmentId) throw new Error('Student not in target department')
+      if (hub.scope === 'ROOM') {
+        // Prefetch used raw identifiers; membership keyed by resolved User.id.
+        if (!roomMemberIds.has(student.id)) {
+          // Fallback: identifier itself may be the User.id and present under a
+          // roll-keyed row — re-check both keys before failing.
+          const altHit = roomMemberIds.has(g.studentId)
+          if (!altHit) throw new Error('Student not in target room')
+        }
+      }
+    }
 
-        const existing = await tx.assignmentSubmission.findUnique({ where: { assignmentId_studentId: { assignmentId: hub.id, studentId: student.id } } })
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < grades.length; i++) {
+        const g = grades[i]
+        const student = resolved[i] as { id: string }
+        const existing = existingByStudent.get(student.id) ?? null
         const shouldGrade = g.points !== undefined || g.grade !== undefined || g.feedback !== undefined
 
         if (existing) {
@@ -292,14 +377,15 @@ router.post('/hub/:hubId/submissions/bulk-grade', async (req: AuthRequest, res: 
       }
     })
 
-    // Real-time: broadcast bulk results
+    // Real-time: broadcast bulk results (college-scoped)
     try {
-      emitAssignmentBulkGraded(hub.id, results)
-      results.forEach(r => emitAssignmentGraded(hub.id, r))
-      results.forEach(r => emitAssignmentSubmissionUpdated(hub.id, r, { bulk: true }))
-      emitAssignmentPendingUpdated(hub.id)
-      emitAssignmentStatsUpdated(hub.id)
-      broadcastAssignmentMutation(hub.id)
+      const hubCollegeId = (hub as { collegeId?: string | null }).collegeId ?? null
+      emitAssignmentBulkGraded(hub.id, results, hubCollegeId)
+      results.forEach(r => emitAssignmentGraded(hub.id, r, hubCollegeId))
+      results.forEach(r => emitAssignmentSubmissionUpdated(hub.id, r, { bulk: true }, hubCollegeId))
+      emitAssignmentPendingUpdated(hub.id, hubCollegeId)
+      emitAssignmentStatsUpdated(hub.id, hubCollegeId)
+      broadcastAssignmentMutation(hub.id, hubCollegeId)
     } catch {}
 
     res.json({ data: results, count: results.length })
@@ -386,10 +472,11 @@ router.post('/hub/:hubId/submissions', upload.fields([{ name: 'file', maxCount: 
     try {
       // enrich with student for broadcast
       const enriched: any = { ...submission, student: { id: user.id, name: user.name, email: user.email, studentId: (user as any).studentId, departmentName: (user as any).department?.name ?? null, departmentId: (user as any).departmentId, incomingYear: (user as any).incomingYear } }
-      emitAssignmentSubmissionUpdated(hub.id, enriched, { channel })
-      emitAssignmentPendingUpdated(hub.id)
-      emitAssignmentStatsUpdated(hub.id)
-      broadcastAssignmentMutation(hub.id)
+      const hubCollegeId = (hub as { collegeId?: string | null }).collegeId ?? null
+      emitAssignmentSubmissionUpdated(hub.id, enriched, { channel }, hubCollegeId)
+      emitAssignmentPendingUpdated(hub.id, hubCollegeId)
+      emitAssignmentStatsUpdated(hub.id, hubCollegeId)
+      broadcastAssignmentMutation(hub.id, hubCollegeId)
     } catch {}
     res.status(201).json(submission)
   } catch (e) { logger.error({ err: e }, 'Submit error'); res.status(500).json({ error: 'Failed to submit' }) }
@@ -418,7 +505,7 @@ router.get('/hub/:hubId/submissions', async (req: AuthRequest, res: Response) =>
   } catch (e) { logger.error({ err: e }, 'List subs error'); res.status(500).json({ error: 'Failed to list submissions' }) }
 })
 
-// Pending students: eligible - submitted
+// Pending students: eligible - submitted (paginated, bounded reads)
 router.get('/hub/:hubId/pending', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } })
@@ -427,15 +514,34 @@ router.get('/hub/:hubId/pending', async (req: AuthRequest, res: Response) => {
     if (!hub) { res.status(404).json({ error: 'Assignment not found' }); return }
     if (!await authorizeHubTeacher(hub, user)) { res.status(403).json({ error: 'Not authorized for this assignment' }); return }
 
-    const eligible = await fetchEligibleStudents(hub)
-    const submissions = await prisma.assignmentSubmission.findMany({ where: { assignmentId: hub.id }, select: { studentId: true } })
-    const submittedIds = new Set(submissions.map(s => s.studentId))
-    const pending = eligible.filter(s => !submittedIds.has(s.id))
+    // 10k scale: paginated (limit<=50, default 20). Eligible page (≤50 rows)
+    // + submitted check scoped to that page (IN ≤50) + O(1) counts for total.
+    // Prior code fetched ALL eligible + ALL submissions (10k rows each).
+    const page = Math.max(1, parseInt(req.query.page as string) || 1)
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20))
+    const skip = (page - 1) * limit
+    const [eligiblePage, eligibleTotal, submittedTotal] = await Promise.all([
+      fetchEligibleStudents(hub, { take: limit, skip }),
+      countEligibleStudents(hub),
+      prisma.assignmentSubmission.count({ where: { assignmentId: hub.id } }),
+    ])
+    const pageIds = eligiblePage.map((s: { id: string }) => s.id)
+    const pageSubmitted = pageIds.length
+      ? await prisma.assignmentSubmission.findMany({
+          where: { assignmentId: hub.id, studentId: { in: pageIds } },
+          select: { studentId: true },
+        })
+      : []
+    const submittedIds = new Set(pageSubmitted.map(s => s.studentId))
+    const pending = eligiblePage.filter(s => !submittedIds.has((s as { id: string }).id))
 
-    // sort by name for deterministic UI
-    pending.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
-
-    res.json({ data: pending, total: pending.length, count: pending.length })
+    const pendingTotal = Math.max(0, eligibleTotal - submittedTotal)
+    res.json({
+      data: pending,
+      total: pendingTotal,
+      count: pending.length,
+      pagination: { page, limit, total: pendingTotal, pages: Math.ceil(pendingTotal / limit) },
+    })
   } catch (e) { logger.error({ err: e }, 'Pending error'); res.status(500).json({ error: 'Failed to get pending students' }) }
 })
 
@@ -463,10 +569,10 @@ router.put('/submissions/:id/grade', async (req: AuthRequest, res: Response) => 
         const stu = await prisma.user.findUnique({ where: { id: (updated as any).studentId }, select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, department: { select: { name: true } } } })
         ;(enriched as any).student = stu
       }
-      emitAssignmentGraded(hub.id, enriched)
-      emitAssignmentSubmissionUpdated(hub.id, enriched, { graded: true })
-      emitAssignmentStatsUpdated(hub.id)
-      broadcastAssignmentMutation(hub.id)
+      emitAssignmentGraded(hub.id, enriched, (hub as { collegeId?: string | null }).collegeId ?? null)
+      emitAssignmentSubmissionUpdated(hub.id, enriched, { graded: true }, (hub as { collegeId?: string | null }).collegeId ?? null)
+      emitAssignmentStatsUpdated(hub.id, (hub as { collegeId?: string | null }).collegeId ?? null)
+      broadcastAssignmentMutation(hub.id, (hub as { collegeId?: string | null }).collegeId ?? null)
     } catch {}
     res.json(updated)
   } catch (e) { logger.error({ err: e }, 'Grade error'); res.status(500).json({ error: 'Failed to grade' }) }

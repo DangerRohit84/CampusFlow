@@ -3,7 +3,7 @@
      and private profiles (/u/*) are intentionally excluded and carry noindex.
      Tenant detail lists (/hackathons/:id, /internships/:id) stay noindex until F01-F04 gates land. -->
 <!-- Canonical: / is primary; /landing 301s to / (alias kept for old links, not a separate index entry). /register is self-signup; /register-college is college intake (separate). Sync: Seo.tsx PUBLIC_EXACT (10) + robots.txt + docs/seo.md. -->
-<!-- Deploy (VITE_SITE_URL): production host comes from VITE_SITE_URL (render.yaml web envVars). At build/deploy, replace https://campusflow.dev below + robots.txt Sitemap + index.html canonical/OG with the same host (custom domain after DNS, else https://campusflow-web.onrender.com). Seo.tsx falls back to campusflow.dev when unset — set the env to avoid indexing the placeholder. -->
+<!-- Deploy (VITE_SITE_URL SSOT): production host comes from VITE_SITE_URL (Vercel env: Production + Preview). At build/deploy, replace https://campusflow.dev below + robots.txt Sitemap + index.html canonical/OG + .well-known/security.txt Canonical with the SAME host (Vercel URL or custom domain after DNS). Seo.tsx falls back to campusflow.dev when unset — always set the env to avoid indexing the placeholder. Verify: dist/index.html canonical == Seo.tsx canonical == sitemap locs == robots Sitemap. -->
 <!-- security.txt: add /.well-known/security.txt (contact + expires) at deploy — devops lane, not part of sitemap. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://campusflow.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>

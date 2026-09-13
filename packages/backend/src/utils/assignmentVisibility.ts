@@ -16,9 +16,28 @@ export type UserRow = {
   departmentId: string | null
 }
 
-export function isAssignmentVisibleToUser(assignment: AssignmentHubRow, user: UserRow): boolean {
+export function isAssignmentVisibleToUser(
+  assignment: AssignmentHubRow,
+  user: UserRow,
+  memberRoomIds?: Set<string> | string[],
+): boolean {
   if (user.role === 'SUPER_ADMIN') return true
   if (!assignment.collegeId || !user.collegeId) {
+    // Null-college scoping: global-only, with scope enforcement (not blind
+    // null===null). Global ALL → visible; global DEPARTMENT → dept match;
+    // global ROOM → membership required (fail-closed when unknown).
+    if (!assignment.collegeId && !user.collegeId) {
+      if (assignment.scope === AssignmentScope.ALL) return true
+      if (assignment.scope === AssignmentScope.DEPARTMENT) {
+        return !!assignment.departmentId && assignment.departmentId === user.departmentId
+      }
+      if (assignment.scope === AssignmentScope.ROOM) {
+        if (!assignment.roomId || !memberRoomIds) return false
+        if (memberRoomIds instanceof Set) return memberRoomIds.has(assignment.roomId)
+        return memberRoomIds.includes(assignment.roomId)
+      }
+      return false
+    }
     if (assignment.scope === AssignmentScope.ALL && !assignment.collegeId) return true
     return assignment.collegeId === user.collegeId
   }
@@ -28,7 +47,13 @@ export function isAssignmentVisibleToUser(assignment: AssignmentHubRow, user: Us
     return !!assignment.departmentId && assignment.departmentId === user.departmentId
   }
   if (assignment.scope === AssignmentScope.ROOM) {
-    return !!assignment.roomId
+    // ROOM-scope leak fix: same-college is NOT enough — require explicit
+    // roomMember membership. Fail-closed when membership is unknown (undefined)
+    // so pure callers cannot accidentally expose room assignments.
+    if (!assignment.roomId) return false
+    if (!memberRoomIds) return false
+    if (memberRoomIds instanceof Set) return memberRoomIds.has(assignment.roomId)
+    return memberRoomIds.includes(assignment.roomId)
   }
   return false
 }
@@ -68,13 +93,28 @@ export function getAssignmentStatus(hub: AssignmentStatusHubLike): 'active' | 'c
   return 'completed'
 }
 
-export function buildHubListWhere(user: UserRow, filters: { search?: string; scope?: string; submissionMode?: string; collegeId?: string; status?: string }) {
+export function buildHubListWhere(
+  user: UserRow,
+  filters: { search?: string; scope?: string; submissionMode?: string; collegeId?: string; status?: string },
+  opts?: { memberRoomIds?: readonly string[] },
+) {
   const where: any = {}
   if (user.role === 'SUPER_ADMIN') {
     if (filters.collegeId) where.collegeId = filters.collegeId
     // else no college filter — global view
   } else if (user.collegeId) {
     where.collegeId = user.collegeId
+  } else {
+    // Null-college leak fix: a non-SUPER user with no college must see
+    // global-only rows (collegeId null), never the whole tenant table.
+    where.collegeId = null
+  }
+  // ROOM membership scoping (defense-in-depth; routes still post-filter via
+  // roomMember). When the caller knows membership and explicitly filters
+  // scope=ROOM, constrain to member rooms (empty list matches none).
+  const normalizedScopeEarly = tryToAssignmentScopeEnum(filters.scope)
+  if (normalizedScopeEarly === AssignmentScope.ROOM && opts?.memberRoomIds) {
+    where.roomId = { in: [...opts.memberRoomIds] }
   }
   if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' }
   // Order 4: scope/submissionMode are native enums (UPPERCASE). Normalize

@@ -58,3 +58,22 @@ export async function normalizeFetchLimits(
   }
   return normalized;
 }
+
+/**
+ * Enforce per-platform caps on fetched items (pure, unit-tested).
+ * limit undefined/0 = uncapped; otherwise at most `limit` items per source
+ * survive (first-seen wins, order preserved). Extracted from POST /all so
+ * routes stay thin and caps are covered without HTTP.
+ */
+export function capItemsByLimits<T extends { source: string }>(
+  items: T[],
+  limits: Record<string, number | undefined>,
+): T[] {
+  const counts: Record<string, number> = {};
+  return items.filter((item) => {
+    const limit = limits[item.source];
+    if (!limit) return true;
+    counts[item.source] = (counts[item.source] || 0) + 1;
+    return counts[item.source] <= limit;
+  });
+}

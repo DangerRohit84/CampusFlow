@@ -103,10 +103,11 @@ describe('half2 narrow user.findUnique (no full rows)', () => {
     expect(countBareUserLookup(src)).toBe(0)
   })
 
-  it('search narrows to collegeId only (only collegeId used)', () => {
+  it('search narrows to collegeId+role+departmentId (scope filtering needs dept/role; still no secrets)', () => {
     const src = readSrc('routes/search.ts')
     expect(src).toContain('HALF2')
-    expect(src).toContain('select: { collegeId: true }')
+    expect(src).toContain('select: { collegeId: true, role: true, departmentId: true }')
+    expect(src).not.toContain('passwordHash')
     expect(countBareUserLookup(src)).toBe(0)
   })
 

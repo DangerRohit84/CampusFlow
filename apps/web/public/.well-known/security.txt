@@ -1,6 +1,9 @@
 # CampusFlow security.txt (RFC 9116) — served at /.well-known/security.txt
 # Deploy note: replace Contact email with the monitored security inbox before
 # public launch; Expires must be < 1 year out (rotate yearly).
+# Canonical SSOT: VITE_SITE_URL (Vercel env). Canonical/Policy hosts below use the
+# campusflow.dev fallback placeholder — at build/deploy replace with the SAME host
+# as index.html canonical, sitemap.xml locs, robots.txt Sitemap, and Seo.tsx canonical.
 Contact: mailto:security@campusflow.dev
 Expires: 2027-09-09T00:00:00.000Z
 Preferred-Languages: en

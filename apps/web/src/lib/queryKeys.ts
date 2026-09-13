@@ -36,9 +36,9 @@ export const qk = {
   assignmentHubs: (params?: { page?: number; search?: string; scope?: string; mode?: string; status?: string; collegeId?: CollegeScope }) =>
     (['assignmentHubs', normScope(params?.collegeId), params?.page ?? 1, params?.search ?? '', params?.scope ?? 'ALL', params?.mode ?? 'ALL', params?.status ?? 'all'] as const),
 
-  tasks: (tab?: string) => (['tasks', tab ?? 'all'] as const),
+  tasks: (tab?: string, collegeId?: CollegeScope) => (['tasks', normScope(collegeId), tab ?? 'all'] as const),
 
-  schedules: () => (['schedules'] as const),
+  schedules: (collegeId?: CollegeScope) => (['schedules', normScope(collegeId)] as const),
   timetable: () => (['timetable'] as const),
 
   hackathons: (search?: string, collegeId?: CollegeScope, mine?: boolean) =>
@@ -70,9 +70,9 @@ export const qk = {
   // departmentAPI.getAll() on every mount (StrictMode double-fire, zero
   // dedupe). useDepartments() subscribes to this ONE key (staleTime 10min)
   // so the first mount fetches and every other page reads cache.
-  departments: () => (['departments'] as const),
+  departments: (collegeId?: CollegeScope) => (['departments', normScope(collegeId)] as const),
 
-  notifications: () => (['notifications'] as const),
+  notifications: (collegeId?: CollegeScope) => (['notifications', normScope(collegeId)] as const),
 
   search: (q: string) => (['search', q.trim().toLowerCase()] as const),
 

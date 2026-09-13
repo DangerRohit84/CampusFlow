@@ -47,6 +47,7 @@ type DbLike = {
   aiQuota?: { findUnique?: (a: unknown) => Promise<CollegeQuota | null>; upsert?: (a: unknown) => Promise<CollegeQuota> }
   aiUsage?: {
     findMany?: (a: unknown) => Promise<Array<{ collegeId: string; feature: string; day: string; requests: number; tokens: number; costCents: number }>>
+    aggregate?: (a: unknown) => Promise<{ _sum?: { tokens?: number | null; costCents?: number | null } }>
     upsert?: (a: unknown) => Promise<unknown>
   }
 }
@@ -159,11 +160,66 @@ export async function checkCollegeCap(
     return { ...empty, allowed: false, reason: 'AI is disabled for this college. Contact your administrator.' }
   }
   try {
-    const find = asDb(db)?.aiUsage?.findMany
-    if (typeof find !== 'function') return empty
+    const usage = asDb(db)?.aiUsage
     const day = dayBucket(now)
     const month = monthPrefix(now)
-    const rows = await find.call(asDb(db).aiUsage, { where: { collegeId } })
+    const monthStart = `${month}-01`
+    // Aggregate path (prod): DB-side sums, no JS over unbounded rows.
+    // AiUsage has @@index([collegeId, day]) so day/month aggregates are
+    // index-range scans; lifetime cost is a single indexed sum (no row fetch).
+    if (typeof usage?.aggregate === 'function') {
+      const agg = usage.aggregate.bind(usage)
+      const [dayRow, monthRow, totalRow] = await Promise.all([
+        agg({ where: { collegeId, day }, _sum: { tokens: true } }),
+        agg({ where: { collegeId, day: { gte: monthStart, lte: day } }, _sum: { tokens: true } }),
+        agg({ where: { collegeId }, _sum: { costCents: true } }),
+      ])
+      const dayTokens = dayRow?._sum?.tokens ?? 0
+      const monthTokens = monthRow?._sum?.tokens ?? 0
+      const totalCost = totalRow?._sum?.costCents ?? 0
+      if (dayTokens + reqTokens > quota.dailyTokenCap) {
+        return {
+          allowed: false,
+          quota,
+          dayTokens,
+          monthTokens,
+          totalCostCents: totalCost,
+          reason: `College AI token budget exhausted for today (${quota.dailyTokenCap.toLocaleString()} tokens/day). Try again tomorrow.`,
+        }
+      }
+      if (quota.monthlyTokenCap != null && monthTokens + reqTokens > quota.monthlyTokenCap) {
+        return {
+          allowed: false,
+          quota,
+          dayTokens,
+          monthTokens,
+          totalCostCents: totalCost,
+          reason: `College AI monthly budget exhausted (${quota.monthlyTokenCap.toLocaleString()} tokens/month).`,
+        }
+      }
+      const reqCost = estimateCostCents(reqTokens)
+      if (quota.totalCostCapCents != null && totalCost + reqCost > quota.totalCostCapCents) {
+        return {
+          allowed: false,
+          quota,
+          dayTokens,
+          monthTokens,
+          totalCostCents: totalCost,
+          reason: 'College AI cost cap reached. Contact your administrator to raise the budget.',
+        }
+      }
+      return { allowed: true, quota, dayTokens, monthTokens, totalCostCents: totalCost }
+    }
+    // Fallback path (hermetic tests / pre-aggregate clients): date-filtered
+    // narrow select (current month only, bounded ≈31d×features rows), never a
+    // lifetime full-scan. Lifetime cost is approximated by the month sum here;
+    // authoritative lifetime enforcement needs the aggregate path above.
+    const find = usage?.findMany
+    if (typeof find !== 'function') return empty
+    const rows = await find.call(usage, {
+      where: { collegeId, day: { gte: monthStart, lte: day } },
+      select: { day: true, tokens: true, costCents: true },
+    })
     let dayTokens = 0
     let monthTokens = 0
     let totalCost = 0

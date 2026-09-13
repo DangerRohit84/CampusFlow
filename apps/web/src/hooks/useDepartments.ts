@@ -1,6 +1,7 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { departmentAPI } from '../lib/api'
 import { qk } from '../lib/queryKeys'
+import { useCollegeScope } from './useCollegeScope'
 
 /**
  * Shared departments reference-data hook (PERPAGE-HALF1).
@@ -18,9 +19,10 @@ import { qk } from '../lib/queryKeys'
  * not needed (e.g. student view of a ROOM-scope assignment).
  */
 export function useDepartments(options?: { enabled?: boolean }) {
+  const collegeScope = useCollegeScope()
   return useQuery({
-    queryKey: qk.departments(),
-    queryFn: ({ signal }) => departmentAPI.getAll(undefined, signal as any),
+    queryKey: qk.departments(collegeScope),
+    queryFn: ({ signal }) => departmentAPI.getAll(collegeScope ?? undefined, signal as any),
     // Ref-data: stale 10min (>> 30s page minimum), gc 30min so background
     // tabs keep it. Focus refetch OFF — dept list must never reload on tab
     // switch; admin CRUD busts via notifyEntityMutated('department')

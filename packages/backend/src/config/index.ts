@@ -98,6 +98,25 @@ if (!process.env.GROQ_API_KEY) {
   logger.warn('WARNING: GROQ_API_KEY is not set. AI features will be disabled.')
 }
 
+// Parse allowed web origins from env (FRONTEND_URL + FRONTEND_URLS csv, comma-split,
+// trimmed, filtered, deduped preserving order). No wildcard handling here — prod
+// wildcard throws in the `config` getters below (fail-closed, CORS must be explicit).
+function readAllowedOrigins(env: Record<string, string | undefined>): string[] {
+  const combined = [env.FRONTEND_URL, env.FRONTEND_URLS]
+    .filter(Boolean)
+    .join(',')
+    .split(',')
+    .map((o: string) => o.trim())
+    .filter(Boolean)
+  return [...new Set(combined)]
+}
+
+function assertNoWildcard(origins: string[]): void {
+  if (origins.some((o) => o === '*' || o.includes('*'))) {
+    throw new Error('Wildcard origin "*" is not allowed in production (set explicit FRONTEND_URL/FRONTEND_URLS csv)')
+  }
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '4000', 10),
   databaseUrl: process.env.DATABASE_URL || '',
@@ -110,21 +129,45 @@ export const config = {
   openCodeServeUrl: process.env.OPENCODE_SERVE_URL || '',
   frontendUrl: (() => {
     // Fail-closed in prod: localhost fallback must never trust dev origins in prod (I-7).
-    if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+    // SSOT for CORS + Socket.IO is `frontendUrls` below (FRONTEND_URL + FRONTEND_URLS csv).
+    // This singular is the first allowlisted origin (cookies/redirects). Vercel prod
+    // origin is appended via env (comma-separated) alongside onrender — never `*`.
+    const origins = readAllowedOrigins(process.env)
+    if (process.env.NODE_ENV === 'production' && origins.length === 0) {
       throw new Error('FRONTEND_URL is required in production (no localhost fallback)')
     }
-    return (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim()
+    if (process.env.NODE_ENV === 'production') assertNoWildcard(origins)
+    return origins[0] || 'http://localhost:3000'
   })(),
   // Centralized allowlist for CORS + Socket.IO. Single SSOT — index.ts and socket.ts must use this.
   // Prod: FRONTEND_URL=https://campusflow-web.onrender.com (comma-separated for extra origins).
+  // Vercel cutover: append the Vercel origin via env alongside onrender during dual-serve,
+  // e.g. FRONTEND_URL=https://campusflow-web.onrender.com,https://campusflow.vercel.app
+  // or FRONTEND_URLS (plural csv, combined with FRONTEND_URL). No wildcard `*` in prod (throws).
   // Dev fallback includes localhost:3000 + :5173; prod has no fallback (throws above).
   frontendUrls: (() => {
-    if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
-      throw new Error('FRONTEND_URL is required in production (no localhost fallback)')
+    const origins = readAllowedOrigins(process.env)
+    if (process.env.NODE_ENV === 'production') {
+      if (origins.length === 0) {
+        throw new Error('FRONTEND_URL is required in production (no localhost fallback)')
+      }
+      assertNoWildcard(origins)
+      return origins
     }
-    return (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173')
-      .split(',')
-      .map((o: string) => o.trim())
-      .filter(Boolean)
+    return origins.length > 0 ? origins : ['http://localhost:3000', 'http://localhost:5173']
+  })(),
+  // Track D (10k socket scale): adapter + sticky-session config flag.
+  // - SOCKET_ADAPTER=redis|memory (default auto: redis when REDIS_URL set,
+  //   else memory). Forces adapter mode for staging proofs (e.g. SOCKET_ADAPTER=memory
+  //   to prove single-replica fallback, =redis to require shared fan-out).
+  // - Render sticky sessions: Socket.IO upgrade (polling → websocket) prefers
+  //   affinity, but the Redis adapter makes emits correct WITHOUT it (at +1 RTT
+  //   cost on re-poll). Render: API `numInstances >= 2` + session affinity when
+  //   available; see docs/adr/scale-10k-shard-redis.md §5. This flag only logs
+  //   the mode at boot (services/socket.ts attachSocketAdapter); no throw.
+  socketAdapter: ((): 'redis' | 'memory' | 'auto' => {
+    const raw = String(process.env.SOCKET_ADAPTER || 'auto').trim().toLowerCase()
+    if (raw === 'redis' || raw === 'memory') return raw
+    return 'auto'
   })(),
 }

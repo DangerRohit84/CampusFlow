@@ -4,6 +4,12 @@ import { useLocation } from 'react-router-dom'
 const SITE_URL =
   (import.meta.env.VITE_SITE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://campusflow.dev'
+// WHY canonical SSOT: VITE_SITE_URL is the single source of truth for the canonical host
+// (Vercel env: Production + Preview; e.g. https://campusflow.vercel.app or custom domain).
+// Fallback `https://campusflow.dev` is a placeholder only — never leave VITE_SITE_URL unset
+// in prod (crawlers would index the placeholder). Must match index.html canonical/OG,
+// public/sitemap.xml locs, public/robots.txt Sitemap, and .well-known/security.txt Canonical
+// (build-time host-replace of the `campusflow.dev` fallback strings; verify dist post-build).
 // WHY: social crawlers require absolute PNG/JPG (SVG breaks previews).
 // og-cover.png (1200x630) is canonical; og-image.png is a byte-identical alias for backwards-compat.
 const DEFAULT_OG_IMAGE = `${SITE_URL}/og-cover.png`

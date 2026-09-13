@@ -11,6 +11,8 @@
 // - Single process-wide gate: min 2s between CF call STARTS (not ends, so
 //   fetch latency doesn't inflate the gap). Serialized via promise chain so
 //   concurrent batch-5 callers queue instead of bursting.
+// - Track D global: Redis `cf:gate` SET NX PX 2s when REDIS_URL is set
+//   (N replicas share one budget); memory chain remains fallback.
 // - One retry only: on HTTP 429/503 OR 200+FAILED/Call-limit body, wait
 //   Retry-After (seconds or HTTP-date) else 2s, + 0-999ms jitter, then retry
 //   once. Persistent limit → give up (return last result, no throw) so
@@ -18,13 +20,15 @@
 // - No other platform is slowed: only CF fetch paths import this module.
 //
 // LIMITS (documented):
-// - Process-local: N replicas each hold their own gate (2s per process, not
-//   globally). Full global gate needs Redis/token-bucket — explicitly NOT
-//   added at pilot scale (see sync-comparison.md §4).
-// - pgbouncer/Neon pooled: gate is in-process, unaffected by DB pooler.
+// - Track D (10k): global gate via Redis `cf:gate` SET NX PX 2s when
+//   REDIS_URL is set (N replicas share one 0.5 req/s budget); process-local
+//   chain remains as fast-path + fallback when Redis is unset/blipping.
+//   pgbouncer/Neon pooled: gate is in-process, unaffected by DB pooler.
 
 export const CODEFORCES_MIN_GAP_MS = 2000
 export const CODEFORCES_MAX_RETRIES = 1
+/** Redis key for the global CF gate (SET NX PX 2s, first starter wins). */
+export const CODEFORCES_GATE_REDIS_KEY = 'cf:gate'
 /** Jitter ceiling for the single retry (0..999ms added to base delay). */
 export const CODEFORCES_RETRY_JITTER_MS = 1000
 /** Cap Retry-After honoring so a malicious/huge header can't stall cron. */
@@ -46,6 +50,11 @@ export function __getLastStartForTests(): number {
   return lastStartMs
 }
 
+// Static import keeps the same module instance as tests (vitest ESM/CJS
+// interop: require() here would miss __setRedisClientForTests overrides).
+// lib/redis never imports config, so no cycle + hermetic tests stay offline.
+import { getRedisClient, redisSetNxPx, redisPttl } from '../lib/redis'
+
 export interface GateDeps {
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -59,6 +68,13 @@ const defaultSleep = (ms: number): Promise<void> =>
  * previous slot START. Concurrent callers serialize via promise chain.
  * The slot timestamp is recorded at START (before fetch) so fetch latency
  * doesn't inflate the 2s gap.
+ *
+ * Track D (10k): when REDIS_URL is set, the gap is enforced GLOBALLY via
+ * `cf:gate` SET NX PX 2s (same pattern as syncThrottleStore). N replicas
+ * share one 0.5 req/s budget; losers sleep PTTL then retry. When Redis is
+ * unset or blips, falls back to the process-local chain (identical
+ * single-instance behavior, N× over-admit multi-instance until REDIS_URL).
+ * Never throws for Redis failures (fail-open to memory, never 500s sync).
  */
 export async function acquireCodeforcesSlot(deps: GateDeps = {}): Promise<void> {
   const now = deps.now ?? Date.now
@@ -70,6 +86,27 @@ export async function acquireCodeforcesSlot(deps: GateDeps = {}): Promise<void> 
   })
   await prev
   try {
+    // Global Redis gate when configured (fail-open to memory on blip).
+    try {
+      if (getRedisClient()) {
+        // Bound the global wait loop (10 × 2s = 20s max; then fall back to
+        // memory so a wedged key can never hang cron past its budget).
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const won = await redisSetNxPx(CODEFORCES_GATE_REDIS_KEY, String(now()), CODEFORCES_MIN_GAP_MS)
+          if (won === true) {
+            lastStartMs = now()
+            return
+          }
+          if (won === null) break // Redis blip → memory fallback below
+          const pttl = await redisPttl(CODEFORCES_GATE_REDIS_KEY)
+          const wait = typeof pttl === 'number' && pttl > 0 ? Math.min(pttl + 5, CODEFORCES_MIN_GAP_MS) : CODEFORCES_MIN_GAP_MS
+          await sleep(wait)
+        }
+        // Fell through (blip or 10 losses) → memory gap below (best-effort).
+      }
+    } catch {
+      // Redis layer must never block sync — fall through to memory.
+    }
     const elapsed = now() - lastStartMs
     const wait = CODEFORCES_MIN_GAP_MS - elapsed
     if (wait > 0) await sleep(wait)

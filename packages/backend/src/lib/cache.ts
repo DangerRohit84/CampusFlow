@@ -9,10 +9,9 @@
  *
  * Current: `InMemoryCache` by default; `RedisCache` when REDIS_URL is set
  * (per-op fallback to a local InMemoryCache so a Redis blip fails open).
- * Later: `@socket.io/redis-adapter` for multi-instance socket fan-out
- * (presence is shared today; emit fan-out still needs the adapter — see
-  * services/socket.ts header + scale10k-redis report §5).
-  */
+ * Socket fan-out: `@socket.io/redis-adapter` attached in services/socket.ts
+ * when REDIS_URL is set (fail-open to memory otherwise — see Track D ADR).
+ */
 
 import { getRedisClient, isRedisConfigured, redisDel, redisGet, redisIncr, redisSet } from './redis'
 import { redisRateLimitGet, redisRateLimitIncrement } from './redis'
@@ -218,16 +217,12 @@ export function __resetCacheForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Socket.IO multi-instance fan-out (deferred — needs adapter dep):
-//   npm i @socket.io/redis-adapter redis
-//   import { createAdapter } from '@socket.io/redis-adapter'
-//   import { createClient } from 'redis'
-//   const pubClient = createClient({ url: process.env.REDIS_URL })
-//   const subClient = pubClient.duplicate()
-//   await Promise.all([pubClient.connect(), subClient.connect()])
-//   io.adapter(createAdapter(pubClient, subClient))
-// Presence (`presence:*` keys via lib/redis) is already shared; the adapter
-// is the remaining step for cross-instance `emitToUser` delivery.
+// Socket.IO multi-instance fan-out (Track D — landed):
+// `@socket.io/redis-adapter` is attached in services/socket.ts when REDIS_URL
+// is set (SOCKET_ADAPTER=redis|memory|auto flag in config). Presence
+// (`presence:*` keys via lib/redis) + emit fan-out are both shared; sticky
+// sessions on Render remain recommended (faster upgrade) but not required
+// for correctness. See docs/adr/scale-10k-shard-redis.md §5.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

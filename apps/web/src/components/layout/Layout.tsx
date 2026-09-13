@@ -189,6 +189,8 @@ export default function Layout() {
   // staleTime mirrors the pages (hack/forms/intern 3min, contests 60s live).
   // Socket singleton + bridge below untouched.
   const badgeCollegeScope = (user as any)?.collegeId || effectiveCollegeId || undefined
+  // WHY cookie-only: HttpOnly session may have user but null token. Gate badges
+  // on user (not token-only) so cookie-only still fetches; token stays for socket auth.
   const { data: badgeHackathons } = useQuery({
     queryKey: qk.hackathons('', badgeCollegeScope),
     queryFn: ({ signal }) => hackathonAPI.getAll({ signal } as any),
@@ -197,7 +199,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!token,
+    enabled: !!user,
   })
   const { data: badgeForms } = useQuery({
     queryKey: qk.forms(badgeCollegeScope),
@@ -207,7 +209,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!token,
+    enabled: !!user,
   })
   const { data: badgeInternships } = useQuery({
     queryKey: qk.internships('', badgeCollegeScope),
@@ -217,7 +219,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!token,
+    enabled: !!user,
   })
   const { data: badgeContests } = useQuery({
     queryKey: qk.contests('ALL', badgeCollegeScope),
@@ -227,7 +229,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!token,
+    enabled: !!user,
   })
   const nearDeadlineCount = useMemo(() => {
     // WHY shared helper: single resolveDate/isBadgeable/isNear per entity
@@ -283,7 +285,9 @@ export default function Layout() {
   }
 
   useEffect(() => {
-    if (!token || !user) return
+    // WHY cookie-only: gate on user (not token-only) — HttpOnly session has
+    // user with null token, authAPI.me() works via cookies.
+    if (!user) return
     const uname = (user as any)?.username
     if (uname) {
       // username exists — ensure modal is closed
@@ -339,13 +343,15 @@ export default function Layout() {
   useEffect(() => { setMobileOpenLocal(false) }, [location.pathname])
 
   useEffect(() => {
-    if (!token) return
+    // WHY cookie-only: gate on user (not token-only) so cookie session still loads counts.
+    if (!user) return
     if (location.pathname === '/notifications') { setUnreadCount(0); return }
     notificationAPI.getUnreadCount().then((c: number) => setUnreadCount(c)).catch(()=>{})
-  }, [token, location.pathname])
+  }, [token, user?.id, location.pathname])
 
   useEffect(() => {
-    if (!token) return
+    // WHY cookie-only: gate on user (not token-only) so cookie session still loads counts.
+    if (!user) return
     let cancelled=false
     const refresh = async () => {
       try {
@@ -366,10 +372,12 @@ export default function Layout() {
     const onRoomRead = () => refresh()
     window.addEventListener('room:read', onRoomRead)
     return () => { cancelled=true; window.removeEventListener('room:read', onRoomRead) }
-  }, [token, location.pathname])
+  }, [token, user?.id, location.pathname])
 
   useEffect(() => {
-    if (!token) {
+    // WHY cookie-only: gate socket on user (not token-only) — token may be null
+    // while HttpOnly cookies carry the session. connectSocket accepts null.
+    if (!user) {
       disconnectSocket()
       return
     }
@@ -441,7 +449,8 @@ export default function Layout() {
   // 1×/60s. assignment:mutated still refreshes immediately (entity-driven).
   // Socket singleton + bridge above untouched.
   useEffect(() => {
-    if (!token) return
+    // WHY cookie-only: gate on user (not token-only) so cookie session still loads urgency.
+    if (!user) return
     let cancelled = false
     let lastFetchAt = 0
     const FOCUS_MIN_GAP_MS = 60 * 1000
