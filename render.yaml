@@ -101,7 +101,6 @@ services:
     plan: starter
     # NOTE: region is ignored for static sites (global CDN) — kept singapore for
     # blueprint consistency per infra-no-mumbai plan.
-    region: singapore
     buildCommand: npm ci && npm run build -w @campusflow/web
     staticPublishPath: apps/web/dist
     routes:
