@@ -12,7 +12,7 @@ import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Users, GraduationCap, Trophy, FileText, Trash2, BarChart3, Shield, CheckCircle, XCircle,
-  UserPlus, FolderPlus, ArrowLeft, Building2
+  UserPlus, FolderPlus, ArrowLeft, Building2, KeyRound
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -27,7 +27,7 @@ import BulkImportModal, { type BulkRole } from '../components/admin/BulkImportMo
 import BulkDeleteModal from '../components/admin/BulkDeleteModal'
 import BulkPasswordModal from '../components/admin/BulkPasswordModal'
 import PasswordNudgeBanner from '../components/admin/PasswordNudgeBanner'
-import { pageSelectionState, toggleSelected, emptyStateCopy, yearOptions } from '../components/admin/bulkHelpers'
+import { pageSelectionState, emptyStateCopy, yearOptions, getSortableColumns, normalizeAdminSort, nextSortOrder, mergeSelection, MAX_BULK_SELECTION, type AdminUserSort } from '../components/admin/bulkHelpers'
 
 // WHY: Users tab pages server-side at 50 (backend take:50+count dual-mode,
 // same cursor/page contract as notifications/rooms). Keeps 10k-scale lists correct.
@@ -128,9 +128,29 @@ export default function AdminPage() {
   const [emailFilter, setEmailFilter] = useState(() => new URLSearchParams(window.location.search).get('email') || '')
   const debouncedSearch = useDebounce(searchRaw, 300)
   const isFiltering = searchRaw.trim() !== debouncedSearch.trim()
-  // P3 + bulk-pw multi-select (cleared on tab/filter/page change — avoids
-  // cross-role stale ids). Self row is never selectable (delete fails-all on
-  // self; pw strips self) — BE remains authoritative for last-admin guards.
+  // Sortable columns (2026-09-14, additive): Name/Email/Roll per tab, click
+  // header toggles asc/desc, URL-synced (?sort=&order=), pagination preserved
+  // (page in key + URL; sort change resets to page 1, page change keeps sort).
+  // Default name asc (matches backend default). Tab switch resets to name asc
+  // when the current field is not sortable in the new tab (e.g., studentId →
+  // teachers).
+  const [userSort, setUserSort] = useState<AdminUserSort>(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      return normalizeAdminSort(sp.get('sort'), sp.get('order'))
+    } catch {
+      return { field: 'name', order: 'asc' }
+    }
+  })
+  // Cross-page selection (2026-09-14): selected-id set PERSISTS across
+  // page/filter/sort changes within the same tab+college (survives pagination,
+  // visible count + Clear in the sticky bar). Cleared ONLY on tab (role) or
+  // college change (avoids cross-role stale ids — BE guards remain
+  // authoritative). Capped at MAX_BULK_SELECTION (500) with a toast when
+  // truncated. Self row is never selectable (delete fails-all on self; pw
+  // strips self) — BE remains authoritative for last-admin guards.
+  // Select-all = CURRENT PAGE ONLY (clearly labelled in aria-label/title;
+  // all-filtered would need server-side id enumeration — kept simple).
   const [selected, setSelected] = useState<string[]>([])
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkPwMode, setBulkPwMode] = useState<'shared-set' | 'shared-reset' | null>(null)
@@ -158,6 +178,10 @@ export default function AdminPage() {
     () => ({ q: debouncedSearch, roll: rollFilter, year: yearFilter, email: emailFilter }),
     [debouncedSearch, rollFilter, yearFilter, emailFilter],
   )
+  const listSort = useMemo(
+    () => ({ field: userSort.field, order: userSort.order }),
+    [userSort.field, userSort.order],
+  )
   const usersQuery = useAdminUsers(
     effectiveCollegeId,
     usersRole,
@@ -166,6 +190,7 @@ export default function AdminPage() {
     USERS_PAGE_SIZE,
     inCollegeView,
     listFilters,
+    listSort,
   )
   const roleCountsQuery = useAdminRoleCounts(effectiveCollegeId, deptFilter, inCollegeView, listFilters, usersRole)
   const collegesQuery = useAdminColleges(collegesEnabled)
@@ -307,15 +332,20 @@ export default function AdminPage() {
     }
   }, [departments, deptFilter])
 
-  // P3: clear multi-select whenever the visible slice changes (tab/filter/page)
-  // so bulk actions can never carry cross-role stale ids.
+  // Cross-page selection: persist across page/filter/sort within the same
+  // tab+college; clear ONLY on tab (role) or college change (avoids
+  // cross-role stale ids — BE guards stay authoritative). Page/filter/sort
+  // changes intentionally preserve the set (visible count + Clear in bar).
   useEffect(() => {
     setSelected([])
-  }, [userSubTab, deptFilter, usersPage, debouncedSearch, rollFilter, yearFilter, emailFilter, effectiveCollegeId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userSubTab, effectiveCollegeId])
 
-  // Persist users view (?tab=&role=&dept=&page=&q=&roll=&year=&email=) —
+  // Persist users view (?tab=&role=&dept=&page=&q=&roll=&year=&email=&sort=&order=) —
   // shareable links, survives reload. Preserves existing params
-  // (collegeId/collegeName); replace avoids history spam.
+  // (collegeId/collegeName); replace avoids history spam. Pagination preserved:
+  // page + sort coexist (sort change resets page to 1 via handleSort;
+  // page change keeps sort).
   useEffect(() => {
     const next = new URLSearchParams(searchParams)
     next.set('tab', activeTab)
@@ -327,10 +357,12 @@ export default function AdminPage() {
       if (rollFilter.trim()) next.set('roll', rollFilter.trim()); else next.delete('roll')
       if (yearFilter) next.set('year', yearFilter); else next.delete('year')
       if (emailFilter.trim()) next.set('email', emailFilter.trim()); else next.delete('email')
+      next.set('sort', userSort.field)
+      next.set('order', userSort.order)
     }
     if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, userSubTab, deptFilter, usersPage, searchRaw, rollFilter, yearFilter, emailFilter])
+  }, [activeTab, userSubTab, deptFilter, usersPage, searchRaw, rollFilter, yearFilter, emailFilter, userSort.field, userSort.order])
 
   // WHY one-click fix: sync ?collegeId/?collegeName URL → state + store when URL changes
   // (direct navigation from /superadmin/colleges, back/forward, manual edit).
@@ -414,6 +446,8 @@ export default function AdminPage() {
 
   // P2: sub-tab switch preserves dept, clears q/roll/year/email + resets page
   // (avoids cross-role stale `year` leaking to teachers, which has no Year control).
+  // Sort resets to name asc when the current field is not sortable in the new
+  // tab (e.g., studentId → teachers); selection clears via the tab effect.
   const switchUserSubTab = (t: 'students' | 'teachers' | 'college_admins') => {
     setUserSubTab(t)
     setUsersPage(1)
@@ -421,6 +455,11 @@ export default function AdminPage() {
     setRollFilter('')
     setYearFilter('')
     setEmailFilter('')
+    const nextRole = subTabToRole(t)
+    const allowed = getSortableColumns(nextRole).map((c) => c.field)
+    if (!allowed.includes(userSort.field)) {
+      setUserSort({ field: 'name', order: 'asc' })
+    }
   }
   const clearUserFilters = () => {
     setSearchRaw('')
@@ -428,6 +467,14 @@ export default function AdminPage() {
     setYearFilter('')
     setEmailFilter('')
     setDeptFilter('all')
+    setUsersPage(1)
+    setUserSort({ field: 'name', order: 'asc' })
+  }
+
+  // Sortable header click: toggle asc/desc on same column, asc on new column.
+  // Resets to page 1 (new order); pagination otherwise preserved.
+  const handleSort = (field: AdminUserSort['field']) => {
+    setUserSort((prev) => ({ field, order: nextSortOrder(prev.field, prev.order, field) }))
     setUsersPage(1)
   }
 
@@ -545,12 +592,38 @@ export default function AdminPage() {
       </span>
     )
 
-  // P3 selection math (derived, current page only — selection clears on slice
-  // change). Self row excluded from select-all (never actionable in bulk).
+  // P3 selection math (cross-page persistent — selection survives page/filter/
+  // sort within the tab; cleared only on tab/college change above). Self row
+  // excluded from select-all (never actionable in bulk). Select-all = CURRENT
+  // PAGE ONLY (clearly labelled; all-filtered would need server id enumeration).
   const selfId = (user as unknown as { id?: string })?.id
   const selectableIds = (users as any[]).filter((u) => u.id !== selfId).map((u) => u.id as string)
   const { all: allPageSelected, some: somePageSelected } = pageSelectionState(selectableIds, selected)
   const selectedUsers = (users as any[]).filter((u) => selected.includes(u.id))
+  // aria-sort helper for sortable headers (ascending/descending/none).
+  const sortAria = (field: AdminUserSort['field']): 'ascending' | 'descending' | 'none' =>
+    userSort.field === field ? (userSort.order === 'asc' ? 'ascending' : 'descending') : 'none'
+  // Cross-page selection helpers (cap 500 with message; select-all = page only).
+  const handleToggleOne = (id: string) => {
+    setSelected((prev) => {
+      if (prev.includes(id)) return prev.filter((s) => s !== id)
+      if (prev.length >= MAX_BULK_SELECTION) {
+        toast.error(`Selection capped at ${MAX_BULK_SELECTION} — Clear or run bulk action first`)
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+  const handleSelectPage = () => {
+    setSelected((prev) => {
+      const { selected: next, capped } = mergeSelection(prev, selectableIds)
+      if (capped) toast.error(`Selection capped at ${MAX_BULK_SELECTION} — Clear or run bulk action first`)
+      return next
+    })
+  }
+  const handleDeselectPage = () => {
+    setSelected((prev) => prev.filter((id) => !selectableIds.includes(id)))
+  }
   const hasActiveFilters =
     searchRaw.trim() !== '' || rollFilter.trim() !== '' || yearFilter !== '' || emailFilter.trim() !== '' || deptFilter !== 'all'
 
@@ -805,8 +878,8 @@ export default function AdminPage() {
           role="tab"
           aria-selected={activeTab === 'users'}
           onClick={() => setActiveTab('users')}
-          onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage), staleTime: 60 * 1000 }) }}
-          onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage), staleTime: 60 * 1000 }) }}
+          onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort), staleTime: 60 * 1000 }) }}
+          onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort), staleTime: 60 * 1000 }) }}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
             activeTab === 'users' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
@@ -977,6 +1050,19 @@ export default function AdminPage() {
               )}
             </div>
             <div className="flex gap-2">
+              {/* Bulk change-password LEFT of Bulk import (user wish order).
+                  Single entry opens shared-set (most common); full Set/Reset
+                  remain in the selection bar below. Disabled with hint when
+                  nothing selected (modal needs 1–100 ids). */}
+              <button
+                onClick={() => setBulkPwMode('shared-set')}
+                disabled={selected.length === 0}
+                title={selected.length === 0 ? 'Select users below to change passwords' : `Change password for ${selected.length} selected`}
+                aria-label={selected.length === 0 ? 'Change password (select users first)' : `Change password for ${selected.length} selected users`}
+                className="flex items-center gap-2 px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 transition-all text-sm font-medium text-surface-700 dark:text-night-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <KeyRound size={14} /> Change password
+              </button>
               <button onClick={() => setBulkOpen(true)}
                 className="flex items-center gap-2 px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 rounded-xl hover:bg-surface-50 dark:hover:bg-night-700 transition-all text-sm font-medium text-surface-700 dark:text-night-200">
                 <FileText size={14} /> Bulk import
@@ -999,8 +1085,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'students'}
               onClick={() => switchUserSubTab('students')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'students' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1011,8 +1097,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'teachers'}
               onClick={() => switchUserSubTab('teachers')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'teachers' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1023,8 +1109,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'college_admins'}
               onClick={() => switchUserSubTab('college_admins')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'college_admins' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1125,11 +1211,12 @@ export default function AdminPage() {
             {(usersLoading || isFiltering) && <span className="text-xs text-surface-400 dark:text-night-400 pb-2">Filtering…</span>}
           </div>
 
-          {/* P3 selected-count bar (sticky above table when selected>0). */}
+          {/* Cross-page selected-count bar (sticky when selected>0; count includes
+              off-page ids — selection persists across pagination within the tab). */}
           {selected.length > 0 && (
             <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-surface-900 dark:bg-white text-white dark:text-black text-sm">
-              <span className="font-semibold">{selected.length} selected</span>
-              <button onClick={() => setSelected([])} className="px-2 py-1 rounded-lg text-xs font-semibold underline underline-offset-2">Clear</button>
+              <span className="font-semibold" aria-live="polite">{selected.length} selected</span>
+              <button onClick={() => setSelected([])} className="px-2 py-1 rounded-lg text-xs font-semibold underline underline-offset-2" aria-label={`Clear ${selected.length} selected users`}>Clear</button>
               <span className="flex-1" />
               <button
                 onClick={() => setBulkPwMode('shared-set')}
@@ -1152,38 +1239,71 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Filtered user table */}
+          {/* Filtered user table — sortable Name/Email/Roll (aria-sort, URL-synced). */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-100 dark:border-night-600">
-                  {/* P3 checkbox col: header selects page (indeterminate when partial). */}
+                  {/* Select-all = CURRENT PAGE ONLY (clearly labelled; persists set, never fetches all-filtered). */}
                   <th className="py-2 pr-2 w-8">
                     <input
                       type="checkbox"
                       checked={allPageSelected}
                       ref={(el) => { if (el) el.indeterminate = somePageSelected }}
                       onChange={() => {
-                        if (allPageSelected) setSelected((prev) => prev.filter((id) => !selectableIds.includes(id)))
-                        else setSelected((prev) => Array.from(new Set([...prev, ...selectableIds])))
+                        if (allPageSelected) handleDeselectPage()
+                        else handleSelectPage()
                       }}
                       disabled={selectableIds.length === 0}
-                      aria-label="Select all users on this page"
+                      aria-label="Select all users on this page (current page only)"
+                      title="Select all users on this page (current page only)"
                       className="h-4 w-4 accent-primary-600"
                     />
                   </th>
-                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Name</th>
-                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Email</th>
+                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium" aria-sort={sortAria('name')}>
+                    <button
+                      onClick={() => handleSort('name')}
+                      aria-label={`Sort by Name, currently ${userSort.field === 'name' ? userSort.order : 'unsorted'}`}
+                      className="inline-flex items-center gap-1 hover:text-surface-900 dark:hover:text-night-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+                    >
+                      Name <span aria-hidden="true">{userSort.field === 'name' ? (userSort.order === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium" aria-sort={sortAria('email')}>
+                    <button
+                      onClick={() => handleSort('email')}
+                      aria-label={`Sort by Email, currently ${userSort.field === 'email' ? userSort.order : 'unsorted'}`}
+                      className="inline-flex items-center gap-1 hover:text-surface-900 dark:hover:text-night-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+                    >
+                      Email <span aria-hidden="true">{userSort.field === 'email' ? (userSort.order === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                    </button>
+                  </th>
                   {userSubTab === 'students' && (
                     <>
-                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Roll Number</th>
+                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium" aria-sort={sortAria('studentId')}>
+                        <button
+                          onClick={() => handleSort('studentId')}
+                          aria-label={`Sort by Roll Number, currently ${userSort.field === 'studentId' ? userSort.order : 'unsorted'}`}
+                          className="inline-flex items-center gap-1 hover:text-surface-900 dark:hover:text-night-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+                        >
+                          Roll Number <span aria-hidden="true">{userSort.field === 'studentId' ? (userSort.order === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                        </button>
+                      </th>
                       <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Department</th>
                       <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Year</th>
                     </>
                   )}
                   {userSubTab === 'teachers' && (
                     <>
-                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Emp Number</th>
+                      <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium" aria-sort={sortAria('empNumber')}>
+                        <button
+                          onClick={() => handleSort('empNumber')}
+                          aria-label={`Sort by Employee Number, currently ${userSort.field === 'empNumber' ? userSort.order : 'unsorted'}`}
+                          className="inline-flex items-center gap-1 hover:text-surface-900 dark:hover:text-night-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+                        >
+                          Emp Number <span aria-hidden="true">{userSort.field === 'empNumber' ? (userSort.order === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                        </button>
+                      </th>
                       <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Department</th>
                     </>
                   )}
@@ -1209,7 +1329,7 @@ export default function AdminPage() {
                           <input
                             type="checkbox"
                             checked={selected.includes(u.id)}
-                            onChange={() => setSelected((prev) => toggleSelected(prev, u.id))}
+                            onChange={() => handleToggleOne(u.id)}
                             aria-label={`Select ${u.name}`}
                             className="h-4 w-4 accent-primary-600"
                           />

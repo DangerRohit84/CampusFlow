@@ -278,6 +278,35 @@ export function verifyRefreshToken(token: string): { userId: string; jti: string
   return { userId: decoded.userId, jti: decoded.jti };
 }
 
+/**
+ * Bulk-password mass revoke helper (follow-up 2026-09-14).
+ * WHY: bulk reset sets passwordNudgeAt=now for the cohort (no per-user jti
+ * registry, no migration). Old refresh tokens (iat < nudgeAt) must die so stolen
+ * sessions end, while fresh logins with the new shared pw (iat >= nudgeAt) pass
+ * nudge-only (no login block — banner only). Pure, hermetic, testable.
+ * Fail-open: missing iat or nudge → false (allow). Strict < (equal allows —
+ * avoids same-second race locking out a fresh login). Never throws.
+ */
+export function isRefreshTokenStaleAfterBulkReset(
+  tokenIatSec: number | undefined | null,
+  passwordNudgeAt: Date | string | number | null | undefined,
+): boolean {
+  try {
+    if (passwordNudgeAt == null) return false
+    if (typeof tokenIatSec !== 'number' || !Number.isFinite(tokenIatSec)) return false
+    const nudgeMs =
+      passwordNudgeAt instanceof Date
+        ? passwordNudgeAt.getTime()
+        : typeof passwordNudgeAt === 'number'
+          ? passwordNudgeAt
+          : Date.parse(String(passwordNudgeAt))
+    if (!Number.isFinite(nudgeMs)) return false
+    return Math.floor(tokenIatSec * 1000) < nudgeMs
+  } catch {
+    return false
+  }
+}
+
 export function generateCsrfToken(): string {
   return randomBytes(32).toString('hex');
 }

@@ -2,7 +2,8 @@
 // WHY shared: import modal + set-password modal use the identical card
 // (input + Show/Hide + Generate + 4-bar strength + live messages). Single copy
 // so strength/meter/copy can never drift. Client checks are format-only hints;
-// the server dry-run/confirm is authoritative (HIBP breach, fail-closed prod).
+// the server dry-run/confirm is authoritative (ADMIN-SET format-only 8-72 +
+// common, HIBP skipped — self-set register/change-password keep HIBP).
 
 import { useMemo, useState } from 'react'
 import { Eye, EyeOff, RefreshCw } from 'lucide-react'
@@ -81,7 +82,7 @@ export default function SharedPasswordField({ value, onChange, label, helper, au
         <p className="text-[11px] text-danger-600 mt-1">{localErrors[0]}</p>
       )}
       {value && localErrors.length === 0 && (
-        <p className="text-[11px] text-emerald-600 mt-1">Looks strong — server verifies breach status on validate.</p>
+        <p className="text-[11px] text-emerald-600 mt-1">Looks strong — server verifies format on validate.</p>
       )}
     </div>
   )

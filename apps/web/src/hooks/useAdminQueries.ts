@@ -18,8 +18,8 @@ import { buildAdminUserQuery, buildAdminRoleCountsQuery } from '../components/ad
  */
 export const adminKeys = {
   bundle: (collegeId: string | null) => qk.admin.bundle(collegeId),
-  users: (collegeId: string | null, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
-    qk.admin.users(collegeId, role, dept, page, filters),
+  users: (collegeId: string | null, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }) =>
+    qk.admin.users(collegeId, role, dept, page, filters, sort),
   roleCounts: (collegeId: string | null, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
     qk.admin.roleCounts(collegeId, dept, filters),
   colleges: () => qk.admin.colleges(),
@@ -61,7 +61,7 @@ export function useAdminBundle(collegeId: string | null, enabled = true) {
   })
 }
 
-/** Paged users (60s stale, server-side page/limit/total). P2 filters compose. */
+/** Paged users (60s stale, server-side page/limit/total). P2 filters + sort compose. */
 export function useAdminUsers(
   collegeId: string | null,
   role: string,
@@ -70,17 +70,21 @@ export function useAdminUsers(
   pageSize = 50,
   enabled = true,
   filters?: { q?: string; roll?: string; year?: string; email?: string },
+  sort?: { field?: string; order?: string },
 ) {
   const q = (filters?.q ?? '').trim()
   const roll = (filters?.roll ?? '').trim()
   const year = (filters?.year ?? '').trim()
   const email = (filters?.email ?? '').trim()
+  const sortField = (sort?.field ?? 'name').trim() || 'name'
+  const sortOrder = (sort?.order ?? 'asc').trim().toLowerCase() === 'desc' ? 'desc' : 'asc'
   return useQuery({
-    queryKey: qk.admin.users(collegeId, role, dept, page, { q, roll, year, email }),
+    queryKey: qk.admin.users(collegeId, role, dept, page, { q, roll, year, email }, { field: sortField, order: sortOrder }),
     queryFn: ({ signal }) => {
       // P2 builders own per-tab gating (teachers NO year, admins no roll/year)
       // so list/counts stay in parity; backend remains authoritative (ignores too).
-      const params = buildAdminUserQuery(role, dept, page, pageSize, { q, roll, year, email }, collegeId || undefined)
+      // Sort is additive: whitelisted at both ends, omitted = backend name asc.
+      const params = buildAdminUserQuery(role, dept, page, pageSize, { q, roll, year, email }, collegeId || undefined, { field: sortField as 'name' | 'email' | 'studentId' | 'empNumber', order: sortOrder as 'asc' | 'desc' })
       return adminAPI.getUsers({ ...params, signal })
     },
     staleTime: 60 * 1000,

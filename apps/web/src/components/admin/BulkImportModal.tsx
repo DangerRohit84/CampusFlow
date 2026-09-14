@@ -1,7 +1,8 @@
 // components/admin/BulkImportModal.tsx — P1 shared-password bulk CSV import.
 // WHY: semester onboarding needs 100s of rows. Flow: set ONE shared password
 // (card top, required) → upload/paste CSV (NO password column) → server dry-run
-// (per-row report + sharedPassword validation, single HIBP call, zero writes)
+// (per-row report + sharedPassword validation format-only, HIBP skipped on
+// admin paths, zero writes)
 // → confirm import (all rows share one hash, nudge-only: nudgeEnabled flag, NO
 // route block/forced redirect — dismissible banner via localStorage).
 // Show-once: the FE-HELD field value is displayed once (never re-transmitted —

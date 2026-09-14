@@ -7,8 +7,10 @@
 // P1 shared-password (2026-09-14, SUPERSEDES per-row password contract):
 // ONE sharedPassword per batch (admin-chosen, required on confirm, optional on
 // dry-run). CSV `password` column DEPRECATED: server ignores if present (warn +
-// ignore, not 400 this release), logs count only. Single HIBP call per import
-// (not N sequential) + single bcrypt hash reused for all rows (perf). All created
+// ignore, not 400 this release), logs count only. ADMIN-SET validation is
+// format-only (8-72 + common, HIBP SKIPPED — see validateAdminSharedPassword
+// accepted-risk note; self-set register/change-password KEEP HIBP) + single
+// bcrypt hash reused for all rows (perf). All created
 // users get mustChangePassword=true (nudge-only, NO route block — see §10 addendum
 // philosophy). FE displays its held field value as show-once (never re-transmitted).
 // Validation semantics verbatim (per-row errors, dept-name resolution,
@@ -18,11 +20,18 @@
 // sharedPasswordEcho:false + passwordColumnIgnored). Injectable `db` +
 // `breachCheck` for hermetic tests (DIP); logger on every catch (no silent {});
 // never log password values (counts only).
+// RELEASE COMMS (2026-09-14, P1 SUPERSEDE — copy into changelog, no behavior
+// change beyond message clarity): "Bulk import confirm now REQUIRES sharedPassword
+// (one password for the whole batch, 8-72 chars, not common; HIBP skipped on
+// admin paths — see accepted-risk note). Old
+// automation that confirmed without sharedPassword will now get 400
+// { error: 'Shared password is required...' } (zero writes) instead of a silent
+// 200. Fix: send { sharedPassword } on confirm, or dry-run first for the hint.
+// CSV `password` column stays warn-ignored (not 400) this release."
 
 import bcrypt from 'bcryptjs'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
-import { validateSharedPasswordFull } from '../utils/sharedPassword'
 import type { BreachCheck as SharedBreachCheck } from '../utils/sharedPassword'
 
 export interface BulkRow {
@@ -63,16 +72,18 @@ export interface BulkResult {
   warnings?: string[]
   /**
    * P1 route helper (additive): true when the batch failed SOLELY on shared-password
-   * validation (missing/invalid/breached/hash-fail) with zero writes. Routes map
-   * this to 400 with a clear message (old API callers without sharedPassword get
-   * a 400, not a 200 with failed counts). Never true when any row was written.
+   * validation (missing/invalid/hash-fail; HIBP skipped on admin paths) with
+   * zero writes. Routes map this to 400 with a clear message (old API callers
+   * without sharedPassword get a 400, not a 200 with failed counts). Never
+   * true when any row was written.
    */
   sharedPasswordInvalid?: boolean
 }
 
-/** Injectable breach check for hermetic tests (DIP). Defaults to real HIBP k-anonymity. */
+/** Injectable breach check (DEPRECATED on admin paths — HIBP skipped, kept for backward-compat callers; ignored). */
 export type BreachCheck = SharedBreachCheck
 export interface BulkOptions {
+  /** @deprecated HIBP skipped on admin bulk paths (see accepted-risk note); ignored if passed. */
   breachCheck?: BreachCheck
   /** P1 shared password for the whole batch (required on confirm, optional on dry-run). */
   sharedPassword?: string
@@ -136,7 +147,7 @@ export interface BulkDryRunResult {
   invalidCount: number
   rows: BulkRowReport[]
   errors: string[]
-  /** P1: shared-password validation (single HIBP call). Absent on dry-run → valid:false hint. */
+  /** P1: shared-password validation (ADMIN-SET format-only, HIBP skipped). Absent on dry-run → valid:false hint. */
   sharedPassword: { valid: boolean; errors: string[] }
   passwordColumnIgnored?: boolean
   warnings?: string[]
@@ -214,7 +225,7 @@ function dryRunOneRow(
   }
   void deptId
   // P1: row.password ignored (deprecated). No per-row password validation —
-  // sharedPassword is validated once per batch (single HIBP call).
+  // sharedPassword is validated once per batch (format-only, HIBP skipped).
   if (type === 'student') {
     const raw = mutable.incomingYear
     if (raw != null && String(raw).trim() !== '') {
@@ -226,17 +237,18 @@ function dryRunOneRow(
   return { index, email, name, valid: errors.length === 0, errors }
 }
 
-/** P1: validate sharedPassword once per batch (single HIBP call). Absent → valid:false hint (dry-run rows-only). */
+/** P1: validate sharedPassword once per batch (format-only, HIBP SKIPPED on admin paths — see validateAdminSharedPassword accepted-risk note). Absent → valid:false hint (dry-run rows-only). */
 async function checkSharedForDryRun(
   sharedPassword: unknown,
-  breachCheck: BreachCheck | undefined,
+  _breachCheck?: BreachCheck | undefined,
 ): Promise<{ valid: boolean; errors: string[] }> {
+  void _breachCheck
   if (sharedPassword == null || String(sharedPassword) === '') {
     return { valid: false, errors: ['Shared password required on confirm'] }
   }
-  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
-  if (typeof validateSharedPasswordFull === 'function') {
-    return validateSharedPasswordFull(sharedPassword, breachCheck as any)
+  const { validateAdminSharedPassword } = await import('../utils/sharedPassword.js').catch(() => ({ validateAdminSharedPassword: null as any }))
+  if (typeof validateAdminSharedPassword === 'function') {
+    return validateAdminSharedPassword(sharedPassword)
   }
   // Fallback (should never hit): format-only.
   const { validateSharedPasswordFormat } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFormat: () => [] as string[] }))
@@ -267,7 +279,7 @@ function toDryRunResult(
 /**
  * Dry-run validation (no writes, no password hashing): per-row report for the
  * Admin bulk-import modal. Reads only (existing emails + departments) plus
- * SINGLE HIBP check for sharedPassword (not per-row).
+ * format-only sharedPassword check (HIBP skipped on admin paths).
  */
 export async function dryRunBulkTeachers(
   collegeId: string,
@@ -316,21 +328,25 @@ export async function bulkCreateTeachers(
   const passwordColumnIgnored = rows.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
   if (passwordColumnIgnored) warnings.push('password column ignored — use shared password field')
   // P1: sharedPassword REQUIRED on confirm (route 400s first; service guards with zero writes).
+  // Clear 400 for old callers without sharedPassword (intentional supersede — see
+  // header RELEASE COMMS; no behavior change beyond message clarity).
   if (opts.sharedPassword == null || String(opts.sharedPassword) === '') {
     return {
       success: 0,
       failed: rows.length,
-      errors: ['Shared password is required. Set one password for all rows in this import.'],
+      errors: ['Shared password is required. Set one password for all rows in this import. Provide sharedPassword (8-72 chars) on confirm — old callers without it get 400 (P1 shared-password required, see release notes).'],
       sharedPasswordEcho: false,
       sharedPasswordInvalid: true,
       ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
       ...(warnings.length ? { warnings } : {}),
     }
   }
-  // Single HIBP call per batch (not N sequential).
-  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
-  if (typeof validateSharedPasswordFull === 'function') {
-    const check = await (validateSharedPasswordFull as any)(opts.sharedPassword, opts.breachCheck)
+  // ADMIN-SET shared validation (2026-09-14): format-only (8-72 + common),
+  // HIBP SKIPPED — see validateAdminSharedPassword accepted-risk note.
+  // opts.breachCheck is ignored (kept for backward-compat callers).
+  const { validateAdminSharedPassword } = await import('../utils/sharedPassword.js').catch(() => ({ validateAdminSharedPassword: null as any }))
+  if (typeof validateAdminSharedPassword === 'function') {
+    const check = await (validateAdminSharedPassword as any)(opts.sharedPassword)
     if (!check.valid) {
       return {
         success: 0,
@@ -525,20 +541,22 @@ export async function bulkCreateStudents(
   if (rows.length === 0) return { success: 0, failed: 0, errors }
   const passwordColumnIgnored = rows.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
   if (passwordColumnIgnored) warnings.push('password column ignored — use shared password field')
+  // Same clear 400 as teachers above (old callers without sharedPassword — see header).
   if (opts.sharedPassword == null || String(opts.sharedPassword) === '') {
     return {
       success: 0,
       failed: rows.length,
-      errors: ['Shared password is required. Set one password for all rows in this import.'],
+      errors: ['Shared password is required. Set one password for all rows in this import. Provide sharedPassword (8-72 chars) on confirm — old callers without it get 400 (P1 shared-password required, see release notes).'],
       sharedPasswordEcho: false,
       sharedPasswordInvalid: true,
       ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
       ...(warnings.length ? { warnings } : {}),
     }
   }
-  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
-  if (typeof validateSharedPasswordFull === 'function') {
-    const check = await (validateSharedPasswordFull as any)(opts.sharedPassword, opts.breachCheck)
+  // ADMIN-SET shared validation (2026-09-14): format-only, HIBP SKIPPED.
+  const { validateAdminSharedPassword: validateAdminStudents } = await import('../utils/sharedPassword.js').catch(() => ({ validateAdminSharedPassword: null as any }))
+  if (typeof validateAdminStudents === 'function') {
+    const check = await (validateAdminStudents as any)(opts.sharedPassword)
     if (!check.valid) {
       return {
         success: 0,

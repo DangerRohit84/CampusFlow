@@ -6,11 +6,67 @@
  * P2 (2026-09-14): per-tab search+filters composing with pagination + correct counts.
  * Backward compat: absent = no filter (old behavior). incomingYear on
  * teachers/admins is ignored silently (keeps tab switch simple).
+ * Sort (2026-09-14, additive): ?sort=&order= whitelisted to name/email/
+ * studentId/empNumber only, default name asc. Frontend exposes per-tab
+ * sortable columns (students: name/email/studentId; teachers: name/email/
+ * empNumber; admins: name/email). Invalid sort falls back to default (never
+ * 400, never injects arbitrary column — Prisma orderBy is allow-listed).
  */
 
 export const USER_LIST_ROLES = ['STUDENT', 'TEACHER', 'COLLEGE_ADMIN', 'SUPER_ADMIN'] as const
 
 export type UserListRole = (typeof USER_LIST_ROLES)[number]
+
+/**
+ * Sortable columns for GET /admin/users (allow-list only — prevents Prisma
+ * orderBy injection via arbitrary ?sort= values).
+ * Per-tab exposure (frontend): students name/email/studentId, teachers
+ * name/email/empNumber, college_admins name/email. Backend accepts all four
+ * regardless of role (harmless: sorting by an empty column is still
+ * deterministic via the id tiebreaker).
+ */
+export const USER_LIST_SORT_FIELDS = ['name', 'email', 'studentId', 'empNumber'] as const
+
+export type UserListSortField = (typeof USER_LIST_SORT_FIELDS)[number]
+
+export type UserListSortOrder = 'asc' | 'desc'
+
+/**
+ * Normalize ?sort= (also accepts ?sortBy= alias at the caller).
+ * Case-insensitive, trimmed. Returns the canonical whitelisted field, or
+ * 'name' default when absent/invalid (never throws, never 400 — additive).
+ */
+export function normalizeUserListSort(raw: unknown): UserListSortField {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (!v) return 'name'
+  const found = (USER_LIST_SORT_FIELDS as readonly string[]).find(
+    (f) => f.toLowerCase() === v,
+  )
+  return (found as UserListSortField | undefined) ?? 'name'
+}
+
+/**
+ * Normalize ?order= (also accepts ?sortOrder=/?dir= aliases at the caller).
+ * 'asc'|'desc' case-insensitive, trimmed. Default 'asc' on absent/invalid
+ * (never 400 — keeps old clients working).
+ */
+export function normalizeUserListOrder(raw: unknown): UserListSortOrder {
+  const v = String(raw ?? '').trim().toLowerCase()
+  return v === 'desc' ? 'desc' : 'asc'
+}
+
+/**
+ * Build a stable Prisma orderBy for the user list: [{field: dir}, {id: 'asc'}].
+ * The id tiebreaker keeps page/limit/cursor pagination deterministic when
+ * names/emails collide. Field is already allow-listed by normalizeUserListSort
+ * (callers must not pass raw query values here).
+ */
+export function buildUserListOrderBy(
+  sort: UserListSortField,
+  order: UserListSortOrder,
+): Array<Record<string, unknown>> {
+  return [{ [sort]: order }, { id: 'asc' }]
+}
 
 /** Normalize ?role= (case-insensitive). Null = absent/invalid (caller 400s on non-empty invalid). */
 export function normalizeRoleFilter(raw: unknown): UserListRole | null {
@@ -106,4 +162,31 @@ export function applyUserListFilters(
     else where.AND = and
   }
   return where
+}
+
+/**
+ * Role-counts parity helper (follow-up 2026-09-14, review-bulk Important #1).
+ * WHY: GET /users list ignores incomingYear for TEACHER/COLLEGE_ADMIN/SUPER_ADMIN
+ * role queries (ignoreYear guard in routes/admin.ts). GET /users/role-counts
+ * previously applied year globally, narrowing teacher/admin badges toward 0 while
+ * their lists ignored it (direct-API drift; FE omits year for non-students so no
+ * user-visible drift today, but badges must equal their tab list totals).
+ * FIX: split into two wheres — studentsWhere (WITH year) for the students badge,
+ * othersWhere (WITHOUT year) for teachers/admins badges — so each badge == its tab
+ * list total under the same shared filters. Additive: shape unchanged
+ * ({students, teachers, college_admins}), only values corrected. No migration.
+ */
+export interface RoleCountsWheres {
+  studentsWhere: Record<string, unknown>
+  othersWhere: Record<string, unknown>
+  hasYearFilter: boolean
+}
+
+export function buildAdminRoleCountsWheres(
+  baseWhere: Record<string, unknown>,
+  filters: Omit<UserListFilters, 'role'>,
+): RoleCountsWheres {
+  const othersWhere = applyUserListFilters(baseWhere, { ...filters, incomingYear: null })
+  const studentsWhere = applyUserListFilters(baseWhere, { ...filters })
+  return { studentsWhere, othersWhere, hasYearFilter: filters.incomingYear != null }
 }

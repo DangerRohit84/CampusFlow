@@ -31,7 +31,8 @@ const LOCAL_COMMON = new Set([
 
 /**
  * Client-side format check (fast inline feedback). Backend is authoritative
- * (common list + HIBP breach via dry-run/confirm) — this never green-lights alone.
+ * (ADMIN-SET format-only 8-72 + common via dry-run/confirm, HIBP skipped —
+ * see backend accepted-risk note) — this never green-lights alone.
  */
 export function validateSharedPasswordLocal(pw: unknown): string[] {
   const s = pw == null ? '' : String(pw)
@@ -122,11 +123,105 @@ export interface AdminTabFilters {
   email?: string
 }
 
+/**
+ * Sortable columns for the Users table (per-tab exposure).
+ * Students: Name, Email, Roll Number (studentId). Teachers: Name, Email,
+ * Emp Number (empNumber). College admins: Name, Email only (no roll control).
+ * Backend whitelist is name/email/studentId/empNumber (see userFilters.ts);
+ * frontend only exposes the role-appropriate subset below.
+ */
+export interface SortableColumn {
+  field: 'name' | 'email' | 'studentId' | 'empNumber'
+  label: string
+}
+
+export function getSortableColumns(role: string): SortableColumn[] {
+  if (role === 'TEACHER') {
+    return [
+      { field: 'name', label: 'Name' },
+      { field: 'email', label: 'Email' },
+      { field: 'empNumber', label: 'Emp Number' },
+    ]
+  }
+  if (role === 'STUDENT') {
+    return [
+      { field: 'name', label: 'Name' },
+      { field: 'email', label: 'Email' },
+      { field: 'studentId', label: 'Roll Number' },
+    ]
+  }
+  // COLLEGE_ADMIN (+ fallback): name + email only.
+  return [
+    { field: 'name', label: 'Name' },
+    { field: 'email', label: 'Email' },
+  ]
+}
+
+export interface AdminUserSort {
+  field: 'name' | 'email' | 'studentId' | 'empNumber'
+  order: 'asc' | 'desc'
+}
+
+const SORT_WHITELIST = ['name', 'email', 'studentId', 'empNumber'] as const
+
+/**
+ * Parse ?sort=&order= from the URL (case-insensitive, trimmed).
+ * Whitelisted fields only; invalid/absent falls back to name asc (never
+ * throws — additive, old links without sort keep working via backend default).
+ */
+export function normalizeAdminSort(sortRaw: unknown, orderRaw: unknown): AdminUserSort {
+  const s = String(sortRaw ?? '').trim().toLowerCase()
+  const found = (SORT_WHITELIST as readonly string[]).find((f) => f.toLowerCase() === s)
+  const field = (found ?? 'name') as AdminUserSort['field']
+  const o = String(orderRaw ?? '').trim().toLowerCase()
+  const order = o === 'desc' ? 'desc' : 'asc'
+  return { field, order }
+}
+
+/**
+ * Click-header toggle: same column flips asc<->desc; new column starts asc.
+ * Pure (no DOM) so header buttons + keyboard stay trivial.
+ */
+export function nextSortOrder(
+  currentField: AdminUserSort['field'],
+  currentOrder: AdminUserSort['order'],
+  clickedField: AdminUserSort['field'],
+): AdminUserSort['order'] {
+  if (clickedField === currentField) return currentOrder === 'asc' ? 'desc' : 'asc'
+  return 'asc'
+}
+
+/**
+ * Cross-page selection cap (500 ids). Keeps the selected-id set bounded so a
+ * 10k-user tenant cannot grow an unbounded array in memory/URL. Returns
+ * {selected (deduped, capped), capped:true when truncated}. Caller shows the
+ * cap message (toast/inline) when capped — pure here for hermetic tests.
+ */
+export const MAX_BULK_SELECTION = 500
+
+export function mergeSelection(selected: string[], pageIds: string[]): { selected: string[]; capped: boolean } {
+  const set = new Set(selected)
+  let capped = false
+  for (const id of pageIds) {
+    if (set.has(id)) continue
+    if (set.size >= MAX_BULK_SELECTION) {
+      capped = true
+      break
+    }
+    set.add(id)
+  }
+  return { selected: [...set], capped }
+}
+
 // WHY: single builder for the Students (name+roll+year+dept) / Teachers
 // (name+emp+dept, NO year) / Admins (name+email) contract (plan §2). Hooks
 // delegate here so tab switches can never leak `year` into teachers or
 // `roll` into admins, and list/counts stay in parity. Absent = omitted
 // (backward compat: same fetch as unfiltered).
+// Sort (2026-09-14, additive): optional 7th `sort` param appends
+// ?sort=&order= (whitelisted only). Omitted = backend defaults to name asc
+// (old callers keep working; old backend ignores unknown sort keys during
+// rolling deploys). AdminPage always passes its URL-synced sort state.
 /** Build GET /admin/users params for one tab (backward compat: absent=no filter). */
 export function buildAdminUserQuery(
   role: string,
@@ -135,6 +230,7 @@ export function buildAdminUserQuery(
   pageSize = 50,
   filters: AdminTabFilters = {},
   collegeId?: string,
+  sort?: AdminUserSort,
 ): Record<string, unknown> {
   const q = (filters.q ?? '').trim()
   const roll = (filters.roll ?? '').trim()
@@ -155,6 +251,8 @@ export function buildAdminUserQuery(
     // Teachers/admins have NO Year control — never send (backend ignores
     // silently, but omitting keeps list/counts parity exact).
     ...(year && role === 'STUDENT' ? { incomingYear: Number(year) } : {}),
+    // Sortable columns (whitelisted at both ends; omitted = backend name asc).
+    ...(sort ? { sort: sort.field, order: sort.order } : {}),
   }
   return params
 }

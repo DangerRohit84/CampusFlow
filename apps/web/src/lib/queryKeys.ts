@@ -96,8 +96,11 @@ export const qk = {
     // P2 per-tab filters compose into the key (q/roll/year/email). Absent =
     // '' (same fetch as unfiltered). Prefix invalidation (['admin-users'])
     // still catches every filtered variant (hierarchical keys rule).
-    users: (collegeId: CollegeScope, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
-      (['admin-users', normScope(collegeId), role, dept, page, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? ''] as const),
+    // Sort (2026-09-14, additive): trailing sort/order (default name/asc).
+    // Old keys without sort still prefix-match for invalidation; new keys
+    // bust cache once (order change) then hit. Pagination preserved (page in key).
+    users: (collegeId: CollegeScope, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }) =>
+      (['admin-users', normScope(collegeId), role, dept, page, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? '', sort?.field ?? 'name', sort?.order ?? 'asc'] as const),
     roleCounts: (collegeId: CollegeScope, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
       (['admin-role-counts', normScope(collegeId), dept, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? ''] as const),
     colleges: () => (['admin-colleges'] as const),

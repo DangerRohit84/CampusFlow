@@ -16,6 +16,15 @@ export function sharedPasswordOf(body: unknown): string | undefined {
  * Map a service shared-password failure (guaranteed zero writes via
  * sharedPasswordInvalid) to a clear 400 for old API callers without
  * sharedPassword. Null = normal 200 path (row-level errors stay 200).
+ *
+ * RELEASE COMMS (2026-09-14, P1 SUPERSEDE — copy into changelog):
+ * "Bulk import confirm now REQUIRES sharedPassword (one password for the whole
+ * batch, 8-72 chars, not common; HIBP skipped on admin paths — see
+ * accepted-risk note). Old automation that confirmed without
+ * sharedPassword will now get 400 { error: 'Shared password is required...' }
+ * (zero writes) instead of a silent 200. Fix: send { sharedPassword } on confirm,
+ * or dry-run first for the { valid, errors } hint. CSV `password` column stays
+ * warn-ignored (not 400) this release. No other contract change."
  */
 export function sharedPw400(results: {
   sharedPasswordInvalid?: boolean

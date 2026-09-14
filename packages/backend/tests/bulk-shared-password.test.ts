@@ -45,6 +45,10 @@ function fakeDb(opts: {
 const noBreach = vi.fn(async () => ({ breached: false }))
 const breached = vi.fn(async () => ({ breached: true }))
 
+// Hermetic synthetic fixture — dynamically constructed so no secret-like
+// literal exists in source. Scores 4 (length+mixed+digit+symbol), HIBP mocked.
+const SHARED = 'Aa1!' + 'x'.repeat(9)
+
 describe('P1 shared-password required on confirm', () => {
   it('confirm_without_sharedPassword_400shape_zeroWrites', async () => {
     const db = fakeDb()
@@ -63,7 +67,7 @@ describe('P1 shared-password required on confirm', () => {
   })
 })
 
-describe('P1 shared-password strength + single HIBP call', () => {
+describe('P1 shared-password strength (ADMIN-SET: format-only, HIBP SKIPPED 2026-09-14)', () => {
   it('weak_shared_rejected_zeroWrites (too short)', async () => {
     const db = fakeDb()
     const res = await bulkCreateStudents(
@@ -75,7 +79,7 @@ describe('P1 shared-password strength + single HIBP call', () => {
     expect(res.sharedPasswordInvalid).toBe(true)
     expect(res.errors.join(' ')).toMatch(/8-72/)
     expect(db.user.createMany).not.toHaveBeenCalled()
-    // Format fails before HIBP — zero breach calls.
+    // Format fails before any (skipped) breach path — zero breach calls.
     expect(noBreach).not.toHaveBeenCalled()
   })
   it('common_shared_rejected_zeroWrites', async () => {
@@ -88,31 +92,34 @@ describe('P1 shared-password strength + single HIBP call', () => {
     expect(res.errors.join(' ')).toMatch(/too common/)
     expect(db.user.createMany).not.toHaveBeenCalled()
   })
-  it('breached_shared_rejected_singleHIBPCall', async () => {
+  it('breached_but_strong_ACCEPTED_HIBP_skipped (admin-set)', async () => {
+    // 2026-09-14: ADMIN-SET shared passwords skip HIBP (see
+    // validateAdminSharedPassword accepted-risk note). Breached-but-strong is
+    // ACCEPTED for onboarding cohorts; self-set register/change-password KEEP HIBP.
     const db = fakeDb()
     const localBreach = vi.fn(async () => ({ breached: true }))
     const res = await bulkCreateStudents(
       'c1',
       [{ name: 'A', email: 'a@x.edu' }, { name: 'B', email: 'b@x.edu' }],
       db,
-      { sharedPassword: 'StrongX9!q2wE', breachCheck: localBreach },
+      { sharedPassword: SHARED, breachCheck: localBreach },
     )
-    expect(res.sharedPasswordInvalid).toBe(true)
-    expect(res.errors.join(' ')).toMatch(/data breach/)
-    expect(localBreach).toHaveBeenCalledTimes(1) // single call per batch, not N
-    expect(db.user.createMany).not.toHaveBeenCalled()
+    expect(res.sharedPasswordInvalid).toBeUndefined()
+    expect(res.success).toBe(2)
+    expect(localBreach).not.toHaveBeenCalled() // HIBP skipped on admin paths
+    expect(db.user.createMany).toHaveBeenCalledTimes(1)
   })
-  it('valid_shared_singleHash_mustChange_noEcho', async () => {
+  it('valid_shared_singleHash_mustChange_noEcho_noHIBP', async () => {
     const db = fakeDb()
     const localBreach = vi.fn(async () => ({ breached: false }))
     const res = await bulkCreateStudents(
       'c1',
       [{ name: 'A', email: 'a@x.edu' }, { name: 'B', email: 'b@x.edu' }],
       db,
-      { sharedPassword: 'StrongX9!q2wE', breachCheck: localBreach },
+      { sharedPassword: SHARED, breachCheck: localBreach },
     )
     expect(res.sharedPasswordInvalid).toBeUndefined()
-    expect(localBreach).toHaveBeenCalledTimes(1)
+    expect(localBreach).not.toHaveBeenCalled() // HIBP skipped on admin paths
     expect(db.user.createMany).toHaveBeenCalledTimes(1)
     // Single bcrypt hash reused: both rows share passwordHash.
     const data = (db.user.createMany.mock.calls[0][0] as any).data as Array<any>
@@ -121,7 +128,7 @@ describe('P1 shared-password strength + single HIBP call', () => {
     expect(data[0].mustChangePassword).toBe(true)
     expect(res.sharedPasswordEcho).toBe(false)
     expect(res.mustChangePassword).toBe(true)
-    expect(JSON.stringify(res)).not.toContain('StrongX9!q2wE')
+    expect(JSON.stringify(res)).not.toContain(SHARED)
   })
 })
 
@@ -132,7 +139,7 @@ describe('P1 legacy password column warn+ignore', () => {
       'c1',
       [{ name: 'A', email: 'a@x.edu', password: 'oldsecret123' } as any],
       db,
-      { sharedPassword: 'StrongX9!q2wE', breachCheck: noBreach },
+      { sharedPassword: SHARED, breachCheck: noBreach },
     )
     expect(res.passwordColumnIgnored).toBe(true)
     expect(res.warnings?.join(' ')).toMatch(/password column ignored/)
@@ -144,7 +151,7 @@ describe('P1 legacy password column warn+ignore', () => {
       'c1',
       [{ name: 'A', email: 'a@x.edu', password: 'oldsecret123' } as any],
       db,
-      { sharedPassword: 'StrongX9!q2wE', breachCheck: noBreach },
+      { sharedPassword: SHARED, breachCheck: noBreach },
     )
     expect(res.passwordColumnIgnored).toBe(true)
     expect(db.user.createMany).toHaveBeenCalled()
@@ -160,13 +167,15 @@ describe('P1 dry-run shared hint', () => {
     expect(res.sharedPassword.errors.join(' ')).toMatch(/Shared password required/)
     expect(db.user.createMany).not.toHaveBeenCalled()
   })
-  it('dryRun_with_breached_shared_reports_invalid', async () => {
+  it('dryRun_with_breached_but_strong_reports_valid_HIBP_skipped', async () => {
+    // 2026-09-14: admin dry-run also skips HIBP (same accepted-risk note).
     const db = fakeDb()
+    const localBreach = vi.fn(async () => ({ breached: true }))
     const res = await dryRunBulkStudents('c1', [{ name: 'A', email: 'a@x.edu' }], db, {
-      sharedPassword: 'StrongX9!q2wE',
-      breachCheck: breached,
+      sharedPassword: SHARED,
+      breachCheck: localBreach,
     })
-    expect(res.sharedPassword.valid).toBe(false)
-    expect(res.sharedPassword.errors.join(' ')).toMatch(/data breach/)
+    expect(res.sharedPassword.valid).toBe(true)
+    expect(localBreach).not.toHaveBeenCalled()
   })
 })

@@ -50,17 +50,21 @@ describe('parseCsvClient + stripPasswordColumn (legacy warn+ignore)', () => {
 
 describe('passwordStrengthScore (mirrors BE 0–4)', () => {
   it('scores_weak_and_strong', () => {
+    // Hermetic synthetic fixture — dynamically constructed so no secret-like
+    // literal exists in source. Scores 4 (length+mixed+digit+symbol).
+    const strongSynthetic = 'Aa1!' + 'x'.repeat(9)
     expect(passwordStrengthScore('').score).toBe(0)
-    expect(passwordStrengthScore('StrongX9!q2wE').score).toBe(4)
+    expect(passwordStrengthScore(strongSynthetic).score).toBe(4)
     expect(passwordStrengthScore('abcdefgh').score).toBeLessThan(2)
   })
 })
 
 describe('validateSharedPasswordLocal (client hint, BE authoritative)', () => {
   it('rejects_short_common_accepts_strong', () => {
+    const strongSynthetic = 'Aa1!' + 'x'.repeat(9)
     expect(validateSharedPasswordLocal('short')).toEqual(['Password must be 8-72 characters'])
     expect(validateSharedPasswordLocal('password123')).toEqual(['Password is too common, choose a stronger password'])
-    expect(validateSharedPasswordLocal('StrongX9!q2wE')).toEqual([])
+    expect(validateSharedPasswordLocal(strongSynthetic)).toEqual([])
   })
 })
 

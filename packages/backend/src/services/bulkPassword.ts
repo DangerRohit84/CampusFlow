@@ -2,8 +2,9 @@
 // WHY: a whole class forgetting the shared onboarding password needs one action
 // to restore access (not per-user tickets). Option A (RECOMMENDED, V1): ONE shared
 // password for all selected — admin-typed `shared-set` or auto-generated
-// `shared-reset`. Reuses P1 validator + show-once + nudge (single HIBP call,
-// single panel to copy, single audit entry).
+// `shared-reset`. Reuses P1 admin validator (format-only, HIBP SKIPPED — see
+// validateAdminSharedPassword accepted-risk note) + show-once + nudge (single
+// audit entry, no HIBP latency on the bulk path).
 // §10 ADDENDUM (2026-09-14, SUPERSEDES forced block): optional change, NO forced
 // block — nudge only, mustChangePassword stays false (DO NOT set it here; leave
 // untouched so import cohorts keep their flag). Nudge trigger is passwordNudgeAt
@@ -14,20 +15,39 @@
 // Guards authoritative server-side: self-strip (NOT fail-all — differs from delete),
 // college scope, role matrix (COLLEGE_ADMIN→STUDENT/TEACHER only; SUPER_ADMIN→any
 // except SUPER_ADMIN), 1–100 ids, RESET N confirm, 5 ops/10min + 1000 users/day
-// rate limit (in-memory V1, same single-instance documented limit as
-// authHardening attempts; test hook clearBulkPasswordRateForTests).
-// Sessions: per-user JWT revocation is not possible statelessly (no per-user jti
-// registry); change-password revokes the caller's jti. Bulk-pw does NOT claim
-// revocation — access TTL (1d) bounds the window + nudge drives rotation.
-// Documented residual risk in the impl report (acceptance "old sessions 401"
-// NOT met by design — honest gap, see report).
-// Injectable `db` + `breachCheck` for hermetic tests (DIP); logger on every catch.
+// rate limit (Redis-shared with memory fallback — see below; test hook
+// clearBulkPasswordRateForTests + FakeRedis via __setRedisClientForTests).
+// Sessions (follow-up 2026-09-14): after a successful reset we best-effort
+// clearAuthorizeCache for each affected id (reuse, same as bulkDelete) so stale
+// role caches die immediately. Refresh-token mass revoke is LAZY via the
+// passwordNudgeAt marker: POST /refresh rejects tokens with iat < nudgeAt (see
+// routes/auth.ts + isRefreshTokenStaleAfterBulkReset in utils/authHardening.ts,
+// reuses revokeJti for the old refresh jti). Nudge-only preserved: fresh logins
+// with the new shared pw (iat >= nudgeAt) succeed with only the banner — no login
+// block. Access 1d TTL still bounds the window for access tokens.
+// RELEASE COMMS (2026-09-14, P1 SUPERSEDE — copy into changelog, no behavior
+// change beyond message clarity): "Bulk-password shared-set confirm now REQUIRES
+// sharedPassword (or shared-reset with autoGenerate:true). Old automation that
+// confirmed without it gets 400 { error: 'Shared password is required...' }
+// (zero writes). Fix: send { sharedPassword } (shared-set) or
+// { mode:'shared-reset', autoGenerate:true }."
+// Injectable `db` for hermetic tests (DIP); `breachCheck` KEPT for
+// backward-compat callers but IGNORED (HIBP skipped on admin paths — see
+// validateAdminSharedPassword accepted-risk note); logger on every catch.
 
 import bcrypt from 'bcryptjs'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
 import {
-  validateSharedPasswordFull,
+  getRedisClient,
+  redisGet,
+  redisIncrBy,
+  redisPttl,
+  redisRateLimitGet,
+  redisRateLimitIncrement,
+} from '../lib/redis'
+import {
+  validateAdminSharedPassword,
   generateSharedPassword,
   parseConfirmCount,
   normalizeBulkIds,
@@ -83,14 +103,23 @@ export interface BulkPasswordOptions {
   breachCheck?: BreachCheck
 }
 
-// --- Rate limit (in-memory V1, per-actor) ---
-// 5 ops/10min/actor + 1000 users/day/actor. Process-local (same documented limit
-// as authHardening attempts/Maps). Counters keyed `actorId`; ops window sliding,
-// users/day fixed calendar-ish (24h rolling). 429 surfaces retryAfterSec.
+// --- Rate limit (Redis-shared with memory fallback, per-actor) ---
+// 5 ops/10min/actor + 1000 users/day/actor. Multi-replica safe: Redis holds the
+// global counters (same pattern as middleware/rateLimits.ts +
+// lib/cache.ts createSharedRateLimitStore via lib/redis.ts Lua atomic ops).
+// REDIS_URL unset or Redis error → fail OPEN to process-local memory (identical
+// 429 contracts single-instance; multi-instance degraded until Redis heals —
+// never 500 on a cache blip, never log secrets, counts only).
+// Keys: `rl:bulk-pw-ops:{actorId}` (10min window, totalHits) +
+// `rl:bulk-pw-users:{actorId}` (24h rolling count of users reset).
+// Check-before (no burn on 400/403) + record-after-success (only successful
+// confirms burn budget) preserved on both layers. Async (Redis I/O).
 const OPS_WINDOW_MS = 10 * 60 * 1000
 const OPS_LIMIT = 5
 const USERS_DAY_MS = 24 * 60 * 60 * 1000
 const USERS_DAY_LIMIT = 1000
+const OPS_PREFIX = 'rl:bulk-pw-ops:'
+const USERS_PREFIX = 'rl:bulk-pw-users:'
 
 interface ActorBucket {
   opsAt: number[]
@@ -99,9 +128,25 @@ interface ActorBucket {
 
 const buckets = new Map<string, ActorBucket>()
 
-/** Test-only: clear rate-limit state (isolates hermetic tests). */
+/** Test-only: clear memory rate-limit state (isolates hermetic tests). Redis mock cleared separately via __resetRedisForTests. */
 export function clearBulkPasswordRateForTests(): void {
   buckets.clear()
+}
+
+function bulkPwOpsKey(actorId: string): string {
+  return `${OPS_PREFIX}${actorId}`
+}
+
+function bulkPwUsersKey(actorId: string): string {
+  return `${USERS_PREFIX}${actorId}`
+}
+
+function useRedisRate(): boolean {
+  try {
+    return getRedisClient() !== null
+  } catch {
+    return false
+  }
 }
 
 function pruneBucket(b: ActorBucket, now: number): void {
@@ -112,10 +157,10 @@ function pruneBucket(b: ActorBucket, now: number): void {
   if (b.usersAt.length > 100) b.usersAt = b.usersAt.slice(-100)
 }
 
-export function checkBulkPasswordRate(
+function checkMemoryRate(
   actorId: string,
   usersRequested: number,
-  now = Date.now(),
+  now: number,
 ): { allowed: boolean; retryAfterSec?: number } {
   const b = buckets.get(actorId) ?? { opsAt: [], usersAt: [] }
   pruneBucket(b, now)
@@ -136,12 +181,59 @@ export function checkBulkPasswordRate(
   return { allowed: true }
 }
 
-function recordBulkPasswordRate(actorId: string, usersAffected: number, now = Date.now()): void {
+function recordMemoryRate(actorId: string, usersAffected: number, now: number): void {
   const b = buckets.get(actorId) ?? { opsAt: [], usersAt: [] }
   b.opsAt.push(now)
   if (usersAffected > 0) b.usersAt.push({ at: now, n: usersAffected })
   pruneBucket(b, now)
   buckets.set(actorId, b)
+}
+
+export async function checkBulkPasswordRate(
+  actorId: string,
+  usersRequested: number,
+  now = Date.now(),
+): Promise<{ allowed: boolean; retryAfterSec?: number }> {
+  // Redis-shared path first (global budget across replicas).
+  if (useRedisRate()) {
+    try {
+      const opsHit = await redisRateLimitGet(bulkPwOpsKey(actorId))
+      if (opsHit && opsHit.totalHits >= OPS_LIMIT) {
+        const retryAfterSec = Math.max(1, Math.ceil((opsHit.resetTimeMs - Date.now()) / 1000))
+        return { allowed: false, retryAfterSec }
+      }
+      const usersRaw = await redisGet<unknown>(bulkPwUsersKey(actorId))
+      const usersSoFar = typeof usersRaw === 'number' ? usersRaw : parseInt(String(usersRaw ?? '0'), 10) || 0
+      if (usersSoFar + usersRequested > USERS_DAY_LIMIT) {
+        const ttl = await redisPttl(bulkPwUsersKey(actorId))
+        const retryAfterSec = ttl != null && ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : 60
+        return { allowed: false, retryAfterSec }
+      }
+      return { allowed: true }
+    } catch (err) {
+      logger.warn({ err: (err as Error)?.message || String(err) }, '[bulkPassword] redis check failed, failing open to memory')
+    }
+  }
+  return checkMemoryRate(actorId, usersRequested, now)
+}
+
+async function recordBulkPasswordRate(actorId: string, usersAffected: number, now = Date.now()): Promise<void> {
+  // Record on BOTH layers when Redis is up (memory stays warm for fail-open
+  // continuity during blips; Redis is authoritative cross-replica).
+  // When Redis is down, memory only (single-instance semantics).
+  recordMemoryRate(actorId, usersAffected, now)
+  if (!useRedisRate()) return
+  try {
+    await redisRateLimitIncrement(bulkPwOpsKey(actorId), OPS_WINDOW_MS)
+    if (usersAffected > 0) {
+      await redisIncrBy(bulkPwUsersKey(actorId), Math.floor(usersAffected), USERS_DAY_MS)
+    } else {
+      // Ops-only confirm (e.g., all rows race-deleted): still burn the ops
+      // budget via the increment above; users key untouched.
+    }
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message || String(err) }, '[bulkPassword] redis record failed (memory remains authoritative)')
+  }
 }
 
 function err400(message: string): Error {
@@ -208,8 +300,10 @@ export async function bulkPasswordReset(
     throw err400('autoGenerate must be true for shared-reset')
   }
   const hasShared = input.sharedPassword != null && String(input.sharedPassword) !== ''
+  // Clear 400 for old callers without sharedPassword (intentional supersede — see
+  // header RELEASE COMMS; no behavior change beyond message clarity).
   if (mode === 'shared-set' && !hasShared && !isDryRun) {
-    throw err400('Shared password is required. Set one password for all selected users.')
+    throw err400('Shared password is required. Set one password for all selected users. Provide sharedPassword (shared-set) or use shared-reset with autoGenerate:true — old callers without it get 400 (P1 shared-password required, see release notes).')
   }
   if (mode === 'shared-reset' && hasShared) {
     throw err400('Do not send sharedPassword with shared-reset (autoGenerate=true)')
@@ -235,9 +329,11 @@ export async function bulkPasswordReset(
     effectiveShared = String(input.sharedPassword)
   }
 
-  // --- Shared validation (single HIBP call per batch) ---
+  // --- Shared validation (ADMIN-SET: format-only 8-72 + common, HIBP SKIPPED) ---
+  // opts.breachCheck is ignored (kept for backward-compat callers).
+  // Self-set register/change-password KEEP HIBP (routes/auth.ts, untouched).
   if (effectiveShared != null) {
-    const check = await validateSharedPasswordFull(effectiveShared, opts.breachCheck)
+    const check = await validateAdminSharedPassword(effectiveShared)
     if (!check.valid) {
       if (isDryRun) {
         return {
@@ -304,7 +400,8 @@ export async function bulkPasswordReset(
   }
 
   // --- Rate limit (confirm only, after validation so bad requests don't burn budget) ---
-  const rate = checkBulkPasswordRate(ctx.actorId, part.inScope.length)
+  // Redis-shared (global across replicas) with memory fallback — same 429 contract.
+  const rate = await checkBulkPasswordRate(ctx.actorId, part.inScope.length)
   if (!rate.allowed) {
     throw err429(`Too many password resets — retry in ${rate.retryAfterSec ?? 60}s`, rate.retryAfterSec ?? 60)
   }
@@ -358,7 +455,24 @@ export async function bulkPasswordReset(
   if (short > 0) errors.push(`${short} row(s) not updated (race deleted?)`)
   const failed = missingErrors.length + wrongCollegeErrors.length + Math.max(0, short)
 
-  recordBulkPasswordRate(ctx.actorId, updated)
+  await recordBulkPasswordRate(ctx.actorId, updated)
+
+  // Mass session hygiene (follow-up 2026-09-14): best-effort clearAuthorizeCache
+  // for each affected id (reuse, same as bulkDelete) so stale role caches die
+  // immediately. Refresh-token mass revoke is LAZY via passwordNudgeAt (see
+  // routes/auth.ts POST /refresh + isRefreshTokenStaleAfterBulkReset): old
+  // refresh tokens (iat < nudgeAt) 401, fresh logins with the new shared pw pass
+  // nudge-only (no login block). Never throws, never logs ids/secrets (counts only).
+  try {
+    const { clearAuthorizeCache } = await import('../middleware/auth.js').catch(() => ({ clearAuthorizeCache: null as any }))
+    if (typeof clearAuthorizeCache === 'function') {
+      for (const id of inScopeIds) {
+        try {
+          ;(clearAuthorizeCache as any)(id)
+        } catch {}
+      }
+    }
+  } catch {}
 
   return {
     success: updated,

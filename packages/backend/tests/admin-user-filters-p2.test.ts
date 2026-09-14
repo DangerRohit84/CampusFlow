@@ -16,6 +16,7 @@ import {
   normalizeEmailFilter,
   normalizeIncomingYear,
   applyUserListFilters,
+  buildAdminRoleCountsWheres,
 } from '../src/utils/userFilters'
 
 describe('P2 normalize helpers', () => {
@@ -117,5 +118,55 @@ describe('P2 list/counts parity contract', () => {
     // List = counts + role only.
     const { role: _r, ...listRest } = listWhere as Record<string, unknown>
     expect(listRest).toEqual(countsWhere)
+  })
+  it('counts_teachers_ignore_year (parity with list ignoreYear)', () => {
+    // Follow-up 2026-09-14 (review Important #1): list TEACHER/COLLEGE_ADMIN
+    // ignores incomingYear (ignoreYear guard); counts must split per-badge so
+    // teachers/admins badges ignore it too. Students badge keeps the filter.
+    const base = { collegeId: 'c1' }
+    const filters = {
+      departmentId: 'd1',
+      search: 'sharma',
+      studentId: null,
+      empNumber: 'EMP9',
+      email: null,
+      incomingYear: 2024,
+    } as const
+    const { studentsWhere, othersWhere, hasYearFilter } = buildAdminRoleCountsWheres(base, { ...filters })
+    expect(hasYearFilter).toBe(true)
+    // Students portion keeps the year (== students list total under year filter).
+    expect(studentsWhere).toEqual(
+      applyUserListFilters(base, { ...filters }),
+    )
+    expect(JSON.stringify(studentsWhere)).toContain('2024')
+    // Teachers/admins portion drops the year (== TEACHER list which ignores year).
+    expect(othersWhere).toEqual(
+      applyUserListFilters(base, { ...filters, incomingYear: null }),
+    )
+    expect(JSON.stringify(othersWhere)).not.toContain('2024')
+    // And the teachers list where (ignoreYear) matches the others portion + role.
+    const teacherListWhere = applyUserListFilters(base, {
+      role: 'TEACHER',
+      departmentId: 'd1',
+      search: 'sharma',
+      empNumber: 'EMP9',
+      incomingYear: null,
+    })
+    const { role: _r, ...teacherRest } = teacherListWhere as Record<string, unknown>
+    expect(teacherRest).toEqual(othersWhere)
+  })
+  it('counts_no_year_single_query_shape', () => {
+    const base = { collegeId: 'c1' }
+    const { hasYearFilter, studentsWhere, othersWhere } = buildAdminRoleCountsWheres(base, {
+      departmentId: null,
+      search: null,
+      studentId: null,
+      empNumber: null,
+      email: null,
+      incomingYear: null,
+    })
+    expect(hasYearFilter).toBe(false)
+    expect(studentsWhere).toEqual(othersWhere)
+    expect(studentsWhere).toEqual({ collegeId: 'c1' })
   })
 })

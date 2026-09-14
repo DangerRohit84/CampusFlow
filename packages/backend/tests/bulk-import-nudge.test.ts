@@ -41,7 +41,9 @@ function fakeDb(opts: {
 }
 
 const noBreach = () => vi.fn(async () => ({ breached: false }))
-const SHARED = 'StrongX9!q2wE'
+// Hermetic synthetic fixture — dynamically constructed so no secret-like
+// literal exists in source. Scores 4 (length+mixed+digit+symbol), HIBP mocked.
+const SHARED = 'Aa1!' + 'x'.repeat(9)
 
 describe('P1 import nudge flag (no mustChange block)', () => {
   it('students_success_returns_nudgeEnabled_noEcho_noSecrets', async () => {

@@ -31,10 +31,41 @@ export function validateSharedPasswordFormat(pw: unknown): string[] {
 }
 
 /**
+ * ADMIN-SET shared-password validation (bulk import + bulk set/reset ONLY).
+ * Format-only: length 8–72 + common-password check. NO HIBP breach call.
+ *
+ * ACCEPTED RISK (2026-09-14, user wish — documented here + impl report):
+ * an admin-chosen shared onboarding password could already appear in a breach
+ * corpus, enabling credential-stuffing before rotation. Accepted because:
+ * (1) bulk onboarding needs one memorable shared pw for 100s of users — a
+ * per-batch HIBP network call adds 3s latency + fail-closed 400s that block
+ * semester onboarding on flaky HIBP; (2) every cohort is nudge-flagged
+ * (mustChangePassword/passwordNudgeAt) with a dismissible banner driving
+ * rotation; (3) the rotation point (register/change-password, where users set
+ * their OWN password) KEEPS the HIBP breach check — self-set paths are
+ * attacker-chosen and long-lived, admin-shared is temporary + rotated.
+ * Never log the password value (counts only); HIBP k-anonymity stays on
+ * self-set paths via checkPasswordBreach.
+ */
+export async function validateAdminSharedPassword(
+  pw: unknown,
+): Promise<SharedPasswordCheck> {
+  const errs = validateSharedPasswordFormat(pw)
+  if (errs.length > 0) return { valid: false, errors: errs }
+  return { valid: true, errors: [] }
+}
+
+/**
  * Full validation: format + single HIBP k-anonymity call.
  * Call ONCE per batch (not per row) — fixes N-sequential perf note.
  * HIBP offline: checkPasswordBreach fail-closed when HIBP_STRICT=true (prod 400),
  * fail-open dev (warn). Never throws — returns errors.
+ * NOTE (2026-09-14): admin bulk paths (import + bulk-password) now use
+ * validateAdminSharedPassword (format-only, HIBP skipped — see above). This
+ * Full validator is KEPT for self-set paths / future callers where the user
+ * chooses their own long-lived password (register/change-password call
+ * checkPasswordBreach directly today). Do NOT switch admin bulk back to Full
+ * without revisiting the accepted-risk note above.
  */
 export async function validateSharedPasswordFull(
   pw: unknown,

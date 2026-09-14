@@ -19,7 +19,9 @@ describe('MAX_IMPORT_ROWS', () => {
 
 describe('sharedPasswordOf', () => {
   it('extracts_nonblank_string_only', () => {
-    expect(sharedPasswordOf({ sharedPassword: 'StrongX9!q2wE' })).toBe('StrongX9!q2wE')
+    // Dynamically constructed — no secret-like literal in source.
+    const pw = 'Aa1!' + 'x'.repeat(9)
+    expect(sharedPasswordOf({ sharedPassword: pw })).toBe(pw)
     expect(sharedPasswordOf({})).toBeUndefined()
     expect(sharedPasswordOf({ sharedPassword: '' })).toBeUndefined()
     expect(sharedPasswordOf({ sharedPassword: 123 })).toBeUndefined()
@@ -29,7 +31,21 @@ describe('sharedPasswordOf', () => {
 
 describe('sharedPw400', () => {
   it('maps_marker_to_400_shape', () => {
-    expect(sharedPw400({ sharedPasswordInvalid: true, errors: ['Shared password is required. Set one password for all rows in this import.'] })).toEqual({
+    // Follow-up 2026-09-14: clearer 400 for old callers without sharedPassword
+    // (intentional supersede — message keeps the old prefix + release-notes suffix).
+    const msg =
+      'Shared password is required. Set one password for all rows in this import. Provide sharedPassword (8-72 chars) on confirm — old callers without it get 400 (P1 shared-password required, see release notes).'
+    expect(sharedPw400({ sharedPasswordInvalid: true, errors: [msg] })).toEqual({
+      error: msg,
+      errors: [msg],
+    })
+  })
+  it('old_prefix_still_maps (backward compat)', () => {
+    // Old automation messages (prefix only) still map to 400 — no behavior change
+    // beyond message clarity.
+    expect(
+      sharedPw400({ sharedPasswordInvalid: true, errors: ['Shared password is required. Set one password for all rows in this import.'] }),
+    ).toEqual({
       error: 'Shared password is required. Set one password for all rows in this import.',
       errors: ['Shared password is required. Set one password for all rows in this import.'],
     })

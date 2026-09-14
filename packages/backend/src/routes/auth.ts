@@ -4,7 +4,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { config, getCookieMaxAgeMs } from '../config'
 import { authenticate, AuthRequest, clearAuthorizeCache } from '../middleware/auth'
-import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach } from '../utils/authHardening'
+import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach, isRefreshTokenStaleAfterBulkReset } from '../utils/authHardening'
 import { verifyTurnstile } from '../utils/turnstile'
 import { logger } from '../utils/logger'
 import { toRoleEnum } from '../lib/enums'
@@ -613,6 +613,31 @@ router.post('/refresh', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Invalid refresh token' })
       return
     }
+    // Bulk-password mass revoke (follow-up 2026-09-14): reject refresh tokens
+    // issued BEFORE the user's passwordNudgeAt (bulk reset marker). Reuses
+    // revokeJti for the old refresh jti so replay dies. Nudge-only preserved:
+    // fresh logins with the new shared pw (iat >= nudgeAt) pass with only the
+    // banner — no login block. Best-effort read (pre-migration/P2022 → allow,
+    // fail-open); never logs secrets (counts only).
+    try {
+      const decodedFull = (await import('jsonwebtoken')).default.decode(raw) as { iat?: number } | null
+      const iat = typeof decodedFull?.iat === 'number' ? decodedFull.iat : undefined
+      if (typeof iat === 'number') {
+        let nudgeAt: unknown = null
+        try {
+          const row = await (prisma as any).user.findUnique({
+            where: { id: (decoded as any).userId },
+            select: { passwordNudgeAt: true },
+          })
+          nudgeAt = (row as any)?.passwordNudgeAt ?? null
+        } catch {}
+        if (isRefreshTokenStaleAfterBulkReset(iat, nudgeAt as any)) {
+          try { revokeJti((decoded as any).jti) } catch {}
+          res.status(401).json({ error: 'Invalid refresh token' })
+          return
+        }
+      }
+    } catch {}
     // Rotate: revoke old refresh jti, issue new pair
     try { revokeJti(decoded.jti) } catch {}
     const access = signJwtWithJti(decoded.userId)

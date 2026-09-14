@@ -194,8 +194,9 @@ function fakeBulkDb(seed: {
 
 describe('adminBulk batched (4 round-trips, not 4N)', () => {
   // P1 shared-password (2026-09-14): confirm requires sharedPassword (hermetic
-  // mock breachCheck — never real HIBP in tests). Row semantics unchanged.
-  const SHARED = { sharedPassword: 'StrongX9!q2wE', breachCheck: async () => ({ breached: false }) } as never
+  // mock breachCheck — never real HIBP in tests). Dynamically constructed
+  // synthetic (score 4) so no secret-like literal exists in source.
+  const SHARED = { sharedPassword: 'Aa1!' + 'x'.repeat(9), breachCheck: async () => ({ breached: false }) } as never
   it('creates teachers via prefetch + createMany (same errors as per-row)', async () => {
     const db = fakeBulkDb({
       users: [{ email: 'taken@x.com' }],

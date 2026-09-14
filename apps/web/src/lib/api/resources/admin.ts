@@ -22,6 +22,11 @@ export interface AdminUserQuery {
   empNumber?: string
   email?: string
   incomingYear?: number
+  // Sortable columns (2026-09-14, additive): whitelisted name/email/
+  // studentId/empNumber + asc/desc. Omitted = backend defaults name asc;
+  // old backend ignores unknown keys (rolling-deploy safe).
+  sort?: string
+  order?: string
   signal?: AbortSignal
 }
 
@@ -165,7 +170,7 @@ export interface BulkDryRunReport {
   invalidCount: number
   rows: BulkDryRunRow[]
   errors: string[]
-  // P1 shared-password validation (single HIBP call, server authoritative).
+  // P1 shared-password validation (ADMIN-SET format-only, HIBP skipped — server authoritative).
   sharedPassword?: { valid: boolean; errors: string[] }
   passwordColumnIgnored?: boolean
   warnings?: string[]

@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs'
 import { storageMode } from '../config/storage'
 import { isAssignmentVisibleToUser, buildHubListWhere } from '../utils/assignmentVisibility'
 import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
-import { applyUserListFilters, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter, normalizeSearch, normalizeStudentId, normalizeEmpNumber, normalizeEmailFilter, normalizeIncomingYear } from '../utils/userFilters'
+import { applyUserListFilters, buildAdminRoleCountsWheres, buildUserListOrderBy, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter, normalizeSearch, normalizeStudentId, normalizeEmpNumber, normalizeEmailFilter, normalizeIncomingYear, normalizeUserListOrder, normalizeUserListSort } from '../utils/userFilters'
 import { broadcastCollegeMutation, broadcastUserMutation, broadcastHackathonMutation, broadcastFormMutation } from '../services/socket'
 import { logger } from '../utils/logger'
 import { isCommonPassword, checkPasswordBreach } from '../utils/authHardening'
@@ -1200,6 +1200,12 @@ router.delete('/colleges/:id', async (req: AuthRequest, res: Response) => {
 // paged query → envelope, no query → capped array (compat).
 // List filters: ?role=STUDENT|TEACHER|COLLEGE_ADMIN|SUPER_ADMIN + ?departmentId=
 // (users sub-tabs / department dropdown). Unknown ?role= → 400; pagination untouched.
+// Sort (2026-09-14, additive): ?sort=name|email|studentId|empNumber + ?order=asc|desc
+// (aliases ?sortBy/?sortOrder/?dir accepted). Whitelisted only — invalid falls
+// back to name asc (never 400, never injects columns). Default name asc keeps
+// the Users table alphabetical; pagination (page/limit/cursor/total) unchanged.
+// NOTE behavior change: pre-sort default was createdAt desc. Old clients without
+// ?sort= now get name asc (same shape/envelope, different row order).
 router.get('/users', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }) // HALF2: narrow (was full row incl. passwordHash)
@@ -1241,6 +1247,15 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
       email: normalizeEmailFilter(req.query.email),
       incomingYear: ignoreYear ? null : yearParsed.value,
     })
+    // Sortable columns (whitelisted, default name asc). Aliases kept for
+    // rolling deploys (old FE sends nothing → default; new FE sends sort/order).
+    const sortField = normalizeUserListSort(
+      (req.query as any).sort ?? (req.query as any).sortBy,
+    )
+    const sortOrder = normalizeUserListOrder(
+      (req.query as any).order ?? (req.query as any).sortOrder ?? (req.query as any).dir,
+    )
+    const orderBy = buildUserListOrderBy(sortField, sortOrder)
 
     const wantsPaged = req.query.page != null || req.query.limit != null || req.query.cursor != null
     const limitParam = parseInt(String(req.query.limit || '50'), 10)
@@ -1269,7 +1284,7 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
       prisma.user.findMany({
         where,
         select,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: orderBy as any,
         take: limit,
         ...cursorClause,
       }),
@@ -1313,29 +1328,53 @@ router.get('/users/role-counts', async (req: AuthRequest, res: Response) => {
       where = { collegeId: user.collegeId }
     }
     // P2: counts apply the SAME search/roll/year/email filters as GET /users so
-    // badges stay correct while filtering. incomingYear narrows non-student
-    // badges toward 0 (they carry no year) — students badge == students list
-    // total under student filters (contract-tested). Teachers tab never sends
-    // year (no Year control; tab switch clears it). Invalid year → 400 (parity).
+    // badges stay correct while filtering. PARITY FIX (2026-09-14, review Important #1):
+    // list ignores incomingYear for TEACHER/COLLEGE_ADMIN/SUPER_ADMIN role queries
+    // (ignoreYear guard above), so counts splits per-badge: students badge uses the
+    // year filter, teachers/admins badges ignore it (buildAdminRoleCountsWheres).
+    // Without the split, ?incomingYear=2024 narrowed non-student badges toward 0
+    // while ?role=TEACHER&incomingYear=2024 lists ignored it (badge/list drift).
+    // FE already omits year for non-students; this fixes direct-API + student-tab
+    // year filtering. Invalid year → 400 (parity with list).
     const countsYear = normalizeIncomingYear(req.query.incomingYear ?? (req.query as any).year)
     if (countsYear.invalid) {
       res.status(400).json({ error: 'Invalid incomingYear filter' })
       return
     }
-    where = applyUserListFilters(where, {
+    const countsFilters = {
       departmentId: normalizeDepartmentFilter(req.query.departmentId),
       search: normalizeSearch(req.query.search ?? (req.query as any).q),
       studentId: normalizeStudentId((req.query as any).studentId ?? (req.query as any).roll),
       empNumber: normalizeEmpNumber((req.query as any).empNumber),
       email: normalizeEmailFilter(req.query.email),
       incomingYear: countsYear.value,
-    })
+    }
+    const { studentsWhere, othersWhere, hasYearFilter } = buildAdminRoleCountsWheres(where, countsFilters)
 
-    const groups = await prisma.user.groupBy({
-      by: ['role'],
-      where,
-      _count: { role: true },
-    })
+    const groups = hasYearFilter
+      ? await (async () => {
+          // Two GROUP BYs in parallel: students WITH year, others WITHOUT year.
+          // Same tenant scoping + other filters, so each badge == its tab list total.
+          const [studentsGroups, othersGroups] = await Promise.all([
+            prisma.user.groupBy({ by: ['role'], where: studentsWhere as any, _count: { role: true } }),
+            prisma.user.groupBy({ by: ['role'], where: othersWhere as any, _count: { role: true } }),
+          ])
+          const merged = new Map<string, number>()
+          for (const g of studentsGroups) {
+            if ((g as any).role === 'STUDENT') merged.set('STUDENT', (g as any)._count.role)
+          }
+          for (const g of othersGroups) {
+            const r = (g as any).role
+            if (r === 'TEACHER' || r === 'COLLEGE_ADMIN') merged.set(r, (g as any)._count.role)
+          }
+          // Re-shape to groupBy-like array for the shared counting loop below.
+          return [...merged.entries()].map(([role, count]) => ({ role, _count: { role: count } }))
+        })()
+      : await prisma.user.groupBy({
+          by: ['role'],
+          where: othersWhere as any,
+          _count: { role: true },
+        })
     const counts = { students: 0, teachers: 0, college_admins: 0 }
     for (const g of groups) {
       if (g.role === 'STUDENT') counts.students = g._count.role
