@@ -234,7 +234,7 @@ async function executeWithFailoverWithUserKey(
   feature: string,
   messages: ChatMessage[],
   userApiKey: string,
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   const trimmed = String(userApiKey || '').trim()
   if (!trimmed) return NOT_CONFIGURED_MESSAGE
@@ -267,7 +267,7 @@ async function executeWithFailoverWithUserKey(
 async function executeWithFailover(
   feature: string,
   messages: ChatMessage[],
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   const candidates = await resolveProviders(feature)
   let lastError: unknown
@@ -378,14 +378,21 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
 
 /**
  * Call OpenAI-compatible API (Groq, OpenAI, DeepSeek, Mistral, etc.)
+ *
+ * P1-5: honors `options.model` when provided (extraction routes 20b for
+ * enrich/ats-score via services/aiCache). Absent → provider.model (admin
+ * AI-Manager config preserved, byte-identical behavior to today).
  */
-async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
+async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number; model?: string }): Promise<string> {
   // Normalize: trim copy-paste whitespace (adapter also strips, defense in depth)
   // so explicit IDs behave identically to `default`; bypass header matches the
   // proven-working curl (ngrok free edge needs it, harmless elsewhere, and
   // provider.headers still overrides when set).
   const baseUrl = String(provider.baseUrl ?? '').trim().replace(/\/+$/, '')
-  const model = String(provider.model ?? '').trim()
+  // P1-5 model override (extraction → 20b): explicit caller model wins;
+  // otherwise the provider's configured model (admin AI-Manager preserved).
+  const overrideModel = String((options as { model?: string } | undefined)?.model ?? '').trim()
+  const model = overrideModel || String(provider.model ?? '').trim()
   // Defensive: gateways (incl. OpenCode Serve) validate content-part variants
   // strictly — always send canonical OpenAI parts so the image isn't dropped.
   const wireMessages = messages.map(m => ({ ...m, content: canonicalizeContentParts(m.content) as any }))
@@ -436,7 +443,7 @@ async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[
 type ProviderCall = (
   provider: AIProvider,
   messages: ChatMessage[],
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ) => Promise<string>;
 
 const PROVIDER_CALLS: Record<string, ProviderCall> = {
@@ -449,7 +456,7 @@ export function registerProviderCall(type: string, fn: ProviderCall): void {
   PROVIDER_CALLS[String(type || '').toLowerCase()] = fn;
 }
 
-async function callProvider(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
+async function callProvider(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number; model?: string }): Promise<string> {
   const key = String(provider?.type || '').toLowerCase();
   const fn = PROVIDER_CALLS[key] ?? PROVIDER_CALLS['openai-compatible'];
   return fn(provider, messages, options);
@@ -461,7 +468,7 @@ async function callProvider(provider: AIProvider, messages: ChatMessage[], optio
 export async function chatCompletion(
   feature: string,
   messages: ChatMessage[],
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   return executeWithFailover(feature, messages, options)
 }
@@ -475,7 +482,7 @@ export async function chatCompletion(
 export async function visionCompletion(
   feature: string,
   messages: ChatMessage[],
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   const normalized = await normalizeVisionMessages(messages).catch(() => messages)
   return executeWithFailover(feature, normalized, { temperature: 0.1, max_tokens: 16384, ...options })
@@ -486,7 +493,7 @@ export async function chatCompletionWithUserKey(
   feature: string,
   messages: ChatMessage[],
   userApiKey: string,
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   return executeWithFailoverWithUserKey(feature, messages, userApiKey, options)
 }
@@ -495,7 +502,7 @@ export async function visionCompletionWithUserKey(
   feature: string,
   messages: ChatMessage[],
   userApiKey: string,
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   const normalized = await normalizeVisionMessages(messages).catch(() => messages)
   return executeWithFailoverWithUserKey(feature, normalized, userApiKey, { temperature: 0.1, max_tokens: 16384, ...options })
@@ -535,7 +542,7 @@ export async function aiChat(
   feature: string,
   systemPrompt: string,
   userMessage: string,
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   return chatCompletion(feature, [
     { role: 'system', content: systemPrompt },
@@ -548,7 +555,7 @@ export async function aiChatWithUserKey(
   systemPrompt: string,
   userMessage: string,
   userApiKey: string,
-  options?: { temperature?: number; max_tokens?: number },
+  options?: { temperature?: number; max_tokens?: number; model?: string },
 ): Promise<string> {
   return chatCompletionWithUserKey(feature, [
     { role: 'system', content: systemPrompt },

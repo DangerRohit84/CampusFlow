@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { searchAPI } from '../lib/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useDebounce } from '../hooks/useDebounce'
 
 interface PaletteEntry {
   path: string
@@ -76,13 +77,20 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
     }
   }, [open])
 
+  // P0-D search discipline (GitHub/Stripe instant-search pattern): the raw
+  // 200ms setTimeout fired per keystroke with no cancellation — typing
+  // "hackathon" (9 keys) stacked up to 9 overlapping GETs that resolved
+  // out-of-order (stale results winning). Now: 300ms debounce (1 GET per
+  // pause) + AbortController (stale in-flight cancelled, never stacks) +
+  // min-length 2 (matches SearchPage + backend 400 guard).
+  const debouncedQuery = useDebounce(query, 300)
   useEffect(() => {
-    if (query.length < 2) { setResults([]); return }
-    const timer = setTimeout(() => {
-      searchAPI.search(query).then((data) => setResults(data.results || [])).catch(() => setResults([]))
-    }, 200)
-    return () => clearTimeout(timer)
-  }, [query])
+    const q = debouncedQuery.trim()
+    if (q.length < 2) { setResults([]); return }
+    const controller = new AbortController()
+    searchAPI.search(q, controller.signal).then((data) => setResults(data.results || [])).catch(() => setResults([]))
+    return () => controller.abort()
+  }, [debouncedQuery])
 
   const filteredPages = pages.filter((p) => p.label.toLowerCase().includes(query.toLowerCase()))
 

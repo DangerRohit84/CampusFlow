@@ -28,8 +28,12 @@ export function useFetchSettings(options?: { enabled?: boolean }) {
   return useQuery<{ settings: FetchSettingRow[] }>({
     queryKey: qk.fetchSettings(),
     queryFn: ({ signal }) => api.get('/fetch/settings/all', { signal }).then((r) => r.data as { settings: FetchSettingRow[] }),
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    // P0-A stale discipline: config 5m (was 60s mirroring backend). Settings
+    // change only via explicit SUPER_ADMIN limit PUTs which invalidate this
+    // key (see useFetchSettings callers), so 5m is safe and dedupes the
+    // 12-card burst to 1 GET per 5m (shared qk key already dedupes mounts).
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,

@@ -1,15 +1,37 @@
 // opportunities/stagesPrompt.ts — AI prompt builders (SRP extract from stages.ts).
 // WHY: 60-line hackathon prompt + 40-line internship prompt were inline in enrich
 // orchestration. Pure builders, unit-testable, no DB/network/AI calls.
+//
+// P1-5 prompt-cache structuring: Groq auto prefix-caching requires an EXACT
+// static prefix (128+ tokens help, exact bytes required, 2h expiry). The
+// frozen `ENRICH_SYSTEM_PREFIX_V1` below is byte-stable across deploys (bump
+// the version — never edit in place — to invalidate deliberately) and both
+// builders emit it FIRST with the varying query last, so repeat enrichments
+// share the cacheable prefix (typical 40–80% input bill cut at 60%+ hits).
+// Stable field order below is load-bearing for the same reason (no per-row
+// hint reordering — hints are appended in a FIXED order by the caller).
+
+/** Frozen enrich prompt version (bump to invalidate response cache + prefix). */
+export const ENRICH_PROMPT_VERSION = 'v1'
+
+/**
+ * Frozen system prefix for enrichment (EXACT bytes — keep this string
+ * literal stable; see module header for why).
+ */
+export const ENRICH_SYSTEM_PREFIX_V1 =
+  'CampusFlow enrichment v1. Extract only explicitly stated facts. Never fabricate dates. Return ONLY the JSON object.\n'
 
 export function buildHackathonEnrichPrompt(opts: {
   scrapedHints: string
   contentSection: string
 }): string {
   const { scrapedHints, contentSection } = opts
-  return `Enrich this hackathon with full details. Extract ALL available information from the scraped pages.
+  // P1-5 order: STATIC instruction block first (exact bytes across rows →
+  // Groq prefix-cache hit), VARYING query last. All instruction text below
+  // is verbatim (field parity with the pre-P1 prompt — only the position of
+  // the varying Known-info/content moved to the end).
+  return `${ENRICH_SYSTEM_PREFIX_V1}Enrich this hackathon with full details. Extract ALL available information from the scraped pages.
 
-${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${contentSection}
 Extract and return a JSON object with ALL of these fields:
 
 {
@@ -72,7 +94,10 @@ CRITICAL RULES:
 3. Extract prize breakdown from the PRIZES page if available.
 4. Analyze the TOPIC to infer departments, not just extract text.
 5. TIMELINE and ROUNDS are INDEPENDENT — handle them separately: If the source (e.g., Unstop) lists rounds/phases, extract "rounds" AND separately analyse timeline fields (startDate/endDate/deadline/duration) from the timeline/schedule content — do not leave timeline null just because rounds exist. Conversely, if the source has timeline dates but no explicit rounds, infer rounds from phase/schedule descriptions and keep timeline. Both must be preserved independently (fit-fest example: 1 rounds + Live pipeline + 27/9/2026 must all appear).
-6. Return ONLY the JSON object, no other text.`
+6. Return ONLY the JSON object, no other text.
+
+VARYING QUERY (per opportunity — cache prefix ends above):
+${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${contentSection}`
 }
 
 export function buildInternshipEnrichPrompt(opts: {
@@ -80,9 +105,10 @@ export function buildInternshipEnrichPrompt(opts: {
   contentForPrompt: string
 }): string {
   const { scrapedHints, contentForPrompt } = opts
-  return `Enrich this internship with full details. Extract ALL available information.
+  // P1-5 order: STATIC instruction block first (exact bytes across rows →
+  // Groq prefix-cache hit), VARYING query last (same guarantee as hackathon).
+  return `${ENRICH_SYSTEM_PREFIX_V1}Enrich this internship with full details. Extract ALL available information.
 
-${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${contentForPrompt ? `\nDescription / Page Content:\n${contentForPrompt.substring(0, 4000)}\n` : '\n(No description available)\n'}
 Extract and return a JSON object with ALL of these fields:
 
 {
@@ -119,5 +145,8 @@ YEAR ANALYSIS (INFER from context):
 CRITICAL RULES:
 1. NEVER fabricate dates. Only use dates EXPLICITLY found. If none, set to null.
 2. Analyze the ROLE/TOPIC to infer departments, not just extract text.
-3. Return ONLY the JSON object, no other text.`
+3. Return ONLY the JSON object, no other text.
+
+VARYING QUERY (per opportunity — cache prefix ends above):
+${scrapedHints ? `Known info:\n${scrapedHints}\n` : ''}${contentForPrompt ? `\nDescription / Page Content:\n${contentForPrompt.substring(0, 4000)}\n` : '\n(No description available)\n'}`
 }

@@ -81,8 +81,14 @@ const RELATED_PREFIXES: Record<EntityKind, string[][]> = {
   assignment: [['assignmentHubs'], ['hubs'], ['assignments'], ['mySubmissions'], ['dashboard'], ['search'], ['tasks'], ['schedules'], ['timetable']],
   task: [['tasks'], ['dashboard'], ['schedules'], ['timetable'], ['search']],
   schedule: [['schedules'], ['timetable'], ['dashboard'], ['search']],
-  hackathon: [['hackathons'], ['dashboard'], ['search'], ['admin-staging'], ['admin-counts'], ['admin']],
-  internship: [['internships'], ['dashboard'], ['search'], ['admin-staging'], ['admin-counts'], ['admin']],
+  // P0-A: `admin-counts` REMOVED from hackathon/internship fan-out (was 1 GET
+  // per socket event). Counts now patch via setQueryData in useAdminCountsPush
+  // (dedicated `staging:counts:updated` aggregate OR optimistic approve/reject
+  // patch on the generic mutated event, 0 GET, <2s). Fallback is the 5m slow
+  // poll + ETag 304 in AdminOpportunitiesPage (socket-dead) + manual refresh.
+  // `admin-staging` (list) still invalidates — lists need refetch, counts don't.
+  hackathon: [['hackathons'], ['dashboard'], ['search'], ['admin-staging'], ['admin']],
+  internship: [['internships'], ['dashboard'], ['search'], ['admin-staging'], ['admin']],
   contest: [['contests'], ['dashboard'], ['search'], ['coding-profile']],
   // PERPAGE-HALF1: ['leaderboard'] added — ContestLeaderboardPage now owns an
   // RQ query on qk.leaderboard(); profile syncs/mutations must bust it so the

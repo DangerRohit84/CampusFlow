@@ -10,10 +10,12 @@
 // preserved; enrich page routing via registry SSOT (1-file adds).
 import prisma from '../../config/db'
 import { searchDetails, parseSearchDate, extractDeadlineFromContent, hasRegistrationClosedIndicator } from '../../utils/search'
-import { chatCompletion, isAiRateLimitError, toAiIssueMessage } from '../../ai/client'
+import { isAiRateLimitError, toAiIssueMessage } from '../../ai/client'
 import { validateExternalUrl } from '../../utils/secureUrl'
 import { logger } from '../../utils/logger'
 import { scrapeCache } from './cache'
+import { contentHash, getEnrichContentHash, setEnrichContentHash, shouldSkipEnrichForContent } from './fetchState'
+import { enrichmentCompletion } from '../aiCache'
 import type { NormalizedOpportunity } from './types'
 import { hasValue } from './types'
 import { stripHtml, isGenericTitle } from './text'
@@ -56,10 +58,10 @@ export type { TimelineFallback } from './stagesTimeline'
 // Deadline grounding lives in ./stagesDeadline.ts (SRP split).
 // Re-exported above for compat; new code imports from there directly.
 
-export async function enrichHackathonStaging(id: string): Promise<void> {
+export async function enrichHackathonStaging(id: string): Promise<{ cached: boolean }> {
   try {
     const record = await prisma.hackathonStaging.findUnique({ where: { id } })
-    if (!record) return
+    if (!record) return { cached: false }
 
     // ─── Fetch multiple pages from the hackathon site for complete data ───
     // CRITICAL: Always fetch link page for deadline extraction (LAST DATE TO REGISTER), even when AI disabled.
@@ -133,7 +135,7 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
           logger.info(`[Enrichment] AI disabled — updated deadline from link page for ${record.title}: ${pageDeadlineStr}`)
         } catch (e) { logger.warn({ err: (e as any)?.message || e }, `[Enrichment] AI disabled deadline update failed for ${record.title}:`) }
       }
-      return
+      return { cached: false }
     }
 
     const scrapedHints = [
@@ -172,11 +174,38 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
     // Prompt lives in ./stagesPrompt.ts (pure, tested). Behavior identical.
     const prompt = buildHackathonEnrichPrompt({ scrapedHints, contentSection })
 
-    let responseText = ''
+    // P1-3 content-hash gate + P1-5 response cache (fail-open to full Groq):
+    // identical enrich input (same pages + same hints) re-enriches 0 tokens.
+    // Deterministic page-deadline extraction above already ran (cheap, local)
+    // and a prior enrich already stored its results — nothing left to do.
+    const enrichInputHash = contentHash(prompt)
     try {
-      responseText = await chatCompletion('enrichment', [
-        { role: 'user', content: prompt },
-      ], { temperature: 0.1, max_tokens: 4000 })
+      const stored = await getEnrichContentHash(id)
+      if (shouldSkipEnrichForContent(enrichInputHash, stored)) {
+        logger.info(`[Enrichment] Content unchanged for ${record.title} — skipping Groq (hash dedup)`)
+        return { cached: true }
+      }
+    } catch {}
+
+    let responseText = ''
+    let servedFromCache = false
+    try {
+      const completion = await enrichmentCompletion(prompt, { temperature: 0.1, max_tokens: 4000 })
+      responseText = completion.text
+      servedFromCache = completion.cached
+      if (completion.killed) {
+        // Kill-switch: deterministic deadline path (same as AI-disabled).
+        if (pageDeadlineDate) {
+          try {
+            await prisma.hackathonStaging.update({
+              where: { id },
+              data: { deadline: pageDeadlineDate } as any,
+            })
+            logger.info(`[Enrichment] Kill-switch — updated deadline from link page for ${record.title}: ${pageDeadlineStr}`)
+          } catch (e) { logger.warn({ err: (e as any)?.message || e }, `[Enrichment] Kill-switch deadline update failed for ${record.title}:`) }
+        }
+        return { cached: false }
+      }
     } catch (aiErr: any) {
       if (isRateLimitError(aiErr)) {
         const msg = buildAiIssue(aiErr)
@@ -186,11 +215,11 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
       logger.info({ err: aiErr }, 'AI Manager enrichment failed for hackathon staging:')
     }
 
-    if (!responseText) return
+    if (!responseText) return { cached: servedFromCache }
 
     // Shared parser (stagesFetch.ts) — first {...} block, null when absent/invalid.
     const details: any = parseAiJson(responseText)
-    if (!details) return
+    if (!details) return { cached: servedFromCache }
 
     const updateData: any = {}
     if (details.description) updateData.description = stripHtml(details.description)
@@ -367,25 +396,31 @@ export async function enrichHackathonStaging(id: string): Promise<void> {
     } catch (dbErr: any) {
       // Never throw to caller — log and return so enrich endpoint still returns success:true with count. Prevents frontend "Enrich failed" when DB update had transient field issue.
       logger.warn({ err: dbErr?.message || dbErr }, `[Enrichment] Hackathon staging ${id} DB update failed (non-fatal):`)
-      return
+      return { cached: servedFromCache }
     }
+    // P1-3: record the enrich input hash AFTER a successful enrich so
+    // reject→refetch cycles with identical content skip Groq next run.
+    // (Not stored on empty/failed parses — those must retry, fail-open.)
+    await setEnrichContentHash(id, enrichInputHash)
     logger.info(`[Enrichment] Hackathon staging ${id} enriched — ${Object.keys(updateData).length} fields updated`)
+    return { cached: servedFromCache }
   } catch (error: any) {
     if (error instanceof AiRateLimitError) throw error
     if (isRateLimitError(error)) throw new AiRateLimitError(buildAiIssue(error))
     logger.error({ err: error }, `[Enrichment] Error enriching hackathon staging ${id}:`)
+    return { cached: false }
   }
 }
 
 
-export async function enrichInternshipStaging(id: string): Promise<void> {
+export async function enrichInternshipStaging(id: string): Promise<{ cached: boolean }> {
   try {
     const record = await prisma.internshipStaging.findUnique({ where: { id } })
-    if (!record) return
+    if (!record) return { cached: false }
 
     // Early exit when AI disabled — skip page fetch before AI call
     if (await isEnrichmentAIDisabled()) {
-      return
+      return { cached: false }
     }
 
     // Fetch internship page content (shared helper — cache + AbortSignal preserved).
@@ -433,11 +468,25 @@ export async function enrichInternshipStaging(id: string): Promise<void> {
     // Prompt lives in ./stagesPrompt.ts (pure, tested). Behavior identical.
     const prompt = buildInternshipEnrichPrompt({ scrapedHints, contentForPrompt })
 
-    let responseText = ''
+    // P1-3 content-hash gate + P1-5 response cache (same contract as hackathon).
+    const enrichInputHash = contentHash(prompt)
     try {
-      responseText = await chatCompletion('enrichment', [
-        { role: 'user', content: prompt },
-      ], { temperature: 0.1, max_tokens: 1000 })
+      const stored = await getEnrichContentHash(id)
+      if (shouldSkipEnrichForContent(enrichInputHash, stored)) {
+        logger.info(`[Enrichment] Content unchanged for internship ${record.title} — skipping Groq (hash dedup)`)
+        return { cached: true }
+      }
+    } catch {}
+
+    let responseText = ''
+    let servedFromCache = false
+    try {
+      const completion = await enrichmentCompletion(prompt, { temperature: 0.1, max_tokens: 1000 })
+      responseText = completion.text
+      servedFromCache = completion.cached
+      // Kill-switch: internship enrich has no deterministic fallback beyond
+      // the stored description — return early (fail-open, retried next run).
+      if (completion.killed) return { cached: false }
     } catch (aiErr: any) {
       if (isRateLimitError(aiErr)) {
         const msg = buildAiIssue(aiErr)
@@ -447,11 +496,11 @@ export async function enrichInternshipStaging(id: string): Promise<void> {
       logger.info({ err: aiErr }, 'AI Manager enrichment failed for internship staging:')
     }
 
-    if (!responseText) return
+    if (!responseText) return { cached: servedFromCache }
 
     // Shared parser (stagesFetch.ts) — first {...} block, null when absent/invalid.
     const details: any = parseAiJson(responseText)
-    if (!details) return
+    if (!details) return { cached: servedFromCache }
 
     const updateData: any = {}
     if (details.description) updateData.description = stripHtml(details.description)
@@ -471,13 +520,17 @@ export async function enrichInternshipStaging(id: string): Promise<void> {
       })
     } catch (dbErr: any) {
       logger.warn({ err: dbErr?.message || dbErr }, `[Enrichment] Internship staging ${id} DB update failed (non-fatal):`)
-      return
+      return { cached: servedFromCache }
     }
+    // P1-3: record the enrich input hash AFTER a successful enrich (same as hackathon).
+    await setEnrichContentHash(id, enrichInputHash)
     logger.info(`[Enrichment] Internship staging ${id} enriched — ${Object.keys(updateData).length} fields updated`)
+    return { cached: servedFromCache }
   } catch (error: any) {
     if (error instanceof AiRateLimitError) throw error
     if (isRateLimitError(error)) throw new AiRateLimitError(buildAiIssue(error))
     logger.error({ err: error }, `[Enrichment] Error enriching internship staging ${id}:`)
+    return { cached: false }
   }
 }
 

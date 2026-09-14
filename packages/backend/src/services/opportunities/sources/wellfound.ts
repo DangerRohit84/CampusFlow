@@ -75,7 +75,7 @@ async function fetchWellfoundHtmlForPage(page: number): Promise<{ html: string; 
         logger.debug({ url }, '[Wellfound] generic-remote page (not an intern listing), trying fallback')
         continue
       }
-      scrapeCache.set(cacheKey, txt, 6 * 60 * 60)
+      scrapeCache.set(cacheKey, txt, 12 * 60 * 60) // P0-D: 12h aligns to 12h cron (was 6h)
       return { html: txt, url }
     } catch { continue }
   }

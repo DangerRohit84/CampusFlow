@@ -53,6 +53,23 @@ export function getSocket() {
   return socket
 }
 
+// P0-A: fail-open socket liveness (socket dead = old poll behavior).
+// Never throws; null/disconnected => fallback slow poll + single fetch.
+export function isSocketConnected(): boolean {
+  try {
+    return !!socket && (socket as { connected?: boolean }).connected === true
+  } catch {
+    return false
+  }
+}
+
+/** Test seam: inject a fake socket (vitest) without touching the singleton. */
+export function __setSocketForTests(s: unknown): void {
+  try {
+    socket = s as ReturnType<typeof io> | null
+  } catch {}
+}
+
 export function disconnectSocket() {
   if (socket) {
     socket.removeAllListeners()

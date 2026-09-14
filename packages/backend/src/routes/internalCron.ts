@@ -8,6 +8,21 @@ import { fetchFromAllSources, enrichHackathonStaging, enrichInternshipStaging, l
 import { logger } from '../utils/logger'
 import { normalizeSource } from '../services/opportunities/dedup'
 import { isAutoFetchEnabled } from '../services/fetch/autoFetch'
+import {
+  shouldRunCronJob,
+  OPPORTUNITIES_LOCK_KEY,
+  OPPORTUNITIES_LOCK_TTL_MS,
+} from '../services/cronPreflight'
+import { acquireRedisLock } from '../lib/redis'
+import {
+  getPlatformFetchState,
+  setPlatformFetchState,
+  hashOpportunities,
+  shouldSkipPlatformSave,
+  nextOppRunIndex,
+  isFullFetchRun,
+} from '../services/opportunities/fetchState'
+import { processEnrichBatch, ENRICH_BATCH_SIZE } from '../services/aiCache'
 
 const ENRICH_DELAY_MS = 12000
 
@@ -60,6 +75,14 @@ export async function runContestsJob(): Promise<{ fetched: number; updated: numb
 }
 
 export async function runProfileSyncJob(): Promise<{ totalUsers: number; totalSynced: number; skippedRecent?: number; toSync?: number; failures?: number; durationMs?: number; skipped?: boolean; skipReason?: string }> {
+  // P0-D pre-flight: 1 cheap SELECT 1 before shard counts + externals.
+  // When Postgres is down, skip fast (no 60k external fetches, no retry spam).
+  try {
+    const runnable = await shouldRunCronJob('profile-sync')
+    if (!runnable) {
+      return { totalUsers: 0, totalSynced: 0, skippedRecent: 0, toSync: 0, failures: 0, durationMs: 0, skipped: true, skipReason: 'db-unreachable' }
+    }
+  } catch {}
   logger.info('[CRON] Starting contest participation sync...')
   const startedAt = new Date().toISOString()
   const result = await syncAllUsers()
@@ -104,15 +127,37 @@ export async function runOpportunitiesJob(opts?: {
     return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
   }
   opportunitiesInFlight = true
+  // P0-D cross-replica lock (N Render instances → 1 run). Fail-open: Redis
+  // down (null) or waiter path proceeds solo; TTL is the deadlock guard.
+  let oppLock: { release: () => Promise<void> } | null = null
   try {
-  // Master toggle FIRST (before any DB/admin lookup): scheduled auto-fetch
-  // skips when SUPER_ADMIN paused it (FetchPage) or AUTO_FETCH_ENABLED=false.
-  // Manual POST /fetch/all + /:platform + /other/* never consult this flag.
-  const enabled = await (opts?.isEnabled ? opts.isEnabled() : isAutoFetchEnabled());
-  if (!enabled) {
-    logger.info('[Cron] Auto-fetch disabled (master toggle OFF) — skipping opportunity fetch (manual fetch still allowed)');
-    return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
-  }
+    // Master toggle FIRST (before any DB/admin lookup): scheduled auto-fetch
+    // skips when SUPER_ADMIN paused it (FetchPage) or AUTO_FETCH_ENABLED=false.
+    // Manual POST /fetch/all + /:platform + /other/* never consult this flag.
+    // P0-D order: toggle (env short-circuit, 0 infra) → pre-flight (1 SELECT 1)
+    // → Redis lock → work. Toggle-OFF exits before touching DB/Redis so the
+    // detached ack-first 202 run releases the guard in <300ms with no DB.
+    const enabled = await (opts?.isEnabled ? opts.isEnabled() : isAutoFetchEnabled());
+    if (!enabled) {
+      logger.info('[Cron] Auto-fetch disabled (master toggle OFF) — skipping opportunity fetch (manual fetch still allowed)');
+      return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
+    }
+    // P0-D pre-flight: skip externals when Postgres is down (saves 200-600
+    // HTTP + 100 Groq calls per run + avoids createMany retry spam).
+    try {
+      const runnable = await shouldRunCronJob('opportunities')
+      if (!runnable) {
+        return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
+      }
+    } catch {}
+    try {
+      const handle = await acquireRedisLock(OPPORTUNITIES_LOCK_KEY, OPPORTUNITIES_LOCK_TTL_MS)
+      if (handle && !handle.acquired) {
+        logger.info('[Cron] opportunities job locked by another replica — skipping overlapping run');
+        return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
+      }
+      if (handle && handle.acquired) oppLock = handle
+    } catch {}
   // BUILD MODE (operational mode build): Cron now respects PlatformSettings tick/target saved via Fetch All.
   // OTHER_HACKATHON / OTHER_INTERNSHIP remain detached manual-only (POST /fetch/other/*).
   // Cron reads platform_settings (platform, type, enabled, fetchLimit): enabled=false → skip, fetchLimit → target (0=All, else 1-50), default 10.
@@ -172,9 +217,51 @@ export async function runOpportunitiesJob(opts?: {
     for (const p of ALL_PLATFORMS) limits[p] = 10
   }
 
-  const allOpps = await fetchFromAllSources(limits)
+  let allOpps = await fetchFromAllSources(limits)
+  // P1-3 Layer B: per-platform content-hash gate (skip DB save + enrich for
+  // unchanged platforms — their rows are duplicates by construction, so
+  // filterExistingStaging would drop them anyway; this saves the prefetch
+  // width + all Groq). Every 4th run forces full (validator-miss guard:
+  // a source that mishandles validators can never hide updates >36h).
+  // Miss/corrupt state → full (fail-open). Skipped rows fold into the
+  // existing *Skipped counters (result shape unchanged).
   let hackathonFetched = 0, hackathonSkipped = 0
   let internshipFetched = 0, internshipSkipped = 0
+  const platformKeyOf = (o: { source?: unknown }): string => String((o as { source?: unknown }).source || '').trim().toUpperCase()
+  try {
+    const runIndex = await nextOppRunIndex()
+    const forceFull = isFullFetchRun(runIndex)
+    if (forceFull) {
+      logger.info(`[Cron] Opportunities run #${runIndex}: full-fetch rotation (hash gates bypassed)`)
+    } else if (allOpps.length > 0) {
+      const groups = new Map<string, typeof allOpps>()
+      for (const o of allOpps) {
+        const key = platformKeyOf(o as { source?: unknown })
+        if (!key) continue
+        const arr = groups.get(key)
+        if (arr) arr.push(o)
+        else groups.set(key, [o])
+      }
+      const checks = await Promise.all(
+        [...groups.entries()].map(async ([key, items]) => {
+          const hash = hashOpportunities(items as Array<{ title?: unknown; url?: unknown; deadline?: unknown }>)
+          const state = await getPlatformFetchState(key)
+          return { key, hash, skip: shouldSkipPlatformSave(hash, state, false) }
+        }),
+      )
+      const skippedKeys = new Set(checks.filter((c) => c.skip).map((c) => c.key))
+      if (skippedKeys.size > 0) {
+        for (const o of allOpps) {
+          if (!skippedKeys.has(platformKeyOf(o as { source?: unknown }))) continue
+          const t = String(PLATFORM_TYPE[platformKeyOf(o as { source?: unknown })] || (o as { type?: unknown }).type || '').toUpperCase()
+          if (t === 'INTERNSHIP') internshipSkipped++
+          else hackathonSkipped++
+        }
+        allOpps = allOpps.filter((o) => !skippedKeys.has(platformKeyOf(o as { source?: unknown })))
+        logger.info(`[Cron] Opportunities hash gate: unchanged platforms [${[...skippedKeys].join(', ')}] skipped (0 enrich)`)
+      }
+    }
+  } catch {}
   const hackathonIdsToEnrich: string[] = []
   const internshipIdsToEnrich: string[] = []
 
@@ -289,6 +376,11 @@ export async function runOpportunitiesJob(opts?: {
   hackathonSkipped += hackRows.length - hackFiltered.length
   internshipSkipped += internRows.length - internFiltered.length
 
+  // P1-3: clean-save tracking for the platform-hash record below. Default
+  // true (nothing-to-save = already fully in DB); any createMany throw flips
+  // that half to false so missing rows are retried next run, not skipped.
+  let hackSaveOk = true
+  let internSaveOk = true
   try {
     if (hackFiltered.length > 0) {
       const res = await prisma.hackathonStaging.createMany({ data: hackFiltered, skipDuplicates: true })
@@ -314,6 +406,7 @@ export async function runOpportunitiesJob(opts?: {
   } catch (e: any) {
     logger.warn({ err: e?.message || e }, '[Cron] hackathonStaging.createMany failed:')
     hackathonSkipped += hackFiltered.length
+    hackSaveOk = false
   }
   try {
     if (internFiltered.length > 0) {
@@ -337,24 +430,49 @@ export async function runOpportunitiesJob(opts?: {
   } catch (e: any) {
     logger.warn({ err: e?.message || e }, '[Cron] internshipStaging.createMany failed:')
     internshipSkipped += internFiltered.length
+    internSaveOk = false
   }
+
+  // P1-3: record per-platform content hashes for the cleanly-saved halves so
+  // the NEXT run's Layer-B gate can skip unchanged platforms (0 DB + 0 Groq).
+  // Failed halves keep their old state (miss → full next run, fail-open).
+  try {
+    const groups = new Map<string, typeof allOpps>()
+    for (const o of allOpps) {
+      const key = platformKeyOf(o as { source?: unknown })
+      if (!key) continue
+      const arr = groups.get(key)
+      if (arr) arr.push(o)
+      else groups.set(key, [o])
+    }
+    const records: Promise<unknown>[] = []
+    for (const [key, items] of groups) {
+      const t = String(PLATFORM_TYPE[key] || (items[0] as { type?: unknown } | undefined)?.type || '').toUpperCase()
+      const ok = t === 'INTERNSHIP' ? internSaveOk : t === 'HACKATHON' ? hackSaveOk : false
+      if (!ok) continue
+      records.push(
+        setPlatformFetchState(key, {
+          hash: hashOpportunities(items as Array<{ title?: unknown; url?: unknown; deadline?: unknown }>),
+          at: Date.now(),
+          count: items.length,
+        }),
+      )
+    }
+    if (records.length > 0) await Promise.allSettled(records)
+  } catch {}
 
   logger.info(`[Cron] Opportunities: ${hackathonFetched} hackathons + ${internshipFetched} internships fetched, ${hackathonSkipped + internshipSkipped} skipped`)
 
-  // Enrich sequentially with delay between each to avoid rate limits
-  async function enrichSequentially(ids: string[], enrichFn: (id: string) => Promise<void>, label: string) {
-    let enriched = 0
-    for (let i = 0; i < ids.length; i++) {
-      logger.info(`[Cron] Enriching ${label} ${i + 1}/${ids.length}`)
-      try {
-        await enrichFn(ids[i])
-        enriched++
-      } catch { /* individual enrichment failures are ignored */ }
-      if (i < ids.length - 1) {
-        await new Promise(r => setTimeout(r, ENRICH_DELAY_MS))
-      }
-    }
-    return enriched
+  // P1-5 batch ×10 with cache-aware gaps (see services/aiCache): cached rows
+  // skip the 12s Groq gap (0 tokens billed); misses keep it (TPM guard).
+  // Per-row failures are still ignored (batch continues); return shape
+  // (enriched count) is unchanged.
+  async function enrichSequentially(ids: string[], enrichFn: (id: string) => Promise<{ cached?: boolean } | void>, label: string) {
+    if (ids.length === 0) return 0
+    logger.info(`[Cron] Enriching ${label}: ${ids.length} rows (batch ${ENRICH_BATCH_SIZE}, ${ENRICH_DELAY_MS}ms gap on miss only)`)
+    const res = await processEnrichBatch(ids, enrichFn, { batchSize: ENRICH_BATCH_SIZE, delayMs: ENRICH_DELAY_MS })
+    logger.info(`[Cron] Enriched ${label}: ${res.enriched} ok, ${res.cached} cache-skipped, ${res.failed} failed`)
+    return res.enriched
   }
 
   const hackathonsEnriched = await enrichSequentially(hackathonIdsToEnrich, enrichHackathonStaging, 'hackathons')
@@ -370,17 +488,35 @@ export async function runOpportunitiesJob(opts?: {
   }
   } finally {
     opportunitiesInFlight = false
+    // P0-D: always release the cross-replica lock (best-effort, never throws).
+    try {
+      await oppLock?.release()
+    } catch {}
   }
 }
 
-export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number }> {
+export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number; skipped?: boolean; skipReason?: string }> {
+  // P0-D pre-flight: reminders tick 288×/day — skip the indexed query when down.
+  try {
+    const runnable = await shouldRunCronJob('contest-reminders')
+    if (!runnable) {
+      return { checked: 0, notified: 0, failed: 0, skipped: true, skipReason: 'db-unreachable' }
+    }
+  } catch {}
   logger.info('[Cron] Running contest-reminder fan-out...')
   const result = await runContestRemindersJob()
   logger.info(`[Cron] Contest reminders: checked=${result.checked} notified=${result.notified} failed=${result.failed}`)
   return result
 }
 
-export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; internshipsDeleted: number; registrationsExpired: number; notificationsDeleted: number; roomNotificationsDeleted: number }> {
+export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; internshipsDeleted: number; registrationsExpired: number; notificationsDeleted: number; roomNotificationsDeleted: number; skipped?: boolean; skipReason?: string }> {
+  // P0-D pre-flight: weekly deletes are cheap but pointless when down.
+  try {
+    const runnable = await shouldRunCronJob('cleanup')
+    if (!runnable) {
+      return { hackathonsDeleted: 0, internshipsDeleted: 0, registrationsExpired: 0, notificationsDeleted: 0, roomNotificationsDeleted: 0, skipped: true, skipReason: 'db-unreachable' }
+    }
+  } catch {}
   logger.info('[Cron] Cleaning up old rejected items...')
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 30)

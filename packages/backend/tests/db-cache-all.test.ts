@@ -141,8 +141,10 @@ describe('cache-all never-cache rules (auth/mutations/bulk-PII)', () => {
 
   it('bulk-PII exports stay uncached (no private CC added)', () => {
     // Export handlers return workbooks/file downloads with registrant emails.
+    // P0-A staging-counts added a 3rd private CC (list + early-return + counts);
+    // exports themselves stay uncached (verified: no CC in export handlers).
     for (const f of ['routes/hackathons.ts', 'routes/internships.ts'] as const) {
-      expect(countPrivateCC(readBackend(f))).toBe(2) // lists only, unchanged
+      expect(countPrivateCC(readBackend(f))).toBe(3) // list + early-return + staging-counts, unchanged
     }
     // Registrant-email pending member list stays uncached (only its own handler block).
     const forms = readBackend('routes/forms.ts')
@@ -180,12 +182,28 @@ describe('cache-all frontend: every useQuery has staleTime>=30s + keepPreviousDa
   })
 
   it('all staleTime values are >=30s', () => {
+    // P0-A discipline allows numeric literals OR STALE_*_MS constants from
+    // lib/queryDiscipline.ts (STALE_LIST_MS=60s, STALE_SLOW_LIST_MS=5m).
+    const discipline = readWeb('lib/queryDiscipline.ts')
+    expect(discipline).toContain('STALE_LIST_MS = 60_000')
+    expect(discipline).toContain('STALE_SLOW_LIST_MS')
+    const resolveStale = (expr: string): number => {
+      const trimmed = expr.trim()
+      if (trimmed === 'STALE_LIST_MS') return 60 * 1000
+      if (trimmed === 'STALE_SLOW_LIST_MS') return 5 * 60 * 1000
+      if (/STALE_/.test(trimmed)) {
+        expect(discipline).toContain(trimmed)
+        return 60 * 1000
+      }
+      return evalStaleTime(trimmed)
+    }
     for (const f of files) {
       const src = readWeb(f)
-      const matches = [...src.matchAll(/staleTime:\s*([0-9_*\s]+?)(?=[,\n])/g)]
-      expect(matches.length).toBeGreaterThan(0)
-      for (const m of matches) {
-        expect(evalStaleTime(m[1])).toBeGreaterThanOrEqual(30 * 1000)
+      const matches = [...src.matchAll(/staleTime:\s*([A-Za-z0-9_*\s]+?)(?=[,\n}])/g)]
+      const exprs = matches.map((m) => m[1].trim()).filter((e) => e.length > 0)
+      expect(exprs.length).toBeGreaterThan(0)
+      for (const expr of exprs) {
+        expect(resolveStale(expr)).toBeGreaterThanOrEqual(30 * 1000)
       }
     }
   })

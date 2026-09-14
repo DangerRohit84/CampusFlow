@@ -55,6 +55,7 @@ export {
   buildRenderItems,
 };
 import Modal from '../ui/Modal'
+import { optimizeCloudinaryUrl, cloudinarySrcSet, cloudinaryLqip, isCloudinaryDeliveryUrl } from '../../lib/cloudinary'
 
 // Chat constants + pure helpers live in ./chatUtils.ts (SRP split). Re-exported above for compat.
 
@@ -251,12 +252,23 @@ function MessageAttachment({
   const [imageFailed, setImageFailed] = useState(false)
   const url = resolveFileUrl(fileUrl)
   const name = fileName || 'attachment'
+  // P0-C images: Cloudinary delivery gets f_auto/q_auto + responsive srcset
+  // (AVIF/WebP negotiation, ~40-60% bytes saved); every other host passes
+  // through UNCHANGED (fail-open). LQIP blurs up behind the sharp image.
+  const optimizedUrl = optimizeCloudinaryUrl(url, { width: 640 })
+  const srcSet = isCloudinaryDeliveryUrl(url) ? cloudinarySrcSet(url, [320, 480, 640]) : undefined
+  const lqip = isCloudinaryDeliveryUrl(url) ? cloudinaryLqip(url) : undefined
 
   if (fileType === 'image' && !imageFailed) {
     return (
-      <div className="relative inline-block rounded-xl overflow-hidden border border-surface-200 dark:border-night-600">
+      <div
+        className="relative inline-block rounded-xl overflow-hidden border border-surface-200 dark:border-night-600"
+        style={lqip ? { backgroundImage: `url("${lqip}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      >
         <img
-          src={url}
+          src={optimizedUrl}
+          srcSet={srcSet}
+          sizes="(max-width: 640px) 70vw, 240px"
           alt={name}
           loading="lazy"
           decoding="async"

@@ -13,6 +13,7 @@ import ActivityHeatmap from '../components/coding/ActivityHeatmap'
 import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBreakdown, unifiedActiveByDay, filterUnifiedDaysByYear, getAvailableHeatmapYears, getHeatmapYearOptions, formatHeatmapRangeLabel, parseStoredHeatmapYear, ALL_SOURCES_ON, HEATMAP_RANGE_LAST_6, HEATMAP_YEAR_STORAGE_KEY, type SourceToggles, type ActivitySource } from '../lib/codingStreak'
 import toast from 'react-hot-toast'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { optimizeCloudinaryUrl } from '../lib/cloudinary'
 
 
 // Full trailing window for the unified heatmap (feat-public-heatmap). Matches
@@ -279,7 +280,7 @@ export default function PublicProfilePage() {
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex gap-4 flex-1 min-w-0">
               <div className="w-20 h-20 rounded-2xl bg-primary-600 dark:bg-success-300 flex items-center justify-center text-white font-bold text-2xl shrink-0 overflow-hidden">
-                {u.avatar ? <img src={u.avatar} alt={u.name} width={80} height={80} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
+                {u.avatar ? <img src={optimizeCloudinaryUrl(u.avatar, { width: 160 })} alt={u.name} width={80} height={80} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

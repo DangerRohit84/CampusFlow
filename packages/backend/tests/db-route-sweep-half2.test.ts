@@ -129,8 +129,17 @@ describe('half2 narrow user.findUnique (no full rows)', () => {
     expect(src).toContain("select: { id: true }")
     expect(src).toContain('select: { id: true, status: true, adminEmail: true }')
     expect(src).toContain('select: { id: true, status: true }')
-    // Login still needs passwordHash (full row) — must remain
-    expect(src).toContain('prisma.user.findUnique({ where: { email: body.email } })')
+    // Login still needs passwordHash (full row) — must remain.
+    // EMAIL-CASE hardening normalizes once (trim+lowercase); lookup uses the
+    // normalized `email` var, not raw `body.email`.
+    expect(src).toContain('const email = normalizeEmail(body.email)')
+    expect(src).toContain('prisma.user.findUnique({ where: { email } })')
+    const loginIdx = src.indexOf("router.post('/login'")
+    expect(loginIdx).toBeGreaterThan(-1)
+    const loginSlice = src.slice(loginIdx, loginIdx + 3000)
+    expect(loginSlice).toContain('normalizeEmail(body.email)')
+    expect(loginSlice).toContain('prisma.user.findUnique({ where: { email } })')
+    expect(loginSlice).not.toMatch(/findUnique\(\{ where: \{ email \}, select:/)
     // change-password still needs hash
     expect(src).toContain('prisma.user.findUnique({ where: { id: req.userId } })')
   })

@@ -208,8 +208,10 @@ export default function SuperAdminDashboardPage() {
   const { data: colleges = [], refetch: refetchColleges } = useQuery({
     queryKey: qk.adminColleges(),
     queryFn: () => adminAPI.getColleges(),
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    // P0-A stale discipline: config lists 5m (was 30s). Colleges change via
+    // admin CRUD which busts via notifyEntityMutated (immediate freshness).
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   })
@@ -220,9 +222,10 @@ export default function SuperAdminDashboardPage() {
     queryKey: qk.superDashboard(collegeId, from, to),
     queryFn: () => superAdminAPI.getDashboard({ collegeId: collegeId || undefined, from, to }),
     // SG cloud-dev: each query 500-1000ms NORMAL (India→SG RTT+TLS+pgbouncer);
-    // staleTime 30s avoids refetch storms on filter/tab switches (was 15s → doubled).
-    staleTime: 30 * 1000,
-    gcTime: 60 * 1000,
+    // P0-A stale discipline: lists >=60s (was 30s). gcTime exceeds staleTime
+    // (was 60s == stale, now 5m) so background tabs keep data (no refetch storm).
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,

@@ -22,7 +22,11 @@ export class RateLimitGate {
   }
 }
 
-export function createScrapeCache(stdTTL = 6 * 60 * 60): NodeCache {
+// P0-D: 12h TTL aligns to the 12h opportunities cron (was 6h) so every
+// other run hits warm cache (~50% HTTP saved on the second run). Stale
+// window +12h is acceptable for hackathon listing pages; enrich still
+// revalidates per run when content hash changes (P1-3 extends to ETag).
+export function createScrapeCache(stdTTL = 12 * 60 * 60): NodeCache {
   return new NodeCache({ stdTTL })
 }
 

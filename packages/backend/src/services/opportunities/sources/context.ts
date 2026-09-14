@@ -6,6 +6,13 @@
 import { validateExternalUrl } from '../../../utils/secureUrl'
 import { logger } from '../../../utils/logger'
 import { scrapeCache } from '../cache'
+import {
+  conditionalHeaders,
+  contentHash,
+  getPageFetchState,
+  setPageFetchState,
+  validatorsFromHeaders,
+} from '../fetchState'
 
 export const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -42,11 +49,18 @@ export async function fetchPage6k(url: string): Promise<string> {
   } catch {
     return ''
   }
+  // P1-3 conditional fetch (Layer A): send stored validators so unchanged
+  // pages cost a 304 (0 bytes) instead of a full HTML download. Fail-open at
+  // every step (validator errors → unconditional fetch, old behavior).
+  let cond: Record<string, string> = {}
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000) })
-    if (!res.ok) return ''
-    const html = await res.text()
-    const stripped = html
+    cond = conditionalHeaders(await getPageFetchState(url))
+  } catch {}
+  const doFetch = async (extra: Record<string, string>): Promise<Response> => {
+    return fetch(url, { headers: { 'User-Agent': UA, ...extra }, signal: AbortSignal.timeout(15000) })
+  }
+  const strip6k = (html: string): string => {
+    return html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/&#8377;|&#x20B9;|&#X20B9;/g, '₹')
@@ -60,7 +74,33 @@ export async function fetchPage6k(url: string): Promise<string> {
       .replace(/\s+/g, ' ')
       .trim()
       .substring(0, 6000)
+  }
+  const recordState = async (headers: Headers | null, stripped: string): Promise<void> => {
+    try {
+      const v = validatorsFromHeaders(headers as unknown as { get?: (name: string) => string | null })
+      await setPageFetchState(url, { etag: v.etag, lastModified: v.lastModified, contentHash: contentHash(stripped), at: Date.now() })
+    } catch {}
+  }
+  try {
+    const res = await doFetch(cond)
+    // 304 with a warm local entry: serve it (0 bytes over the wire). Cold
+    // cache on 304 → unconditional refetch below (fail-open, never empty).
+    if (res.status === 304) {
+      const warm = scrapeCache.get<string>(cacheKey)
+      if (warm) return warm
+      const res2 = await doFetch({})
+      if (!res2.ok) return ''
+      const html2 = await res2.text()
+      const stripped2 = strip6k(html2)
+      if (stripped2.length > 100) scrapeCache.set(cacheKey, stripped2)
+      await recordState(res2.headers ?? null, stripped2)
+      return stripped2
+    }
+    if (!res.ok) return ''
+    const html = await res.text()
+    const stripped = strip6k(html)
     if (stripped.length > 100) scrapeCache.set(cacheKey, stripped)
+    await recordState(res.headers ?? null, stripped)
     return stripped
   } catch (err) {
     logger.debug({ err, url }, '[sources] fetchPage6k failed (treated as empty)')

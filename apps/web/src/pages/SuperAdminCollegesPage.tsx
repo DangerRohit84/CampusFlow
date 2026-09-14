@@ -23,8 +23,9 @@ export default function SuperAdminCollegesPage() {
   const { data: colleges = [], isLoading, refetch } = useQuery({
     queryKey: qk.adminColleges(),
     queryFn: () => adminAPI.getColleges(),
-    staleTime: 30_000,
-    gcTime: 5 * 60 * 1000,
+    // P0-A stale discipline: config 5m (was 30s). CRUD busts via entitySync.
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   })

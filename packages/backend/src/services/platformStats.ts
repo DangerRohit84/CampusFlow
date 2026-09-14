@@ -6,6 +6,8 @@
 import { PlatformRegistry } from './platforms/registry'
 import { fetchCodeforcesJson } from './codeforcesGate'
 import { logger } from '../utils/logger'
+import { cache } from '../lib/cache'
+import { memoizedSingleflight } from '../lib/singleflight'
 
 export type { PlatformStat } from './stats/types'
 import type { PlatformStat } from './stats/types'
@@ -27,7 +29,12 @@ export const LEETCODE_STATS_MAX_RETRIES = 1
 /** Base + jitter ceiling for the single LeetCode retry (600..1100ms). */
 export const LEETCODE_STATS_RETRY_BASE_MS = 600
 export const LEETCODE_STATS_RETRY_JITTER_MS = 500
-const CACHE_TTL_MS = 60_000
+// P1-2: 60s → 5m. The hourly shard sync re-stats every stale user; a 60s TTL
+// meant the batch-5 burst (plus React StrictMode doubles and concurrent cron
+// + manual syncs) missed the in-memory coalesce and refetched per user.
+// 5m covers a full shard burst + cross-replica memo (see statsMemoKey) while
+// staying far fresher than the 6h valid-stats watermark (syncWatermark.ts).
+const CACHE_TTL_MS = 5 * 60_000
 const HANDLE_RE = /^[a-zA-Z0-9._-]+$/
 function sanitizeHandleStat(handle: string): string | null {
   const s = String(handle || '').trim()
@@ -39,9 +46,58 @@ function sanitizeHandleStat(handle: string): string | null {
 
 // Coalescing cache for stats — same handle within TTL reuses promise, avoids hammering APIs on bulk sync
 const statsCache = new Map<string, { promise: Promise<PlatformStat>; expiry: number }>()
+// P1-4: generational shared-memo key. The cross-replica memo lives in the
+// shared `cache` (Redis when configured) under `stats:memo:v{gen}:…`;
+// `__clearStatsCacheForTests` bumps the generation so hermetic tests never
+// observe another test's memo (old generations orphan with 5m TTL expiry,
+// never KEYS-scanned).
+let statsMemoGen = 0
 /** Test-only: clear coalescing cache (retry tests need fresh fetch per handle). */
 export function __clearStatsCacheForTests(): void {
   statsCache.clear()
+  try {
+    statsMemoGen++
+  } catch {}
+}
+/** Shared memo key for a platform+handle (lowercased, tenant-free — handles are per-user inputs). Pure. */
+export function statsMemoKey(platform: string, handle: string): string {
+  try {
+    return `stats:memo:v${statsMemoGen}:${String(platform || '').toLowerCase()}:${String(handle || '').trim().toLowerCase().slice(0, 80)}`
+  } catch {
+    return `stats:memo:v${statsMemoGen}:unknown:empty`
+  }
+}
+
+/**
+ * P1-4 shared stats fetch: L1 Map (0-op fast path) + cross-replica
+ * singleflight with 5m shared memo (memoizedSingleflight → P0-B getOrSet).
+ *
+ * Validity-tiered: VALID stats memoize 5m in both layers; INVALID stats
+ * (typo/deleted/just-created handles) evict both layers after resolving so
+ * the next sync revalidates immediately (no stuck "verify handle" loop —
+ * the just-created-account case refetches instead of serving 5m-stale
+ * invalid). Concurrent invalid callers still share the in-flight promise.
+ * Never throws for cache blips (fail-open); loaders never throw by contract
+ * (each `_xStats` catches internally and returns an invalid stat).
+ */
+async function statsWithSharedMemo(platform: string, handle: string, loader: () => Promise<PlatformStat>): Promise<PlatformStat> {
+  const cached = getStatsCached(platform, handle)
+  if (cached) return cached
+  const memoKey = statsMemoKey(platform, handle)
+  const p = memoizedSingleflight(memoKey, CACHE_TTL_MS, loader)
+  setStatsCached(platform, handle, p)
+  const stat = await p
+  try {
+    if (!stat?.valid) {
+      try {
+        statsCache.delete(statsCacheKey(platform, handle))
+      } catch {}
+      try {
+        await cache.del(memoKey)
+      } catch {}
+    }
+  } catch {}
+  return stat
 }
 function statsCacheKey(platform: string, handle: string): string {
   return `stat:${platform}:${String(handle || '').trim().toLowerCase()}`
@@ -172,11 +228,7 @@ export async function _leetcodeStats(handle: string, deps: LeetcodeStatsDeps = {
   return stat
 }
 async function leetcodeStats(handle: string): Promise<PlatformStat> {
-  const cached = getStatsCached('leetcode', handle)
-  if (cached) return cached
-  const p = _leetcodeStats(handle)
-  setStatsCached('leetcode', handle, p)
-  return p
+  return statsWithSharedMemo('leetcode', handle, () => _leetcodeStats(handle))
 }
 
 /**
@@ -320,11 +372,7 @@ async function _codeforcesStats(handle: string): Promise<PlatformStat> {
   return stat
 }
 async function codeforcesStats(handle: string): Promise<PlatformStat> {
-  const cached = getStatsCached('codeforces', handle)
-  if (cached) return cached
-  const p = _codeforcesStats(handle)
-  setStatsCached('codeforces', handle, p)
-  return p
+  return statsWithSharedMemo('codeforces', handle, () => _codeforcesStats(handle))
 }
 
 async function _codechefStats(handle: string): Promise<PlatformStat> {
@@ -374,11 +422,7 @@ async function _codechefStats(handle: string): Promise<PlatformStat> {
   return stat
 }
 async function codechefStats(handle: string): Promise<PlatformStat> {
-  const cached = getStatsCached('codechef', handle)
-  if (cached) return cached
-  const p = _codechefStats(handle)
-  setStatsCached('codechef', handle, p)
-  return p
+  return statsWithSharedMemo('codechef', handle, () => _codechefStats(handle))
 }
 
 async function _hackerrankStats(handle: string): Promise<PlatformStat> {
@@ -419,11 +463,7 @@ async function _hackerrankStats(handle: string): Promise<PlatformStat> {
   return stat
 }
 async function hackerrankStats(handle: string): Promise<PlatformStat> {
-  const cached = getStatsCached('hackerrank', handle)
-  if (cached) return cached
-  const p = _hackerrankStats(handle)
-  setStatsCached('hackerrank', handle, p)
-  return p
+  return statsWithSharedMemo('hackerrank', handle, () => _hackerrankStats(handle))
 }
 
 async function _gfgStats(handle: string): Promise<PlatformStat> {
@@ -456,11 +496,7 @@ async function _gfgStats(handle: string): Promise<PlatformStat> {
   return stat
 }
 async function gfgStats(handle: string): Promise<PlatformStat> {
-  const cached = getStatsCached('gfg', handle)
-  if (cached) return cached
-  const p = _gfgStats(handle)
-  setStatsCached('gfg', handle, p)
-  return p
+  return statsWithSharedMemo('gfg', handle, () => _gfgStats(handle))
 }
 
 export async function fetchAllPlatformStats(profile: {

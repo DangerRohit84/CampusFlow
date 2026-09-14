@@ -24,6 +24,14 @@ import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../c
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { useConfirm } from '../components/ui/ConfirmModal'
 import { retryUnlessRateLimited } from '../lib/queryClient'
+import { useAdminCountsPush } from '../hooks/useAdminCountsPush'
+import {
+  STALE_LIST_MS,
+  STALE_SLOW_LIST_MS,
+  GC_LIST_MS,
+  GC_SLOW_LIST_MS,
+  ADMIN_COUNTS_FALLBACK_POLL_MS,
+} from '../lib/queryDiscipline'
 
 // ===== Theme tag colors =====
 const THEME_COLORS: Record<string, { bg: string; text: string; icon: any }> = {
@@ -158,6 +166,10 @@ export default function AdminOpportunitiesPage() {
   const statusParam = activeTab === 'pending' ? 'PENDING' : activeTab === 'approved' ? 'APPROVED' : activeTab === 'rejected' ? 'REJECTED' : undefined
   const PAGE_SIZE_INNER = 20
 
+  // P0-A: socket dirty-flag drives counts freshness (useAdminCountsPush patches
+  // via setQueryData, 0 GET). Slow poll + ETag is the socket-dead fallback.
+  useAdminCountsPush(isAdmin)
+
   // Single query for both staging lists: one AbortController (via useQuery
   // signal) cancels stale tab/page switches; keepPreviousData avoids flash.
   const {
@@ -174,8 +186,9 @@ export default function AdminOpportunitiesPage() {
       return { hRes, iRes }
     },
     enabled: isAdmin,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    // P0-A stale discipline: lists >=60s (was 30s), shared qk key dedupes.
+    staleTime: STALE_LIST_MS,
+    gcTime: GC_LIST_MS,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     // 429 storm guard: never retry rate-limited staging (see queryClient).
@@ -201,23 +214,37 @@ export default function AdminOpportunitiesPage() {
   const loading = stagingLoading
   const refreshing = stagingFetching && !stagingLoading
 
-  // Counts — separate light query, 60s live poll for enrichment progress.
-  // PERF: was a 30s poll where each tick re-ran two full-table staging scans;
-  // backend now serves these from a 60s shared cache, so poll at the same
-  // cadence (HTTP-cheap + DB-free cache hits between recomputes).
+  // Counts — P0-A: 60s aggressive poll KILLED (was 1440 GETs/day/tab for data
+  // that changes ~2×/day). Socket dirty-flag aggregate push patches via
+  // setQueryData in useAdminCountsPush (0 GET, <2s on approve/reject); server
+  // busts the 60s cache only on change (fail-open TTL otherwise). Fallback is
+  // a 5m slow poll + ETag 304 when the socket is dead, plus manual refresh.
   const { data: countsData } = useQuery({
     queryKey: qk.adminCounts(),
     queryFn: async ({ signal }) => {
-      const [h, i] = await Promise.all([hackathonAPI.getCounts(signal), internshipAPI.getCounts(signal)])
-      return { h, i }
+      try {
+        const [h, i] = await Promise.all([hackathonAPI.getCounts(signal), internshipAPI.getCounts(signal)])
+        return { h, i }
+      } catch (e: any) {
+        // ETag 304 (ERR_NOT_MODIFIED): server says unchanged — keep previous
+        // cached aggregate instead of erroring (fail-open, never blank counts).
+        if ((e as any)?.code === 'ERR_NOT_MODIFIED') {
+          const cached = queryClient.getQueryData(qk.adminCounts())
+          if (cached) return cached as { h: unknown; i: unknown }
+        }
+        throw e
+      }
     },
     enabled: isAdmin,
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-    refetchInterval: 60 * 1000,
+    // P0-A stale discipline: slow list 5m (socket patches keep it fresh <2s).
+    staleTime: STALE_SLOW_LIST_MS,
+    gcTime: GC_SLOW_LIST_MS,
+    // Fail-open fallback only (socket-dead): 5m, never in background tabs.
+    refetchInterval: ADMIN_COUNTS_FALLBACK_POLL_MS,
+    refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
-    // 429 storm guard: 30s poll must not retry into the limiter.
+    // 429 storm guard: slow poll must not retry into the limiter.
     retry: retryUnlessRateLimited,
   })
   const counts = {

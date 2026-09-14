@@ -47,6 +47,7 @@ import resumeRoutes from './routes/resume'
 import publicProfileRoutes from './routes/publicProfile'
 import reportRoutes from './routes/reports'
 import internalCronRoutes from './routes/internalCron'
+import streamRoutes from './routes/stream'
 
 import prisma, { warmupPool } from './config/db'
 import { storageMode } from './config/storage'
@@ -227,6 +228,10 @@ app.use('/api/grades', generalLimiter, gradesRoutes)
 app.use('/api/announcements', generalLimiter, announcementsRoutes)
 app.use('/api/resume', generalLimiter, resumeRoutes)
 app.use('/api/reports', generalLimiter, reportRoutes)
+// P1 SSE fallback (one-way status when the socket is dead): authenticated
+// EventSource streams for profile-sync / staging-counts / notifications.
+// Socket alive = 0 SSE traffic (client only subscribes when disconnected).
+app.use('/api/stream', generalLimiter, streamRoutes)
 // P0 SECURITY (F05/W7): public profiles are scrape targets — baseline general
 // limiter plus a stricter 60/h per-route limiter inside publicProfile router.
 app.use('/api/u', generalLimiter, publicProfileRoutes)

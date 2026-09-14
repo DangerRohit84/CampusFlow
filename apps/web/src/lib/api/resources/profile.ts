@@ -4,6 +4,9 @@
 import axios from 'axios'
 import { api, API_TIMEOUTS, API_URL } from '../client'
 import { groqHeader } from '../groq'
+import { getSocket } from '../../socket'
+import { waitForCodingSyncViaSocket } from '../../codingSyncSocket'
+import { waitForCodingSyncViaSse } from '../../sseFallback'
 import type { Department } from '../../../types/api'
 import type { CodingProfile } from '../../../types/codingProfile'
 
@@ -311,13 +314,94 @@ export const reportAPI = {
   delete: (id: string) => api.delete(`/reports/${id}`).then(r => r.data),
 }
 
-// POST /coding-profile/sync returns 202 and runs server-side; poll until
-// lastSyncedAt advances past the baseline (or give up after maxTries).
-// 429 backoff (Too-many-requests fix): the old fixed 2s×30 setInterval kept
-// hammering GET /coding-profile straight through a 429 (each poll = 1 hit on
-// the shared generalLimiter bucket). Now a setTimeout chain: base 2s, double
-// on 429 up to 10s, and honor Retry-After when the backend sends it.
+// POST /coding-profile/sync returns 202 and runs server-side.
+// P0-A: socket-first (room-targeted `profile-sync`/`profile-sync:done` push +
+// SINGLE fetch to hydrate), legacy 2s×30 poll preserved fail-open when the
+// socket is dead. Old signature unchanged (backward-compat); new opts:
+// `timeoutMs` (socket wait), `useSocket:false` (force legacy, tests).
+// P1: socket-dead inserts the SSE one-way stream BEFORE the legacy poll
+// (socket → SSE → single fetch → legacy poll); `useSse:false` skips it.
+// 429 backoff preserved on the legacy path (see waitForCodingSyncPoll).
 export function waitForCodingSync(
+  baseline: number,
+  opts?: { intervalMs?: number; maxTries?: number; timeoutMs?: number; useSocket?: boolean; useSse?: boolean }
+): Promise<{ completed: boolean; profile: any }> {
+  const useSocket = opts?.useSocket ?? true
+  const timeoutMs = opts?.timeoutMs ?? 60_000
+  if (useSocket) {
+    try {
+      // Socket-first: room-targeted push + single fetch (no polling).
+      // Fail-open: any socket error falls through to the legacy poll.
+      let s: any = null
+      let connected = false
+      try {
+        s = getSocket() as any
+        connected = !!s && (s as { connected?: boolean }).connected === true
+      } catch {
+        connected = false
+      }
+      if (connected) {
+        return waitForCodingSyncViaSocket(baseline, { socket: s, timeoutMs })
+          .then(async (r) => {
+            if (r?.completed) {
+              try {
+                const p = await codingProfileAPI.get()
+                return { completed: true, profile: p }
+              } catch {
+                // Single-fetch hydrate failed — still completed (push proved it).
+                return { completed: true, profile: null }
+              }
+            }
+            // Socket timed out (no push in 60s): SINGLE fetch fallback on
+            // reconnect (not 30 polls). If lastSyncedAt advanced, done.
+            try {
+              const p = await codingProfileAPI.get()
+              const last = p?.lastSyncedAt ? new Date(p.lastSyncedAt).getTime() : 0
+              if (last > baseline) return { completed: true, profile: p }
+            } catch {}
+            // Still stale: fail-open to the legacy poll (socket-dead = old behavior).
+            return waitForCodingSyncPoll(baseline, opts)
+          })
+          .catch(() => waitForCodingSyncPoll(baseline, opts))
+      }
+    } catch {
+      // Socket helper unavailable — fall through to SSE, then legacy poll (fail-open).
+    }
+  }
+  // P1 SSE fallback (socket dead): one-way `profile-sync:done` stream + single
+  // fetch hydrate. Fail-open: SSE missing/timing out → single fetch check →
+  // legacy poll (socket-dead = old behavior preserved).
+  const useSse = (opts as { useSse?: boolean } | undefined)?.useSse ?? true
+  if (useSse) {
+    try {
+      return waitForCodingSyncViaSse(baseline, { timeoutMs })
+        .then(async (r) => {
+          if (r?.completed) {
+            try {
+              const p = await codingProfileAPI.get()
+              return { completed: true, profile: p }
+            } catch {
+              return { completed: true, profile: null }
+            }
+          }
+          try {
+            const p = await codingProfileAPI.get()
+            const last = p?.lastSyncedAt ? new Date(p.lastSyncedAt).getTime() : 0
+            if (last > baseline) return { completed: true, profile: p }
+          } catch {}
+          return waitForCodingSyncPoll(baseline, opts)
+        })
+        .catch(() => waitForCodingSyncPoll(baseline, opts))
+    } catch {
+      // SSE helper unavailable — fall through to legacy poll (fail-open).
+    }
+  }
+  return waitForCodingSyncPoll(baseline, opts)
+}
+
+// Legacy 2s×30 poll (fail-open fallback when the socket is dead).
+// Preserved verbatim behavior: base 2s, double on 429 up to 10s, honor Retry-After.
+export function waitForCodingSyncPoll(
   baseline: number,
   opts?: { intervalMs?: number; maxTries?: number }
 ): Promise<{ completed: boolean; profile: any }> {

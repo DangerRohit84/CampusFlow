@@ -13,7 +13,7 @@
  * when REDIS_URL is set (fail-open to memory otherwise — see Track D ADR).
  */
 
-import { getRedisClient, isRedisConfigured, redisDel, redisGet, redisIncr, redisSet } from './redis'
+import { getRedisClient, isRedisConfigured, redisDel, redisGet, redisIncr, redisSet, acquireRedisLock } from './redis'
 import { redisRateLimitGet, redisRateLimitIncrement } from './redis'
 
 export interface CacheEntry {
@@ -214,6 +214,51 @@ export function initCacheFromEnv(): { mode: 'redis' | 'memory' } {
 /** Test-only: reset singleton to a fresh InMemoryCache. */
 export function __resetCacheForTests(): void {
   activeBackend = new InMemoryCache()
+  try {
+    __resetSingleflightForTests()
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// P0-B singleflight + jittered TTL (hot-miss coalescing).
+// - In-process Map dedupes concurrent misses on THIS replica (0 extra Redis).
+// - Redis lock (`lock:coalesce:{key}` SET NX PX 10s) dedupes across replicas:
+//   winner loads + SETs, losers poll GET (100ms x 50 = 5s) then fail-open.
+// - Double-checked GET after acquiring lock (winner may have SET already).
+// - Jittered TTL (+0-10%) prevents synchronized expiry stampedes.
+// - All paths fail-open: any cache/Redis blip still serves loader value.
+// ---------------------------------------------------------------------------
+
+const singleflightInflight = new Map<string, Promise<unknown>>()
+
+/** Test-only: clear in-process singleflight map. */
+export function __resetSingleflightForTests(): void {
+  singleflightInflight.clear()
+}
+
+/**
+ * Jittered TTL: base + uniform(0, base*0.1). Only upward (never shortens
+ * freshness) so synchronized expiries spread over a 10% window.
+ * Pure + never throws (NaN/negative => base).
+ */
+export function withJitter(ttlMs: number, ratio = 0.1): number {
+  try {
+    const base = Math.floor(Number(ttlMs))
+    if (!Number.isFinite(base) || base <= 0) return ttlMs
+    const r = Number(ratio)
+    const safeRatio = Number.isFinite(r) && r > 0 && r < 1 ? r : 0.1
+    const extra = Math.floor(Math.random() * base * safeRatio)
+    return base + extra
+  } catch {
+    return ttlMs
+  }
+}
+
+function coalesceLockKey(cacheKey: string): string {
+  // Bounded length (Redis keys with raw search hashes are already hashed;
+  // truncate pathological keys to 200 chars to bound lock namespace).
+  const k = String(cacheKey || 'empty')
+  return `lock:coalesce:${k.length > 200 ? k.slice(0, 200) : k}`
 }
 
 // ---------------------------------------------------------------------------
@@ -302,11 +347,80 @@ export async function getOrSet<T>(key: string, ttlMs: number, loader: () => Prom
     const hit = await activeBackend.get<T>(key)
     if (hit !== null && hit !== undefined) return hit
   } catch {}
-  const fresh = await loader()
-  try {
-    await activeBackend.set(key, fresh, ttlMs)
-  } catch {}
-  return fresh
+  // In-process singleflight: concurrent misses share one loader promise.
+  const pending = singleflightInflight.get(key)
+  if (pending) {
+    return (await pending) as T
+  }
+  const task = (async (): Promise<T> => {
+    try {
+      // Cross-replica singleflight only when Redis is actually connected.
+      // Memory mode (REDIS_URL unset) skips lock entirely (0 extra ops).
+      let redisAvailable = false
+      try {
+        redisAvailable = getRedisClient() !== null
+      } catch {
+        redisAvailable = false
+      }
+      if (!redisAvailable) {
+        const fresh = await loader()
+        try {
+          await activeBackend.set(key, fresh, withJitter(ttlMs))
+        } catch {}
+        return fresh
+      }
+      // Redis path: claim winner lock, double-check, load, SET, release.
+      let lock: { acquired: boolean; release: () => Promise<void> } | null = null
+      try {
+        lock = await acquireRedisLock(coalesceLockKey(key), 10_000)
+      } catch {
+        lock = null
+      }
+      if (lock && lock.acquired) {
+        try {
+          try {
+            const recheck = await activeBackend.get<T>(key)
+            if (recheck !== null && recheck !== undefined) return recheck
+          } catch {}
+          const fresh = await loader()
+          try {
+            await activeBackend.set(key, fresh, withJitter(ttlMs))
+          } catch {}
+          return fresh
+        } finally {
+          try {
+            await lock.release()
+          } catch {}
+        }
+      }
+      if (lock && !lock.acquired) {
+        // Loser: wait for winner's SET (100ms x 50 = 5s), then fail-open.
+        const deadline = Date.now() + 5_000
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100))
+          try {
+            const waited = await activeBackend.get<T>(key)
+            if (waited !== null && waited !== undefined) return waited
+          } catch {}
+        }
+        const fresh = await loader()
+        try {
+          await activeBackend.set(key, fresh, withJitter(ttlMs))
+        } catch {}
+        return fresh
+      }
+      // Redis unavailable (lock null): fail-open direct load.
+      const fresh = await loader()
+      try {
+        await activeBackend.set(key, fresh, withJitter(ttlMs))
+      } catch {}
+      return fresh
+    } finally {
+      singleflightInflight.delete(key)
+    }
+  })()
+  singleflightInflight.set(key, task)
+  return task
 }
 
 // ---------------------------------------------------------------------------

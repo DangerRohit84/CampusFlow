@@ -205,6 +205,20 @@ async function isBreakerOpenShared(feature: string): Promise<{ open: boolean; re
 
 export function aiQuota(feature: string) {
   return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    // P1-5 global kill-switch: AI_KILL_SWITCH=true → 503 + heuristic fallback
+    // (fail-open for the product: enrich keeps deterministic page-deadline
+    // updates, chat surfaces a clean message). Breaker + quotas below are
+    // preserved when the switch is OFF (default). Never throws.
+    try {
+      const kill = String(process.env.AI_KILL_SWITCH || '').trim().toLowerCase() === 'true'
+      if (kill) {
+        try {
+          logger.debug({ feature }, '[aiQuota] AI_KILL_SWITCH=on — failing fast 503 (no quota consumed)')
+        } catch {}
+        res.status(503).json({ error: 'AI temporarily disabled. Please try again later.', feature, code: 'AI_KILL_SWITCH' })
+        return
+      }
+    } catch {}
     // Breaker fail-fast (429 + Retry-After) — shared across replicas via
     // Redis (L1 memory fast-path, L2 shared). Prevents retry storms during
     // Groq TPM exhaustion.

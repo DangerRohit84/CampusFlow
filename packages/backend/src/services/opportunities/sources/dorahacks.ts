@@ -232,7 +232,7 @@ export async function fetchDoraHacksPage(page: number, seen: Set<string>): Promi
         } else {
           html = txt
           htmlFetchedOk = true
-          try { scrapeCache.set(cacheKey, html, 6 * 60 * 60) } catch {}
+          try { scrapeCache.set(cacheKey, html, 12 * 60 * 60) } catch {} // P0-D: 12h aligns to 12h cron (was 6h)
         }
       }
     } catch { /* ignore, fallback to DDG */ }

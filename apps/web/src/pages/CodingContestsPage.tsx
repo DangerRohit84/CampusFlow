@@ -123,7 +123,10 @@ export default function CodingContestsPage() {
       if (platformFilter !== 'ALL') params.platform = platformFilter
       return codingContestAPI.getAll({ ...params, signal } as any)
     },
-    staleTime: 30 * 1000,
+    // P0-A stale discipline: lists >=60s (was 30s). Shared qk key dedupes
+    // StrictMode double-mounts + back-nav (no dedupingInterval needed — RQ
+    // staleTime IS the dedupe window).
+    staleTime: 60 * 1000,
     // PERPAGE-HALF1: added explicit gcTime (was global-inherited) for
     // grep-verifiable compliance alongside the other list pages.
     gcTime: 5 * 60 * 1000,
@@ -134,14 +137,18 @@ export default function CodingContestsPage() {
 
   // PERPAGE-HALF1: cached under the ['contests'] hierarchy so the existing
   // notifyEntityMutated('contest') prefix invalidation busts them together
-  // with the list (no entitySync table change needed). staleTime 60s:
-  // counts/participations move slowly; back-nav within a minute = 0 GETs
-  // (was: 2 GETs on every mount + StrictMode duplicates).
+  // with the list (no entitySync table change needed).
+  // P0-A stale discipline (plan P0-4): slow lists 60s→5m. Counts/parts move
+  // slowly; back-nav within 5m = 0 GETs (was 2 GETs/mount). Mutations still
+  // bust via ['contests'] prefix (immediate freshness, no stale-after-write).
+  // Shared keys: ['contests','my-participations'] is the SAME endpoint as
+  // CodingProfilePage.loadData participations (future P1-8 merges the fan to
+  // one include; until then 5m stale dedupes the double-fetch per session).
   const { data: participantCountsData } = useQuery({
     queryKey: ['contests', 'counts'] as const,
     queryFn: () => codingContestAPI.getParticipantCounts(),
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   })
@@ -152,8 +159,8 @@ export default function CodingContestsPage() {
     // Students only — teachers never call getParticipations (was guarded by
     // user?.role check in the old effect; enabled preserves that exactly).
     enabled: user?.role === 'STUDENT',
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   })
@@ -162,11 +169,12 @@ export default function CodingContestsPage() {
   // #6 contest alarms: my remind-me rows (user-scoped, NOT college-scoped).
   // Keyed under ['contests'] so contest mutations bust it too; reminder
   // writes invalidate it directly (no entitySync table change needed).
+  // P0-A: 60s→5m (plan P0-4, same slow-list rationale as counts/parts).
   const { data: remindersData } = useQuery({
     queryKey: ['contests', 'reminders', 'mine'] as const,
     queryFn: () => codingContestAPI.getReminders(),
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   })

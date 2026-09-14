@@ -267,7 +267,7 @@ export async function fetchHackerEarthPage(page: number, seen: Set<string>): Pro
       const txt = await res.text()
       if (txt.length < 500) return []
       html = txt
-      try { scrapeCache.set(cacheKey, html, 6 * 60 * 60) } catch {}
+      try { scrapeCache.set(cacheKey, html, 12 * 60 * 60) } catch {} // P0-D: 12h aligns to 12h cron (was 6h)
     } catch { return [] }
     if (!html) return []
   }

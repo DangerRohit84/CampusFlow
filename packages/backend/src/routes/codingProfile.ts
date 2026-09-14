@@ -4,7 +4,8 @@ import prisma from '../config/db'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { toApiParticipations, toPlatformEnum } from '../lib/platform'
 import { syncUserContests, syncAllUsers } from '../services/syncEngine'
-import { emitToUser, broadcastCodingProfileMutation } from '../services/socket'
+import { emitToUser, emitToCollege, broadcastCodingProfileMutation } from '../services/socket'
+import { buildProfileSyncPayload } from '../services/stagingCounts'
 import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
 import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
 import { checkAndClaimSyncThrottle, clearSyncThrottleStore } from '../services/syncThrottleStore'
@@ -405,13 +406,20 @@ router.post('/sync', authenticate, async (req: AuthRequest, res: Response) => {
     syncUserContests(userId, { profile })
       .then((result) => {
         try {
-          emitToUser(userId, 'profile-sync', {
-            userId,
-            status: 'completed',
-            synced: result.synced,
-            platforms: result.platforms,
-            completedAt: new Date().toISOString(),
-          })
+          // P0-A: room-targeted sync:done push (kill 2s×30 poll). Legacy
+          // `profile-sync` preserved for old clients; `profile-sync:done`
+          // alias is the canonical sync:done event (fail-open best-effort).
+          const payload = buildProfileSyncPayload(userId, result as any)
+          emitToUser(userId, 'profile-sync', payload)
+          try {
+            emitToUser(userId, 'profile-sync:done', payload)
+          } catch {}
+          // Also emit to the owner's college room so college-scoped
+          // leaderboard subscribers wake without polling (best-effort).
+          try {
+            const collegeId = (profile as any)?.collegeId ?? null
+            if (collegeId) emitToCollege(collegeId, 'profile-sync:done', payload)
+          } catch {}
           // Track D: single broadcast per mutation (was 2 broadcasts = 3 scoped
           // emits). broadcastCodingProfileMutation already includes
           // contest:mutated for leaderboard (2 events, cross-entity budget).

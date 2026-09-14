@@ -415,7 +415,7 @@ async function getHack2SkillEventData(slug: string): Promise<any | null> {
     if (!ct.includes('application/json')) return null
     const data = (await res.json()) as any
     const d = data?.data || null
-    try { scrapeCache.set(key, d, d ? 6 * 60 * 60 : 600) } catch {}
+    try { scrapeCache.set(key, d, d ? 12 * 60 * 60 : 600) } catch {} // P0-D: 12h aligns to 12h cron (was 6h; 600s negative kept)
     return d
   } catch { return null }
 }
@@ -434,7 +434,7 @@ export async function fetchHack2SkillEventMode(url: string): Promise<string> {
     } catch {}
     const details = await getHack2SkillEventData(slug)
     const mode = deriveHack2SkillModeFromDetails(details)
-    try { scrapeCache.set(cacheKey, mode, mode ? 6 * 60 * 60 : 600) } catch {}
+    try { scrapeCache.set(cacheKey, mode, mode ? 12 * 60 * 60 : 600) } catch {} // P0-D: 12h (was 6h; 600s negative kept)
     return mode
   } catch { return '' }
 }
@@ -495,7 +495,7 @@ export async function fetchHack2SkillRegistrationEnd(url: string): Promise<strin
         deadline = dt.toISOString()
       } else deadline = parseSearchDate(String(raw)) || ''
     }
-    try { scrapeCache.set(cacheKey, deadline, deadline ? 6 * 60 * 60 : 600) } catch {}
+    try { scrapeCache.set(cacheKey, deadline, deadline ? 12 * 60 * 60 : 600) } catch {} // P0-D: 12h (was 6h; 600s negative kept)
     return deadline
   } catch { return '' }
 }
@@ -605,7 +605,7 @@ export async function fetchHack2SkillTimeline(url: string): Promise<{
 
 // --- Hack2Skill: API-first (innovator/public/event/list) ---
 const HACK2SKILL_API_CACHE_KEY = 'hack2skill:api:page1'
-const HACK2SKILL_API_TTL = 6 * 60 * 60
+const HACK2SKILL_API_TTL = 12 * 60 * 60 // P0-D: 12h aligns to 12h cron (was 6h)
 
 
 export async function fetchHack2SkillApiPage(page: number, seen: Set<string>): Promise<NormalizedOpportunity[]> {
@@ -788,7 +788,7 @@ export async function fetchHack2SkillApiPage(page: number, seen: Set<string>): P
         }
         // Reverse so newest (future) events first — sitemap is oldest-first, but we need upcoming for target 10
         urls = [...collected].reverse()
-        try { scrapeCache.set(sitemapKey, urls, 6 * 60 * 60) } catch {}
+        try { scrapeCache.set(sitemapKey, urls, 12 * 60 * 60) } catch {} // P0-D: 12h (was 6h)
       }
       if (!urls || urls.length === 0) return []
       const start = (page - 1) * PER_PAGE

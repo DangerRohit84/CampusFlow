@@ -8,6 +8,13 @@ import { logger } from '../../utils/logger'
 import { scrapeCache } from './cache'
 import { UA, fetchPage6k } from './sources/context'
 import { getEnrichPagesForRecord } from './registry'
+import {
+  conditionalHeaders,
+  contentHash,
+  getPageFetchState,
+  setPageFetchState,
+  validatorsFromHeaders,
+} from './fetchState'
 
 export { fetchPage6k }
 
@@ -30,27 +37,61 @@ async function fetchOnePage(url: string): Promise<string> {
       logger.info(`[Cache HIT] ${url}`)
       return cached
     }
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000)
+    // P1-3 conditional fetch (Layer A, same contract as fetchPage6k):
+    // stored validators → 304 serves the warm entry with 0 bytes; cold
+    // cache on 304 → unconditional refetch (fail-open, never empty).
+    let cond: Record<string, string> = {}
     try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'User-Agent': UA },
-      })
-      if (!response.ok) return ''
-      const html = await response.text()
-      const content = html
+      cond = conditionalHeaders(await getPageFetchState(url))
+    } catch {}
+    const stripPage = (html: string): string => {
+      return html
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<style[\s\S]*?<\/style>/gi, '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .substring(0, 6000)
-      if (content.length > 100) scrapeCache.set(url, content)
-      return content
-    } finally {
-      clearTimeout(timeout)
     }
+    const doFetch = async (extra: Record<string, string>): Promise<Response> => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
+      try {
+        return await fetch(url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': UA, ...extra },
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+    const response = await doFetch(cond)
+    if (response.status === 304) {
+      const warm = scrapeCache.get<string>(url)
+      if (warm) {
+        logger.info(`[Cache HIT] ${url} (304 revalidated)`)
+        return warm
+      }
+      const response2 = await doFetch({})
+      if (!response2.ok) return ''
+      const html2 = await response2.text()
+      const content2 = stripPage(html2)
+      if (content2.length > 100) scrapeCache.set(url, content2)
+      try {
+        const v2 = validatorsFromHeaders(response2.headers as unknown as { get?: (name: string) => string | null })
+        await setPageFetchState(url, { etag: v2.etag, lastModified: v2.lastModified, contentHash: contentHash(content2), at: Date.now() })
+      } catch {}
+      return content2
+    }
+    if (!response.ok) return ''
+    const html = await response.text()
+    const content = stripPage(html)
+    if (content.length > 100) scrapeCache.set(url, content)
+    try {
+      const v = validatorsFromHeaders(response.headers as unknown as { get?: (name: string) => string | null })
+      await setPageFetchState(url, { etag: v.etag, lastModified: v.lastModified, contentHash: contentHash(content), at: Date.now() })
+    } catch {}
+    return content
   } catch (err) {
     logger.debug({ err, url }, '[enrich] fetchOnePage failed (treated as empty)')
     return ''

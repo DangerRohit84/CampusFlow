@@ -7,6 +7,7 @@ import {
 import { useAuthStore } from '../../store/authStore'
 import { LOGOUT_DEST } from '../../lib/logout'
 import { codingProfileAPI } from '../../lib/api'
+import { optimizeCloudinaryUrl } from '../../lib/cloudinary'
 
 // lightweight activity generator — same logic as public profile, but only for 1-line summary
 function generateActivity(seedStr: string, days = 119) {
@@ -131,7 +132,7 @@ export default function AvatarDropdown() {
         className="relative w-9 h-9 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-sm shrink-0 ring-2 ring-white dark:ring-night-800 shadow-sm hover:ring-primary-200 dark:hover:ring-primary-900/30 hover:scale-[1.03] transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
       >
         {user?.avatarUrl ? (
-          <img src={user.avatarUrl} alt={displayName} width={36} height={36} loading="lazy" decoding="async" className="w-full h-full object-cover rounded-full" />
+          <img src={optimizeCloudinaryUrl(user.avatarUrl, { width: 96 })} alt={displayName} width={36} height={36} loading="lazy" decoding="async" className="w-full h-full object-cover rounded-full" />
         ) : (
           <span className="tracking-wide">{initial}</span>
         )}
@@ -159,7 +160,7 @@ export default function AvatarDropdown() {
                 className="flex items-center gap-3 p-4 hover:bg-surface-50 dark:bg-night-800 dark:hover:bg-night-700/60 text-left transition-colors w-full"
               >
                 <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-[15px] shrink-0 ring-2 ring-primary-100 dark:ring-primary-900/30 overflow-hidden">
-                  {user?.avatarUrl ? <img src={user.avatarUrl} alt={displayName} width={40} height={40} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : initial}
+                  {user?.avatarUrl ? <img src={optimizeCloudinaryUrl(user.avatarUrl, { width: 96 })} alt={displayName} width={40} height={40} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : initial}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-[14px] leading-none text-surface-900 dark:text-night-50 truncate">{displayName}</p>

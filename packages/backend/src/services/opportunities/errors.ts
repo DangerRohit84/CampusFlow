@@ -30,6 +30,11 @@ export function isGroqKeySet(): boolean {
 }
 
 export async function isEnrichmentAIDisabled(): Promise<boolean> {
+  // P1-5 kill-switch first (global, logged at the caller): when ON, enrich
+  // keeps its deterministic page-deadline path and skips Groq entirely.
+  try {
+    if (String(process.env.AI_KILL_SWITCH || '').trim().toLowerCase() === 'true') return true
+  } catch {}
   if (isGroqKeySet()) return false
   try {
     const { getProvidersForFeature } = await import('../ai-manager')

@@ -46,6 +46,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
     <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    <!-- P0-C images: early connections for image CDNs (media uploads) + LCP
+         hero preload. Hero URL must stay byte-identical to the 1200w candidate
+         in LandingPage.tsx so the preloaded bytes are reused (no double fetch).
+         fetchpriority="high" marks it as the LCP image (AVIF/WebP via auto=format). -->
+    <link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+    <link rel="dns-prefetch" href="https://res.cloudinary.com">
+    <link rel="preconnect" href="https://images.unsplash.com" crossorigin>
+    <link rel="dns-prefetch" href="https://images.unsplash.com">
+    <link rel="preload" as="image" fetchpriority="high"
+      href="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1200&q=80&auto=format&fit=crop"
+      imagesrcset="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=400&q=70&auto=format&fit=crop 400w, https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=800&q=75&auto=format&fit=crop 800w, https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1200&q=80&auto=format&fit=crop 1200w"
+      imagesizes="100vw">
     <!-- preload font stylesheet with swap; display=swap avoids FOIT (like Shopify/StackOverflow) -->
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&display=swap">
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">

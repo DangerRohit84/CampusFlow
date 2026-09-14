@@ -53,7 +53,7 @@ const InternshipDetailPage = lazy(() => import('./pages/InternshipDetailPage'))
 const FormsPage = lazy(() => import('./pages/FormsPage'))
 const FormDetailPage = lazy(() => import('./pages/FormDetailPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
-const AdminPage = lazy(() => import('./pages/AdminPage'))
+const AdminPage = lazy(() => import(/* viteChunkName: "admin" */ './pages/AdminPage'))
 const CollegeRegistrationPage = lazy(() => import('./pages/CollegeRegistrationPage'))
 const AddTeacherPage = lazy(() => import('./pages/AddTeacherPage'))
 const AddStudentPage = lazy(() => import('./pages/AddStudentPage'))
@@ -67,15 +67,19 @@ const AssignmentDetailPage = lazy(() => import('./pages/AssignmentDetailPage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 // Heavy routes — route-level code splitting (Stripe/GitHub pattern). Each
 // chunk loads on demand; Suspense fallback keeps a11y role=status loader.
-const ResumeStudioPage = lazy(() => import('./pages/ResumeStudioPage'))
-const PortfolioStudioPage = lazy(() => import('./pages/PortfolioStudioPage'))
-const AdminOpportunitiesPage = lazy(() => import('./pages/AdminOpportunitiesPage'))
-const FetchPage = lazy(() => import('./pages/FetchPage'))
-const AiManagerPage = lazy(() => import('./pages/AiManagerPage'))
-const SuperAdminDashboardPage = lazy(() => import('./pages/SuperAdminDashboardPage'))
-const SuperAdminCollegesPage = lazy(() => import('./pages/SuperAdminCollegesPage'))
-const SuperAdminCollegeView = lazy(() => import('./pages/SuperAdminCollegeView'))
-const SuperAdminReportsPage = lazy(() => import('./pages/SuperAdminReportsPage'))
+// P0-C bundle: explicit viteChunkName on heavy chunks (resume PDF pipeline,
+// admin consoles, AI/parse tooling) keeps chunk names stable across builds so
+// repeat visits hit the HTTP cache instead of re-downloading renamed hashes.
+// Names are build-only metadata — zero runtime behavior change.
+const ResumeStudioPage = lazy(() => import(/* viteChunkName: "resume-studio" */ './pages/ResumeStudioPage'))
+const PortfolioStudioPage = lazy(() => import(/* viteChunkName: "portfolio-studio" */ './pages/PortfolioStudioPage'))
+const AdminOpportunitiesPage = lazy(() => import(/* viteChunkName: "admin-opps" */ './pages/AdminOpportunitiesPage'))
+const FetchPage = lazy(() => import(/* viteChunkName: "fetch-console" */ './pages/FetchPage'))
+const AiManagerPage = lazy(() => import(/* viteChunkName: "ai-manager" */ './pages/AiManagerPage'))
+const SuperAdminDashboardPage = lazy(() => import(/* viteChunkName: "superadmin" */ './pages/SuperAdminDashboardPage'))
+const SuperAdminCollegesPage = lazy(() => import(/* viteChunkName: "superadmin-colleges" */ './pages/SuperAdminCollegesPage'))
+const SuperAdminCollegeView = lazy(() => import(/* viteChunkName: "superadmin-college" */ './pages/SuperAdminCollegeView'))
+const SuperAdminReportsPage = lazy(() => import(/* viteChunkName: "superadmin-reports" */ './pages/SuperAdminReportsPage'))
 
 function LazyRoute({ children, label }: { children: React.ReactNode; label?: string }) {
   return (

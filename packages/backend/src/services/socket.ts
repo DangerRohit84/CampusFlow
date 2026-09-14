@@ -523,6 +523,14 @@ export function emitToCollege(collegeId: string | null | undefined, event: strin
  * that college room (≈college size wake-ups) instead of global (10k).
  * Best-effort fire-and-forget: lookup failure fails open to global (compat),
  * never blocks the response, never throws.
+ *
+ * P0-D: check the authorize cache (`authz:{userId}` via Redis, 60s TTL)
+ * BEFORE Postgres. The authorize path (middleware/auth.ts) already caches
+ * { role, collegeId } per user — when warm (user did any authorize-gated
+ * request in the last 60s) this resolves with 0 DB reads. Cold path falls
+ * back to the single narrow `findUnique` (unchanged). Callers that already
+ * know collegeId should pass it directly (see attendance/grades/schedules/
+ * tasks/timetable routes) to skip even the cache lookup.
  */
 function emitPerUserScoped(
   events: Array<{ event: string; basePayload: any }>,
@@ -534,15 +542,42 @@ function emitPerUserScoped(
     return
   }
   if (userId) {
-    void prisma.user
-      .findUnique({ where: { id: userId }, select: { collegeId: true } })
-      .then((u) => {
-        const cid = u?.collegeId ?? null
+    void (async () => {
+      // P0-D warm path: authorize cache first (0 Postgres on hit).
+      try {
+        const cached = await redisGet<{ role?: string; collegeId?: string | null } | string>(
+          `authz:${userId}`,
+        )
+        const cid =
+          typeof cached === 'string'
+            ? null
+            : (cached as { collegeId?: string | null } | null)?.collegeId ?? null
+        // String entries (legacy role-only) carry no college — fall to DB.
+        if (cached && cid) {
+          for (const e of events) emitToCollege(cid, e.event, { ...e.basePayload, collegeId: cid })
+          return
+        }
+        if (cached && typeof cached !== 'string') {
+          // Object hit with explicit null college (global user) — scope global
+          // without a DB round-trip.
+          if (cid === null && (cached as { role?: string })?.role) {
+            for (const e of events) emitToCollege(null, e.event, e.basePayload)
+            return
+          }
+        }
+      } catch {}
+      // Cold path (unchanged): narrow DB lookup, fail-open to global.
+      try {
+        const u = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { collegeId: true },
+        })
+        const cid = (u as { collegeId?: string | null } | null)?.collegeId ?? null
         for (const e of events) emitToCollege(cid, e.event, { ...e.basePayload, collegeId: cid ?? undefined })
-      })
-      .catch(() => {
+      } catch {
         for (const e of events) emitToCollege(null, e.event, e.basePayload)
-      })
+      }
+    })()
     return
   }
   for (const e of events) emitToCollege(null, e.event, e.basePayload)

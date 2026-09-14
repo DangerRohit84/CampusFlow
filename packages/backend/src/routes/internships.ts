@@ -15,6 +15,20 @@ import { chatCompletion } from '../ai/client'
 import { canAccessCollege, deriveCollegeId, getSuperAdminTargetCollegeId, safeFilename, escapeExcelValue, contentDisposition } from '../utils/roles'
 import { validateExternalUrl } from '../utils/secureUrl'
 import { broadcastInternshipMutation } from '../services/socket'
+import {
+  stagingCountsKey,
+  scopeForUser,
+  buildCountsEtag,
+  isCountsNotModified,
+  bustStagingCountsForUser,
+} from '../services/stagingCounts'
+import {
+  INTERNSHIPS_LIST_TTL_MS,
+  internshipsListKey,
+  getInternshipsListVersion,
+  bustInternshipsList,
+  listScopeForUser,
+} from '../services/listCache'
 import { logger } from '../utils/logger'
 import { parseStagingParams, buildStagingWhere, buildStagingFindArgs, buildStagingPage } from '../services/opportunities/staging'
 import { normalizeSource } from '../services/opportunities/dedup'
@@ -23,6 +37,7 @@ import { notifyUsers } from '../services/notificationService'
 import { parseMineParam, applyMineFilter, unregisterRoleError, remindRoleError, validateRemindMessage, buildRemindNotification, registeredUserIds } from '../services/opportunities/registrations'
 import { stagingStore } from '../repositories/stagingRepository'
 import { buildFetchDetailsPrompt, validateFetchDetails, buildInternshipDeterministicFallback, searchOpportunityDetails, toFetchDetailsEnvelope, isAiNotConfiguredResponse } from '../services/opportunities/fetchDetails'
+import { sendConditionalList } from '../services/conditionalGet'
 
 const router = Router()
 router.use(authenticate)
@@ -89,65 +104,91 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const mineOnly = parseMineParam(req.query)
     where = applyMineFilter(where, req.userId!, mineOnly)
 
-    // Use _count instead of loading full registrations arrays; include only current user's registration flag via _count filtered?
-    // Fetch total + page data with count aggregation
-    const [all, totalRaw] = await Promise.all([
-      prisma.internship.findMany({
-        where,
-        include: {
-          _count: { select: { registrations: true } },
-          registrations: { where: { userId: req.userId }, select: { id: true, status: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.internship.count({ where }),
-    ])
+    // P0-B: shared 5m list cache (tenant-segmented + versioned). userId segments
+    // STUDENT eligibility filtering + ?mine=true (per-user where).
+    const listScope = listScopeForUser(user as any, filterCollegeId || null)
+    let listGen = 0
+    try {
+      listGen = await getInternshipsListVersion(listScope)
+    } catch {}
+    const sharedKey = internshipsListKey({
+      scope: listScope,
+      userId: req.userId,
+      search,
+      mine: mineOnly ? 'true' : '',
+      page,
+      limit,
+      gen: listGen,
+    })
+    let listCacheHit = true
+    const cachedBody = await getOrSet(sharedKey, INTERNSHIPS_LIST_TTL_MS, async () => {
+      listCacheHit = false
+      // Use _count instead of loading full registrations arrays; include only current user's registration flag via _count filtered?
+      // Fetch total + page data with count aggregation
+      const [all, totalRaw] = await Promise.all([
+        prisma.internship.findMany({
+          where,
+          include: {
+            _count: { select: { registrations: true } },
+            registrations: { where: { userId: req.userId }, select: { id: true, status: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        prisma.internship.count({ where }),
+      ])
 
-    // Eligibility filtering must happen before pagination for correctness, but doing in DB is not possible with JSON strings.
-    // Optimized: fetch count-aware page then filter, and if student filtering reduces too much, fetch extra.
-    // For now filter the page slice (fast path); total will be adjusted for student view.
-    let internships: any[] = all
-    let total = totalRaw
-    if (user.role === 'STUDENT' && user.departmentId && !mineOnly) {
-      // AI-code aware (CSE/IT/ALL → departmentIds); direct includes() misses enriched rows.
-      const { isDepartmentEligible, getCollegeDepartments } = await import('../utils/eligibility')
-      const collegeDepts = await getCollegeDepartments(user.collegeId)
-      // Order 3: canonical Json arrays (helpers accept Json or legacy String, never throw).
-      const isEligibleRow = (tDepts: unknown, tYears: unknown, enabled: boolean) => {
-        if (!enabled) return true
-        const depts = parseJsonArraySafe(tDepts)
-        const years = parseJsonNumberArraySafe(tYears)
-        const deptMatch = depts.length === 0 || isDepartmentEligible(depts, user.departmentId, collegeDepts)
-        const currentYear = user.incomingYear ? Math.min(new Date().getFullYear() - user.incomingYear + 1, 4) : 1
-        const yearMatch = years.length === 0 || years.includes(currentYear)
-        return deptMatch && yearMatch
+      // Eligibility filtering must happen before pagination for correctness, but doing in DB is not possible with JSON strings.
+      // Optimized: fetch count-aware page then filter, and if student filtering reduces too much, fetch extra.
+      // For now filter the page slice (fast path); total will be adjusted for student view.
+      let internships: any[] = all
+      let total = totalRaw
+      if (user.role === 'STUDENT' && user.departmentId && !mineOnly) {
+        // AI-code aware (CSE/IT/ALL → departmentIds); direct includes() misses enriched rows.
+        const { isDepartmentEligible, getCollegeDepartments } = await import('../utils/eligibility')
+        const collegeDepts = await getCollegeDepartments(user.collegeId)
+        // Order 3: canonical Json arrays (helpers accept Json or legacy String, never throw).
+        const isEligibleRow = (tDepts: unknown, tYears: unknown, enabled: boolean) => {
+          if (!enabled) return true
+          const depts = parseJsonArraySafe(tDepts)
+          const years = parseJsonNumberArraySafe(tYears)
+          const deptMatch = depts.length === 0 || isDepartmentEligible(depts, user.departmentId, collegeDepts)
+          const currentYear = user.incomingYear ? Math.min(new Date().getFullYear() - user.incomingYear + 1, 4) : 1
+          const yearMatch = years.length === 0 || years.includes(currentYear)
+          return deptMatch && yearMatch
+        }
+        const filtered = all.filter((i) => isEligibleRow(i.targetDepartments, i.targetYears, i.eligibilityEnabled))
+        // If filtering removed items, we still return filtered page; total is at least filtered length for UI.
+        // For accuracy, compute filtered total by scanning all ids when needed (only once)
+        internships = filtered
+        // For filtered total, do a full scan only when page===1 to avoid O(n) on every page; otherwise estimate
+        if (page === 1) {
+          const allForCount = await prisma.internship.findMany({
+            where: { collegeId: user.collegeId! },
+            select: { targetDepartments: true, targetYears: true, eligibilityEnabled: true },
+          })
+          total = allForCount.filter((i) => isEligibleRow(i.targetDepartments, i.targetYears, i.eligibilityEnabled)).length
+        }
       }
-      const filtered = all.filter((i) => isEligibleRow(i.targetDepartments, i.targetYears, i.eligibilityEnabled))
-      // If filtering removed items, we still return filtered page; total is at least filtered length for UI.
-      // For accuracy, compute filtered total by scanning all ids when needed (only once)
-      internships = filtered
-      // For filtered total, do a full scan only when page===1 to avoid O(n) on every page; otherwise estimate
-      if (page === 1) {
-        const allForCount = await prisma.internship.findMany({
-          where: { collegeId: user.collegeId! },
-          select: { targetDepartments: true, targetYears: true, eligibilityEnabled: true },
-        })
-        total = allForCount.filter((i) => isEligibleRow(i.targetDepartments, i.targetYears, i.eligibilityEnabled)).length
+
+      const data = internships.map((i: any) => ({
+        ...i,
+        registrationsCount: i._count?.registrations ?? 0,
+        registrations: i.registrations, // keep user's own registration for isRegistered check
+        _count: undefined,
+        // Deadline is DateTime after 10k migration (was String): coerce handles both during rollout.
+        computedStatus: i.status === 'ENDED' || (() => { const d = coerceDeadline(i.deadline); return !!d && d < new Date() })() ? 'ENDED' : 'ACTIVE',
+      }))
+
+      const pages = Math.ceil(total / limit)
+      return {
+        data,
+        pagination: { page, limit, total, pages },
       }
-    }
-
-    const data = internships.map((i: any) => ({
-      ...i,
-      registrationsCount: i._count?.registrations ?? 0,
-      registrations: i.registrations, // keep user's own registration for isRegistered check
-      _count: undefined,
-      // Deadline is DateTime after 10k migration (was String): coerce handles both during rollout.
-      computedStatus: i.status === 'ENDED' || (() => { const d = coerceDeadline(i.deadline); return !!d && d < new Date() })() ? 'ENDED' : 'ACTIVE',
-    }))
-
-    const pages = Math.ceil(total / limit)
+    })
+    const { data, pagination } = cachedBody as { data: any; pagination: { page: number; limit: number; total: number; pages: number } }
+    const pages = pagination.pages
     const makeLink = (p: number) => {
       const params = new URLSearchParams({ page: String(p), limit: String(limit) })
       if (search) params.set('search', search)
@@ -162,11 +203,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Backward compat: if client didn't request pagination, also support ?page-less callers expecting array
     // But we always return paginated; frontend will handle both shapes.
     // P0 SECURITY (F11): authenticated list — private only, never s-maxage.
-    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
-    res.json({
-      data,
-      pagination: { page, limit, total, pages },
-    })
+    // P0-B: 60s browser + SWR (was 15s) pairs with 5m shared getOrSet.
+    // P0-D selective 304: cachedBody is Redis-memoized (HIT = 0 Postgres).
+    res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30')
+    sendConditionalList(req, res, { data, pagination }, { cacheHit: listCacheHit })
   } catch (error) {
     logger.error({ err: error }, 'Error listing internships:')
     res.status(500).json({ error: 'Failed to list internships' })
@@ -262,13 +302,14 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 })
 
 // GET /staging/counts - Get staging counts (independent of pagination)
+// P0-A: ETag 304 for the slow-poll fallback (socket-dead path). See hackathons.ts.
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true } }) // NARROW-READ half1
     // Per-college decisions make college scoping exact, so the 60s cache key
     // is per scope (global for SUPER_ADMIN, per college otherwise).
-    const scope = !user || user.role === 'SUPER_ADMIN' ? 'global' : `college:${user.collegeId ?? 'none'}`
-    const counts = await getOrSet(`staging-counts:int:${scope}`, STAGING_COUNTS_CACHE_TTL_MS, async () => {
+    const scope = scopeForUser(user as any)
+    const counts = await getOrSet(stagingCountsKey('int', scope), STAGING_COUNTS_CACHE_TTL_MS, async () => {
       // No deadline filter — counts must reflect all pending including expired
       let countsWhere: any = {}
       if (user && user.role !== 'SUPER_ADMIN') {
@@ -302,6 +343,17 @@ router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
       }
       return { total, enriched, pending, approved, rejected }
     })
+    // P0-A fallback poll: ETag + private SWR (fail-open — hashing never blocks).
+    try {
+      const etag = buildCountsEtag(counts as any)
+      res.set('ETag', etag)
+      res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30')
+      res.set('Vary', 'Accept-Encoding, Authorization')
+      if (isCountsNotModified(req.headers['if-none-match'], etag)) {
+        res.status(304).end()
+        return
+      }
+    } catch {}
     res.json(counts)
   } catch (error) {
     logger.error({ err: error }, 'Error fetching internship staging counts:')
@@ -436,6 +488,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     })
 
     try { broadcastInternshipMutation({ internshipId: internship.id, collegeId: derivedCollegeId, action: 'created' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m published list (fail-open, TTL backstop covers miss).
+    try { void bustInternshipsList(listScopeForUser(user as any)); void bustInternshipsList('global') } catch {}
     res.status(201).json(internship)
   } catch (error) {
     logger.error({ err: error }, 'Error creating internship:')
@@ -472,7 +526,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
     await prisma.internship.delete({ where: { id: req.params.id as string } })
-    try { broadcastInternshipMutation({ internshipId: req.params.id as string, action: 'deleted' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: reuse the pre-delete row for scope (fail-open global when null).
+    try { broadcastInternshipMutation({ internshipId: req.params.id as string, action: 'deleted', collegeId: (internship as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m published list (scope unknown post-delete — bust global best-effort, TTL covers rest).
+    try { void bustInternshipsList('global') } catch {}
     res.json({ success: true })
   } catch (error) {
     logger.error({ err: error }, 'Error deleting internship:')
@@ -537,6 +594,8 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
       data: { internshipId: req.params.id as string, userId: req.userId!, status: 'REGISTERED' },
     })
 
+    // P0-B: registrationsCount lives in the published list payload — bust it.
+    try { void bustInternshipsList(listScopeForUser(user as any)); void bustInternshipsList('global') } catch {}
     res.status(201).json(registration)
   } catch (error) {
     logger.error({ err: error }, 'Error registering for internship:')
@@ -572,7 +631,10 @@ router.delete('/:id/register', async (req: AuthRequest, res: Response) => {
       return
     }
     await prisma.internshipRegistration.delete({ where: { id: existing.id } })
-    try { broadcastInternshipMutation({ internshipId: req.params.id as string, action: 'unregistered' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: thread collegeId (scoped emit).
+    try { broadcastInternshipMutation({ internshipId: req.params.id as string, action: 'unregistered', collegeId: (internship as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: registrationsCount lives in the published list payload — bust it.
+    try { void bustInternshipsList(listScopeForUser(user as any)); void bustInternshipsList('global') } catch {}
     res.json({ success: true })
   } catch (error) {
     logger.error({ err: error }, 'Error unregistering for internship:')
@@ -1070,7 +1132,10 @@ router.post('/fetch-external', fetchLimiter, async (req: AuthRequest, res: Respo
       logger.info(`[Fetch] Done — enriched ${idsToEnrich.length} internships`)
     })()
 
-    try { broadcastInternshipMutation({ action: 'fetched', fetched, total: internships.length }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: fetched staging rows are global feed — explicit null = global by intent.
+    try { broadcastInternshipMutation({ action: 'fetched', fetched, total: internships.length, collegeId: null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: bust only when rows changed (server emits only on change).
+    try { if (fetched > 0) void bustStagingCountsForUser('int', user as any) } catch {}
     res.json({ message: `Internship fetch complete`, fetched, skipped, total: internships.length })
   } catch (error) {
     logger.error({ err: error }, 'Fetch external internships error:')
@@ -1190,7 +1255,11 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
       return created
     })
 
-    try { broadcastInternshipMutation({ internshipId: internship.id, stagingId: req.params.id as string, action: 'approved' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastInternshipMutation({ internshipId: internship.id, stagingId: req.params.id as string, action: 'approved', collegeId: (internship as any).collegeId ?? targetCollegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: bust counts cache so socket-driven clients refetch fresh (fail-open).
+    try { void bustStagingCountsForUser('int', user as any) } catch {}
+    // P0-B: newly published row changes the published list (all scopes see it).
+    try { void bustInternshipsList(listScopeForUser(user as any)); void bustInternshipsList('global') } catch {}
     logger.info(`[AUDIT] internship-staging:approve actor=${user.id} role=${user.role} college=${(user as any).collegeId} decisionCollege=${targetCollegeId} target=${req.params.id} published=${internship.id}`)
     res.json({ message: 'Internship approved', internship })
   } catch (error) {
@@ -1258,7 +1327,9 @@ router.post('/staging/:id/reject', async (req: AuthRequest, res: Response) => {
       })
     }
 
-    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'rejected' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'rejected', collegeId: targetCollegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: bust counts cache (fail-open, see approve).
+    try { void bustStagingCountsForUser('int', user as any) } catch {}
     logger.info(`[AUDIT] internship-staging:reject actor=${user.id} role=${user.role} college=${(user as any).collegeId} decisionCollege=${targetCollegeId} target=${req.params.id}`)
     res.json({ message: 'Internship rejected' })
   } catch (error) {
@@ -1310,7 +1381,7 @@ router.post('/staging/:id/assign', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
-    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'staging:assigned', teacherId }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastInternshipMutation({ stagingId: req.params.id as string, action: 'staging:assigned', teacherId, collegeId: (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ message: `Assigned to ${teacher.name}`, staging: updated })
   } catch (error) {
     logger.error({ err: error }, 'Assign internship staging error:')
@@ -1353,7 +1424,7 @@ router.post('/staging/assign-all', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
-    try { broadcastInternshipMutation({ action: 'staging:bulk-assigned', teacherId, count: result.count }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastInternshipMutation({ action: 'staging:bulk-assigned', teacherId, count: result.count, collegeId: (teacher as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ assigned: result.count, teacher: teacher.name })
   } catch (error) {
     logger.error({ err: error }, 'Assign all internship staging error:')

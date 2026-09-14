@@ -12,6 +12,14 @@ import {
 } from './codingActivity'
 import { tryAcquireProfileSyncLock } from './syncLock'
 import { logger } from '../utils/logger'
+import {
+  getSyncWatermark,
+  setSyncWatermark,
+  handlesFingerprint,
+  hasValidStats,
+  statsPayloadHash,
+  shouldSkipProfileSync,
+} from './syncWatermark'
 
 // Normalize a string for fuzzy matching: lowercase, strip non-alphanumeric, collapse spaces
 function normalize(s: string): string {
@@ -177,7 +185,7 @@ async function recordSyncErrorBestEffort(userId: string, message: unknown): Prom
 
 export async function syncUserContests(
   userId: string,
-  opts?: { profile?: any },
+  opts?: { profile?: any; useWatermark?: boolean },
 ): Promise<{ synced: number; platforms: string[] }> {
   // Throttle-collapse: reuse preloaded profile when caller already fetched it
   // (POST /sync + syncAllUsers) to avoid a 2nd findUnique per sync.
@@ -187,6 +195,22 @@ export async function syncUserContests(
     ? opts.profile
     : await prisma.codingProfile.findUnique({ where: { userId } })
   if (!profile) return { synced: 0, platforms: [] }
+  // P1-2 watermark incremental (cron path ONLY — manual POST /sync always
+  // runs full on explicit user demand so "Sync now" freshness is on demand;
+  // syncAllUsers passes useWatermark:true for the scheduled 60k/day volume).
+  // HIT (same handles + prior valid + <6h) skips ALL externals below and
+  // returns the no-profile-identical shape (existing toEqual contracts hold).
+  // MISS/corrupt/error → full sync (old behavior, fail-open).
+  const useWatermark = !!(opts && (opts as { useWatermark?: boolean }).useWatermark === true)
+  if (useWatermark) {
+    try {
+      const wm = await getSyncWatermark(userId)
+      if (shouldSkipProfileSync(profile, wm, Date.now())) {
+        logger.info(`[sync] watermark HIT for ${userId} — skipping externals (handles unchanged, valid <6h)`)
+        return { synced: 0, platforms: [] }
+      }
+    } catch {}
+  }
   // Per-run cache isolates concurrent syncs for different users
   const contestCandidateCache: ContestCache = new Map()
 
@@ -464,6 +488,20 @@ export async function syncUserContests(
           lastSyncedAt: new Date(),
           lastSyncError: null,
         })
+        // P1-2: seed the watermark on the cron path only (useWatermark).
+        // Manual syncs stay watermark-free so scheduled/on-demand lifecycles
+        // never surprise each other. valid:false watermarks never skip
+        // (invalid stats need retry, not skip — fail-closed to full).
+        if (useWatermark) {
+          try {
+            await setSyncWatermark(userId, {
+              handlesHash: handlesFingerprint(profile),
+              valid: hasValidStats(stats as Array<{ valid?: boolean }>),
+              statsHash: statsPayloadHash(stats),
+              at: Date.now(),
+            })
+          } catch {}
+        }
       }
     }
   } catch (err) {
@@ -815,7 +853,10 @@ export async function syncAllUsers(opts?: {
     const batch = toSync.slice(i, i + BATCH_SIZE)
     // Throttle-collapse: pass preloaded profile so syncUserContests skips its
     // own findUnique (saves N reads per cron run; batch-5 fan-out unchanged).
-    const results = await Promise.allSettled(batch.map((profile: any) => syncUserContests(profile.userId, { profile })))
+    // P1-2: cron path opts into watermark incremental (steady users with
+    // unchanged handles + valid stats <6h skip externals; manual syncs omit
+    // the flag and always run full on explicit user demand).
+    const results = await Promise.allSettled(batch.map((profile: any) => syncUserContests(profile.userId, { profile, useWatermark: true })))
     for (const r of results) {
       if (r.status === 'fulfilled') totalSynced += r.value.synced
       else {

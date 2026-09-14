@@ -7,6 +7,13 @@ import ExcelJS from 'exceljs'
 import { notifyUsers } from '../services/notificationService'
 import { validateExternalUrl } from '../utils/secureUrl'
 import { broadcastHackathonMutation } from '../services/socket'
+import {
+  stagingCountsKey,
+  scopeForUser,
+  buildCountsEtag,
+  isCountsNotModified,
+  bustStagingCountsForUser,
+} from '../services/stagingCounts'
 import { deriveCollegeId, getSuperAdminTargetCollegeId, canAccessCollege, safeFilename, escapeExcelValue, contentDisposition } from '../utils/roles'
 import { normalizeDepartments, normalizeThemes, normalizeYears, parseJsonArraySafe, parseJsonNumberArraySafe, coerceDeadline } from '../lib/validators'
 import { parseTeamMembersInput, resolveTeamMembersDisplay } from '../utils/childTables'
@@ -21,6 +28,14 @@ import { parseMineParam, applyMineFilter, unregisterRoleError, remindRoleError, 
 import { stagingStore } from '../repositories/stagingRepository'
 import { buildFetchDetailsPrompt, validateFetchDetails, buildHackathonDeterministicFallback, toFetchDetailsEnvelope, isAiNotConfiguredResponse } from '../services/opportunities/fetchDetails'
 import { getOrSet } from '../lib/cache'
+import { sendConditionalList } from '../services/conditionalGet'
+import {
+  HACKATHONS_LIST_TTL_MS,
+  hackathonsListKey,
+  getHackathonsListVersion,
+  bustHackathonsList,
+  listScopeForUser,
+} from '../services/listCache'
 
 // PERF (prod burst fix): staging counts cache — this endpoint ran an unbounded
 // full-table findMany scan per call, polled per viewer. Now computed at most
@@ -387,7 +402,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       })
     }
 
-    try { broadcastHackathonMutation({ hackathonId: hackathon.id, action: 'created' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: thread collegeId (scoped emit, fail-open global when null).
+    try { broadcastHackathonMutation({ hackathonId: hackathon.id, action: 'created', collegeId: (hackathon as any).collegeId ?? targetCollegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m published list (fail-open, TTL backstop covers miss).
+    try { void bustHackathonsList(listScopeForUser(user as any)); void bustHackathonsList('global') } catch {}
     res.status(201).json(hackathon)
   } catch (error) {
     logger.error({ err: error }, 'Create hackathon error:')
@@ -480,36 +498,66 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // ?mine=true — own registrations only (register leftovers #5).
     // ANDs the role/search where with `{ registrations: { some: { userId } } }`
     // so students get "Registered" without client-side PII scans.
-    baseWhere = applyMineFilter(baseWhere, req.userId!, parseMineParam(req.query))
+    const mineBool = parseMineParam(req.query)
+    baseWhere = applyMineFilter(baseWhere, req.userId!, mineBool)
 
-    // Trim selects: _count instead of full registrations/rounds blobs (O(1) vs O(n) payload)
-    const include = {
-      creator: { select: { name: true, email: true } },
-      _count: { select: { registrations: true, rounds: true } },
-    } as const
+    // P0-B: shared 5m list cache (tenant-segmented + versioned). Scope mirrors
+    // role where above; userId segments TEACHER own-rows + ?mine=true.
+    const scopedForKey =
+      user.role === 'SUPER_ADMIN' ? (getSuperAdminTargetCollegeId(req) as string | undefined) || null : null
+    const listScope = listScopeForUser(user as any, scopedForKey)
+    let listGen = 0
+    try {
+      listGen = await getHackathonsListVersion(listScope)
+    } catch {}
+    const sharedKey = hackathonsListKey({
+      scope: listScope,
+      userId: req.userId,
+      search,
+      status: statusFilter,
+      mine: mineBool ? 'true' : '',
+      page,
+      limit,
+      gen: listGen,
+    })
+    let listCacheHit = true
+    const cachedBody = await getOrSet(sharedKey, HACKATHONS_LIST_TTL_MS, async () => {
+      listCacheHit = false
+      // Trim selects: _count instead of full registrations/rounds blobs (O(1) vs O(n) payload)
+      const include = {
+        creator: { select: { name: true, email: true } },
+        _count: { select: { registrations: true, rounds: true } },
+      } as const
 
-    const [hackathons, total] = await Promise.all([
-      prisma.hackathon.findMany({
-        where: baseWhere,
-        include,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.hackathon.count({ where: baseWhere }),
-    ])
+      const [hackathons, total] = await Promise.all([
+        prisma.hackathon.findMany({
+          where: baseWhere,
+          include,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        prisma.hackathon.count({ where: baseWhere }),
+      ])
 
-    // Map _count to legacy fields for backward compat (frontend uses registrations?.length)
-    const data = hackathons.map((h: any) => ({
-      ...h,
-      registrations: Array(h._count.registrations).fill({}),
-      rounds: Array(h._count.rounds).fill({}),
-      registrationsCount: h._count.registrations,
-      roundsCount: h._count.rounds,
-    }))
+      // Map _count to legacy fields for backward compat (frontend uses registrations?.length)
+      const data = hackathons.map((h: any) => ({
+        ...h,
+        registrations: Array(h._count.registrations).fill({}),
+        rounds: Array(h._count.rounds).fill({}),
+        registrationsCount: h._count.registrations,
+        roundsCount: h._count.rounds,
+      }))
+      const pages = Math.ceil(total / limit)
+      return {
+        data,
+        pagination: { page, limit, total, pages },
+      }
+    })
+    const { data, pagination } = cachedBody as { data: any; pagination: { page: number; limit: number; total: number; pages: number } }
+    const pages = pagination.pages
 
     // High-scale: CDN-aware SWR + GitHub-style Link pagination (edge caches 2min, stale 5min)
-    const pages = Math.ceil(total / limit)
     const makeLink = (p: number) => {
       const base = `${req.baseUrl}${req.path}`
       const params = new URLSearchParams({ page: String(p), limit: String(limit) })
@@ -524,16 +572,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (pages > 0) links.push(`${makeLink(pages)}; rel="last"`)
     if (links.length) res.set('Link', links.join(', '))
     // P0 SECURITY (F11): authenticated list — private only, never s-maxage (cross-tenant CDN leak).
-    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
-    res.json({
-      data,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages,
-      },
-    })
+    // P0-B: 60s browser + SWR (was 15s) pairs with 5m shared getOrSet.
+    // P0-D selective 304: cachedBody is Redis-memoized (HIT = 0 Postgres).
+    // Stable weak ETag vs If-None-Match → 304 when the validator matches.
+    res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30')
+    sendConditionalList(req, res, { data, pagination }, { cacheHit: listCacheHit })
   } catch (error) {
     logger.error({ err: error }, 'Get hackathons error:')
     res.status(500).json({ error: 'Failed to fetch hackathons' })
@@ -745,13 +788,17 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 })
 
 // GET /staging/counts - Get staging counts (independent of pagination) — excludes past-year null-deadline completed (Netscout 2025)
+// P0-A: ETag 304 for the slow-poll fallback (socket-dead path). Route sets its
+// own ETag + private SWR so the middleware (which skips when ETag exists)
+// never forces no-store here. Counts are idempotent aggregates — 304 saves
+// bytes + DB (getOrSet hit) while still revalidating every poll (no stale).
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true } }) // NARROW-READ half1
     // Per-college decisions make college scoping exact, so the 60s cache key
     // is per scope (global for SUPER_ADMIN, per college otherwise).
-    const scope = !user || user.role === 'SUPER_ADMIN' ? 'global' : `college:${user.collegeId ?? 'none'}`
-    const counts = await getOrSet(`staging-counts:hack:${scope}`, STAGING_COUNTS_CACHE_TTL_MS, async () => {
+    const scope = scopeForUser(user as any)
+    const counts = await getOrSet(stagingCountsKey('hack', scope), STAGING_COUNTS_CACHE_TTL_MS, async () => {
       // No deadline filter — counts must include recently expired pending (Cognition) so admin sees 2 pending, not 1
       let countsWhere: Record<string, unknown> = {}
       if (user && user.role !== 'SUPER_ADMIN') {
@@ -798,6 +845,17 @@ router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
       }
       return { total, enriched, pending, approved, rejected }
     })
+    // P0-A fallback poll: ETag + private SWR (fail-open — hashing never blocks).
+    try {
+      const etag = buildCountsEtag(counts as any)
+      res.set('ETag', etag)
+      res.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30')
+      res.set('Vary', 'Accept-Encoding, Authorization')
+      if (isCountsNotModified(req.headers['if-none-match'], etag)) {
+        res.status(304).end()
+        return
+      }
+    } catch {}
     res.json(counts)
   } catch (error) {
     logger.error({ err: error }, 'Error fetching hackathon staging counts:')
@@ -977,6 +1035,8 @@ router.post('/:id/register', async (req: AuthRequest, res: Response) => {
       }
     } catch (err) { logger.debug({ err }, '[hackathons] team dual-write non-fatal') }
 
+    // P0-B: registrationsCount lives in the published list payload — bust it.
+    try { void bustHackathonsList(listScopeForUser(user as any)); void bustHackathonsList('global') } catch {}
     res.status(201).json(registration)
   } catch (error) {
     logger.error({ err: error }, 'Register hackathon error:')
@@ -1014,7 +1074,9 @@ router.delete('/:id/register', async (req: AuthRequest, res: Response) => {
       return
     }
     await prisma.hackathonRegistration.delete({ where: { id: existing.id } })
-    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'unregistered' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'unregistered', collegeId: (hackathon as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: registrationsCount lives in the published list payload — bust it.
+    try { void bustHackathonsList(listScopeForUser(user as any)); void bustHackathonsList('global') } catch {}
     res.json({ success: true })
   } catch (error) {
     logger.error({ err: error }, 'Unregister hackathon error:')
@@ -1192,7 +1254,7 @@ router.post('/:id/rounds', async (req: AuthRequest, res: Response) => {
       },
     })
 
-    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:created', roundId: round.id }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:created', roundId: round.id, collegeId: (hackathon as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.status(201).json(round)
   } catch (error) {
     res.status(500).json({ error: 'Failed to add round' })
@@ -1245,7 +1307,7 @@ router.put('/:id/rounds/:roundId', async (req: AuthRequest, res: Response) => {
       },
     })
 
-    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:updated', roundId: updated.id }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:updated', roundId: updated.id, collegeId: (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json(updated)
   } catch (error) {
     logger.error({ err: error }, 'Edit round error:')
@@ -1288,7 +1350,7 @@ router.delete('/:id/rounds/:roundId', async (req: AuthRequest, res: Response) =>
     }
 
     await prisma.hackathonRound.delete({ where: { id: req.params.roundId as string } })
-    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:deleted', roundId: req.params.roundId as string }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'round:deleted', roundId: req.params.roundId as string, collegeId: (parent as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ message: 'Round deleted' })
   } catch (error) {
     logger.error({ err: error }, 'Delete round error:')
@@ -1505,7 +1567,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.hackathon.delete({ where: { id: req.params.id as string } })
-    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'deleted' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: post-delete scope unknown from DB — reuse the pre-delete row.
+    try { broadcastHackathonMutation({ hackathonId: req.params.id as string, action: 'deleted', collegeId: (hackathon as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m published list (scope unknown post-delete — bust global best-effort, TTL covers rest).
+    try { void bustHackathonsList('global') } catch {}
     res.json({ message: 'Hackathon deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete hackathon' })
@@ -1574,7 +1639,9 @@ router.put('/staging/:id', async (req: AuthRequest, res: Response) => {
         ...(inviteOnly !== undefined && { inviteOnly }),
       },
     })
-    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:updated' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:updated', collegeId: (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: staging edit may change enriched/pending — bust counts (fail-open).
+    try { void bustStagingCountsForUser('hack', user as any) } catch {}
     logger.info(`[AUDIT] staging:update actor=${user.id} role=${user.role} college=${(user as any).collegeId} target=${req.params.id}`)
     res.json(hackathon)
   } catch (error) {
@@ -1610,7 +1677,9 @@ router.delete('/staging/:id', async (req: AuthRequest, res: Response) => {
     await prisma.hackathonStaging.delete({
       where: { id: req.params.id as string },
     })
-    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:deleted' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:deleted', collegeId: (existing as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: delete changes totals — bust counts (fail-open).
+    try { void bustStagingCountsForUser('hack', user as any) } catch {}
     logger.info(`[AUDIT] staging:delete actor=${user.id} role=${user.role} college=${(user as any).collegeId} target=${req.params.id}`)
     res.json({ message: 'Staging hackathon deleted' })
   } catch (error) {
@@ -1813,7 +1882,12 @@ router.post('/staging/:id/approve', async (req: AuthRequest, res: Response) => {
       logger.error({ err: err }, 'Hackathon approval notification error:')
     }
 
-    try { broadcastHackathonMutation({ hackathonId: hackathon.id, stagingId: req.params.id as string, action: 'approved' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ hackathonId: hackathon.id, stagingId: req.params.id as string, action: 'approved', collegeId: (hackathon as any).collegeId ?? targetCollegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: bust counts cache so socket-driven clients refetch fresh (no 60s poll).
+    // Fail-open: bust never blocks the 200 (TTL covers any miss).
+    try { void bustStagingCountsForUser('hack', user as any) } catch {}
+    // P0-B: newly published row changes the published list (all scopes see it).
+    try { void bustHackathonsList(listScopeForUser(user as any)); void bustHackathonsList('global') } catch {}
     logger.info(`[AUDIT] staging:approve actor=${user.id} role=${user.role} college=${(user as any).collegeId} decisionCollege=${targetCollegeId} target=${req.params.id} published=${hackathon.id}`)
     res.json({ message: 'Hackathon approved and published', hackathon })
   } catch (error) {
@@ -1885,7 +1959,9 @@ router.post('/staging/:id/reject', async (req: AuthRequest, res: Response) => {
       })
     }
 
-    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'rejected' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'rejected', collegeId: targetCollegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: bust counts cache (fail-open, see approve).
+    try { void bustStagingCountsForUser('hack', user as any) } catch {}
     logger.info(`[AUDIT] staging:reject actor=${user.id} role=${user.role} college=${(user as any).collegeId} decisionCollege=${targetCollegeId} target=${req.params.id}`)
     res.json({ message: 'Hackathon rejected' })
   } catch (error) {
@@ -1967,7 +2043,12 @@ router.post('/fetch-external', fetchLimiter, async (req: AuthRequest, res: Respo
       logger.info(`[Fetch] Done — enriched ${idsToEnrich.length} hackathons`)
     })()
 
-    try { broadcastHackathonMutation({ action: 'fetched', fetched, total: hackathons.length }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: fetched staging rows are global feed (collegeId null) — explicit
+    // null keeps the emit global by intent.
+    try { broadcastHackathonMutation({ action: 'fetched', fetched, total: hackathons.length, collegeId: null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-A: new rows change totals — bust counts only when something changed
+    // (server emits only on change; fetched===0 keeps the cache warm).
+    try { if (fetched > 0) void bustStagingCountsForUser('hack', user as any) } catch {}
     res.json({ message: `Hackathon fetch complete`, fetched, skipped, total: hackathons.length })
   } catch (error) {
     logger.error({ err: error }, 'Fetch external hackathons error:')
@@ -2019,7 +2100,7 @@ router.post('/staging/:id/assign', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
-    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:assigned', teacherId }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ stagingId: req.params.id as string, action: 'staging:assigned', teacherId, collegeId: (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ message: `Assigned to ${teacher.name}`, staging: updated })
   } catch (error) {
     logger.error({ err: error }, 'Assign hackathon staging error:')
@@ -2063,7 +2144,7 @@ router.post('/staging/assign-all', async (req: AuthRequest, res: Response) => {
       data: { creatorId: teacherId },
     })
 
-    try { broadcastHackathonMutation({ action: 'staging:bulk-assigned', teacherId, count: result.count }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastHackathonMutation({ action: 'staging:bulk-assigned', teacherId, count: result.count, collegeId: (teacher as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json({ assigned: result.count, teacher: teacher.name })
   } catch (error) {
     logger.error({ err: error }, 'Assign all hackathon staging error:')

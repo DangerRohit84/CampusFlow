@@ -1,6 +1,13 @@
 import prisma, { isRetryableError, isP1001Error, prismaBase } from '../config/db';
 import { normalizeSolutions } from '../lib/validators';
 import { logger } from '../utils/logger';
+import {
+  getContestListWatermark,
+  setContestListWatermark,
+  contestListHash,
+  shouldSkipContestLoop,
+  groupContestStatuses,
+} from './syncWatermark';
 
 // ---------------------------------------------------------------------------
 // Order 3 (V-12): CodingContest.solutions is canonical Json (@default("[]")).
@@ -438,6 +445,21 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
     let updated = 0;
     let dbFailures = 0;
 
+    // P1-2 watermark gate: byte-identical upstream lists within 6h skip the
+    // per-row upsert loop (every row would be found unchanged). The
+    // time-driven status sweep below STILL runs (statuses flip with the
+    // clock, not the list hash). Miss/corrupt/error → full loop (fail-open).
+    let loopSkippedByWatermark = false
+    try {
+      const listHash = contestListHash(allContests)
+      const listWm = await getContestListWatermark()
+      if (shouldSkipContestLoop(listHash, listWm, nowMs)) {
+        logger.info('[ContestFetcher] list watermark HIT — skipping per-row loop (upstream identical <6h); sweep still runs')
+        loopSkippedByWatermark = true
+        allContests.length = 0
+      }
+    } catch {}
+
     // Preload existing contests per platform (≤3 findMany) to avoid N findFirst.
     // Map is authoritative for preloaded platforms; loop falls back to DB only
     // when preload failed (empty map + platform not preloaded is ambiguous, so
@@ -552,19 +574,47 @@ export async function fetchAndStoreContests(): Promise<{ fetched: number; update
       return { fetched, updated };
     }
 
+    // P1-2: record the list watermark ONLY after a clean full loop (never on
+    // skip — that would extend the skip window indefinitely — and never after
+    // DB failures — missing rows must be retried, not skipped).
+    if (!loopSkippedByWatermark) {
+      try {
+        await setContestListWatermark({ listHash: contestListHash(allContests), at: Date.now(), fetched, updated })
+      } catch {}
+    }
+
     // Sweep stale statuses for manually created contests (auto-fetched already handled)
     // Fixes bug where manually created UPCOMING contests never become ENDED as time passes
+    // P1-2 incremental: group-then-updateMany (≤3 writes) with per-row
+    // fallback when updateMany is unavailable (mocks/older clients).
     try {
       const all = await prisma.codingContest.findMany({ select: { id: true, startTime: true, duration: true, status: true } })
-      const now = new Date(nowMs)
-      for (const c of all) {
-        const s = new Date(c.startTime)
-        if (isNaN(s.getTime())) continue
-        const dur = c.duration ?? 180
-        const end = new Date(s.getTime() + dur * 60000)
-        const correct = s > now ? 'UPCOMING' : end > now ? 'ONGOING' : 'ENDED'
-        if (c.status !== correct) {
-          try { await prisma.codingContest.update({ where: { id: c.id }, data: { status: correct } }); updated++ } catch {}
+      const groups = groupContestStatuses(all as Array<{ id: string; startTime: unknown; duration?: unknown; status?: unknown }>, nowMs)
+      let batched = false
+      try {
+        if (typeof prisma.codingContest.updateMany === 'function') {
+          for (const status of ['UPCOMING', 'ONGOING', 'ENDED'] as const) {
+            const ids = groups[status]
+            if (ids.length === 0) continue
+            const res = await prisma.codingContest.updateMany({ where: { id: { in: ids } }, data: { status } })
+            updated += typeof res?.count === 'number' ? res.count : ids.length
+          }
+          batched = true
+        }
+      } catch (batchErr) {
+        logger.warn({ err: String((batchErr as Error)?.message || batchErr).slice(0, 200) }, '[ContestFetcher] batched sweep failed, falling back to per-row (non-critical)')
+      }
+      if (!batched) {
+        const now = new Date(nowMs)
+        for (const c of all) {
+          const s = new Date(c.startTime)
+          if (isNaN(s.getTime())) continue
+          const dur = c.duration ?? 180
+          const end = new Date(s.getTime() + dur * 60000)
+          const correct = s > now ? 'UPCOMING' : end > now ? 'ONGOING' : 'ENDED'
+          if (c.status !== correct) {
+            try { await prisma.codingContest.update({ where: { id: c.id }, data: { status: correct } }); updated++ } catch {}
+          }
         }
       }
     } catch (sweepErr: any) {

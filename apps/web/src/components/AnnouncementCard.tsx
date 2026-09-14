@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Megaphone, Trash2, Pencil, ChevronDown, ChevronUp } from 'lucide-react'
 import clsx from 'clsx'
+import { optimizeCloudinaryUrl } from '../lib/cloudinary'
 
 interface AnnouncementCardProps {
   announcement: {
@@ -88,8 +89,12 @@ export default function AnnouncementCard({ announcement, onDelete, onEdit, canDe
           {/* Avatar */}
           {announcement.creator.avatar ? (
             <img
-              src={announcement.creator.avatar}
+              src={optimizeCloudinaryUrl(announcement.creator.avatar, { width: 96 })}
               alt={announcement.creator.name}
+              width={40}
+              height={40}
+              loading="lazy"
+              decoding="async"
               className="w-10 h-10 rounded-full object-cover shrink-0"
             />
           ) : (

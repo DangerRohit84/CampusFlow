@@ -38,18 +38,23 @@ import { loadAutomarkForHandles } from '../services/sheetAutomark'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
 import { getSheetsSnapshot } from '../data/sheets'
+import { sendConditionalList } from '../services/conditionalGet'
 
 const router = Router()
 
-router.get('/daily', authenticate, async (_req: AuthRequest, res: Response) => {
+router.get('/daily', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const result = await loadDailyProblem()
     if (!result.problem) {
       res.status(502).json({ error: result.error || 'Daily challenge unavailable', code: 'UPSTREAM_UNAVAILABLE', stale: false, cachedAt: null, problem: null, source: 'leetcode' })
       return
     }
+    // P0-D selective 304: daily rotates ~24h (20h server cache) — the same
+    // body serves all day, so validators HIT all day (0 bytes on revalidate).
+    // Idempotent + tenant-free (same LeetCode daily for all) — safe to 304.
+    const body = { problem: result.problem, stale: result.stale, cachedAt: result.cachedAt, source: 'leetcode' }
     res.set('Cache-Control', 'private, max-age=300, stale-while-revalidate=600')
-    res.json({ problem: result.problem, stale: result.stale, cachedAt: result.cachedAt, source: 'leetcode' })
+    sendConditionalList(req, res, body)
   } catch (error) {
     logger.error({ err: error }, 'coding-problems daily error')
     res.status(500).json({ error: 'Failed to fetch daily challenge', code: 'INTERNAL', problem: null, stale: false, cachedAt: null, source: 'leetcode' })
@@ -135,12 +140,14 @@ router.get('/codeforces', authenticate, async (req: AuthRequest, res: Response) 
   }
 })
 
-router.get('/sheets', authenticate, async (_req: AuthRequest, res: Response) => {
+router.get('/sheets', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     // Static import — no upstream, no DB. 24h HTTP cache (moves only on deploy).
+    // P0-D selective 304: static body → stable ETag across deploys; validators
+    // HIT until the snapshot changes (0 Postgres by construction — no DB here).
     const snap = getSheetsSnapshot()
     res.set('Cache-Control', 'private, max-age=86400, stale-while-revalidate=3600')
-    res.json(snap)
+    sendConditionalList(req, res, snap)
   } catch (error) {
     logger.error({ err: error }, 'coding-problems sheets error')
     res.status(500).json({ error: 'Failed to load sheets', code: 'INTERNAL', source: 'static', tracks: [], totalTracks: 0, totalProblems: 0, cachedAt: null })

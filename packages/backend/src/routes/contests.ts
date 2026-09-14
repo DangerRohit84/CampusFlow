@@ -13,6 +13,15 @@ import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 import { logger } from '../utils/logger'
 import { toContestStatusEnum, toPlatformEnumStrict } from '../lib/enums'
 import { Platform, ContestStatus } from '@prisma/client'
+import { getOrSet } from '../lib/cache'
+import { sendConditionalList } from '../services/conditionalGet'
+import {
+  CONTESTS_LIST_TTL_MS,
+  contestsListKey,
+  getContestsListVersion,
+  bustContestsList,
+  listScopeForUser,
+} from '../services/listCache'
 
 // Order 3 (V-12): solutions is canonical Json (array). Helper accepts Json
 // array or legacy String during rollout, never throws (garbage → []).
@@ -29,20 +38,11 @@ function readSolutionsArray(value: unknown): any[] {
   return []
 }
 
-// Short in-memory cache for GET /contests — avoids DB hammer when many users list simultaneously.
-// Cron (6h) is the only writer; readers share cached rows for 30s. Keyed per query+college so no cross-tenant leak.
-const contestsGetCache = new Map<string, { expires: number; body: any; headers: Record<string, string> }>()
-function getContestsCacheKey(req: AuthRequest): string {
-  const q = req.query as any
-  // Include userId so SUPER_ADMIN scoped college (OR global) doesn't leak across users, and platform/status pagination varies.
-  return `${req.userId}:${q.collegeId || ''}:${q.platform || ''}:${q.status || ''}:${q.search || ''}:${q.page || ''}:${q.limit || ''}`
-}
-// Periodic sweep to avoid unbounded growth (unref so it doesn't keep process alive in tests)
-const _contestsCacheSweeper = setInterval(() => {
-  const now = Date.now()
-  for (const [k, v] of contestsGetCache) if (v.expires < now) contestsGetCache.delete(k)
-}, 60_000) as unknown as NodeJS.Timeout
-if ((_contestsCacheSweeper as any)?.unref) (_contestsCacheSweeper as any).unref()
+// P0-B: shared 5m list cache via lib/cache getOrSet (Redis when healthy,
+// memory otherwise). Replaces per-replica 30s Map (thundering herd across
+// replicas). Key is tenant-segmented (scope + userId + filters + gen) so no
+// cross-tenant leak; gen busts all pages/users for a scope without KEYS.
+// Singleflight (in-process + Redis lock) + jittered TTL live in getOrSet.
 
 // Strict per-IP+user limiter for POST /contests/fetch-now — external fetches are expensive (3 APIs + bulk upserts).
 // General limiter (500/15m) is too loose; this gives 3/min per actor to stop N users spamming the button.
@@ -145,7 +145,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         collegeId: targetCollegeId,
       },
     })
-    try { broadcastContestMutation({ contestId: contest.id, action: 'created' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-D: thread collegeId so the emit scopes to the owning college room
+    // (global when null) instead of waking all sockets; fail-open preserved.
+    try { broadcastContestMutation({ contestId: contest.id, action: 'created', collegeId: (contest as any).collegeId ?? targetCollegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m list (fail-open, TTL backstop covers miss).
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
 
     res.status(201).json(contest)
   } catch (error) {
@@ -215,30 +219,47 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       where = Object.keys(where).length ? { AND: [where, searchClause] } : searchClause
     }
 
-    // Short-cache check: many users visiting list simultaneously hit memory for 30s, not DB. Cron is primary writer.
-    const cacheKey = getContestsCacheKey(req)
-    const cached = contestsGetCache.get(cacheKey)
-    if (cached && cached.expires > Date.now()) {
-      for (const [hk, hv] of Object.entries(cached.headers)) res.set(hk, hv)
-      res.set('X-Cache', 'HIT')
-      res.json(cached.body)
-      return
-    }
+    // P0-B: shared 5m list cache (tenant-segmented + versioned). Scope mirrors
+    // the where-clause above: SUPER_ADMIN with ?collegeId sees that college +
+    // global, else per-college. userId segments TEACHER own-rows (creatorId OR).
+    const qCollegeForScope =
+      user.role === 'SUPER_ADMIN'
+        ? ((getSuperAdminTargetCollegeId(req) as string | undefined) || (req.query.collegeId as string | undefined) || null)
+        : null
+    const listScope = listScopeForUser(user as any, qCollegeForScope)
+    let listGen = 0
+    try {
+      listGen = await getContestsListVersion(listScope)
+    } catch {}
+    const sharedKey = contestsListKey({
+      scope: listScope,
+      userId: req.userId,
+      platform,
+      status,
+      search,
+      page,
+      limit,
+      gen: listGen,
+    })
 
     // Leverage index on (collegeId, status, platform) via orderBy startTime
     // Fix: order by contest startTime (not createdAt) so UPCOMING pagination never hides future contests
     const normalizedStatus = status?.toUpperCase()
     const orderBy = normalizedStatus === 'UPCOMING' ? { startTime: 'asc' as const } : { startTime: 'desc' as const }
-    let [contests, total] = await Promise.all([
-      prisma.codingContest.findMany({
-        where,
-        include: { creator: { select: { name: true, email: true } } },
-        orderBy,
-        skip,
-        take: limit,
-      }),
-      prisma.codingContest.count({ where }),
-    ])
+    // X-Cache via loader flag (no extra GET): loader runs only on miss.
+    let listCacheHit = true
+    const body = await getOrSet(sharedKey, CONTESTS_LIST_TTL_MS, async () => {
+      listCacheHit = false
+      let [contests, total] = await Promise.all([
+        prisma.codingContest.findMany({
+          where,
+          include: { creator: { select: { name: true, email: true } } },
+          orderBy,
+          skip,
+          take: limit,
+        }),
+        prisma.codingContest.count({ where }),
+      ])
 
     // Cold-start seed — FLAG-GATED (I-12 fix, parity with contestFetcher.ts).
     // Previously unconditional: every empty-DB list call WROTE fake rows
@@ -302,16 +323,19 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Sort page slice by contest time (startTime stored as string) — O(limit log limit) not O(n log n)
-    const ts = (s: string) => {
-      const t = Date.parse(s)
-      return isNaN(t) ? 0 : t
-    }
-    if (normalizedStatus === 'ENDED') contests.sort((a, b) => ts(b.startTime) - ts(a.startTime))
-    else if (normalizedStatus === 'UPCOMING') contests.sort((a, b) => ts(a.startTime) - ts(b.startTime))
+      const ts = (s: string) => {
+        const t = Date.parse(s)
+        return isNaN(t) ? 0 : t
+      }
+      if (normalizedStatus === 'ENDED') contests.sort((a, b) => ts(b.startTime) - ts(a.startTime))
+      else if (normalizedStatus === 'UPCOMING') contests.sort((a, b) => ts(a.startTime) - ts(b.startTime))
 
-    const pages = Math.ceil(total / limit)
+      const pages = Math.ceil(total / limit)
+      return { data: contests, pagination: { page, limit, total, pages }, ...(degraded ? { degraded: true } : {}) }
+    })
+    const pages = (body.pagination as any).pages as number
     const makeLink = (p: number) => {
-      const params = new URLSearchParams({ page: String(p), limit: String(limit) })
+      const params = new URLSearchParams({ page: String(p), limit: String((body.pagination as any).limit) })
       if (status) params.set('status', status)
       if (platform) params.set('platform', platform)
       if (search) params.set('search', search)
@@ -322,23 +346,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (page > 1) links.push(`${makeLink(page - 1)}; rel="prev"`)
     links.push(`${makeLink(1)}; rel="first"`)
     if (pages > 0) links.push(`${makeLink(pages)}; rel="last"`)
-    const body = { data: contests, pagination: { page, limit, total, pages }, ...(degraded ? { degraded: true } : {}) }
     const cacheHeaders: Record<string, string> = {
       // P0 SECURITY (F11): authenticated endpoint — private only. Vary alone
       // does NOT prevent CDN cross-tenant leaks; s-maxage removed.
-      'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+      // P0-B: 60s browser + SWR (was 15s) pairs with 5m shared getOrSet.
+      'Cache-Control': 'private, max-age=60, stale-while-revalidate=30',
       'Vary': 'Authorization, Accept-Encoding',
     }
     if (links.length) cacheHeaders['Link'] = links.join(', ')
-    // Store for 30s so subsequent list visitors hit memory not DB (cron is writer, not page visits)
-    contestsGetCache.set(cacheKey, { expires: Date.now() + 30 * 1000, body, headers: cacheHeaders })
     if (links.length) res.set('Link', links.join(', '))
-    // Authenticated endpoint: private semantics enforced (F11). In-memory
-    // per-process cache above is safe (no shared edge); CDN must not store.
+    // P0-D selective 304: body is Redis-memoized (5m getOrSet above) so a
+    // HIT serves 0 Postgres. Compare the stable weak ETag against
+    // If-None-Match BEFORE res.json — match → 304 (bytes saved), else full
+    // JSON with ETag. Only this + 3 sibling idempotent lists 304; all other
+    // authed GETs keep private,no-store + never-304 (state-sync fix).
+    // Authenticated endpoint: private semantics enforced (F11). Shared
+    // getOrSet is tenant-segmented above; CDN must not store.
     res.set('Cache-Control', cacheHeaders['Cache-Control'])
     res.set('Vary', cacheHeaders['Vary'])
-    res.set('X-Cache', 'MISS')
-    res.json(body)
+    sendConditionalList(req, res, body, { cacheHit: listCacheHit })
   } catch (error) {
     logger.error({ err: error }, 'Get contests error:')
     res.status(500).json({ error: 'Failed to fetch contests' })
@@ -726,7 +752,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       // silently dropping title/platform/url/startTime/duration/status edits).
       data: sanitizedData,
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'updated' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastContestMutation({ contestId: updated.id, action: 'updated', collegeId: (updated as any).collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
 
     res.json(updated)
   } catch (error) {
@@ -780,7 +807,8 @@ router.put('/:id/solutions', async (req: AuthRequest, res: Response) => {
       // Order 3: canonical Json array.
       data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solutions:updated' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solutions:updated', collegeId: (updated as any).collegeId ?? (user as any)?.collegeId ?? (contest as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
 
     res.json(updated)
   } catch (error) {
@@ -816,7 +844,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.codingContest.delete({ where: { id: req.params.id as string } })
-    try { broadcastContestMutation({ contestId: req.params.id as string, action: 'deleted' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastContestMutation({ contestId: req.params.id as string, action: 'deleted', collegeId: (contest as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
     res.json({ message: 'Contest deleted' })
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete contest' })
@@ -933,7 +962,8 @@ router.post('/:id/solutions', async (req: AuthRequest, res: Response) => {
       // Order 3: canonical Json array.
       data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:added' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:added', collegeId: (updated as any).collegeId ?? (contest as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
 
     res.json(updated)
   } catch (error) {
@@ -982,7 +1012,8 @@ router.delete('/:id/solutions/:solutionIndex', async (req: AuthRequest, res: Res
       // Order 3: canonical Json array.
       data: { solutions: solutions as any },
     })
-    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:removed' }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { broadcastContestMutation({ contestId: updated.id, action: 'solution:removed', collegeId: (updated as any).collegeId ?? (contest as any)?.collegeId ?? (user as any)?.collegeId ?? null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
 
     res.json(updated)
   } catch (error) {
@@ -1038,9 +1069,12 @@ router.post('/fetch-now', fetchNowRateLimiter, async (req: AuthRequest, res: Res
     } finally {
       fetchNowInProgress = false
     }
-    // Invalidate GET cache so next list sees fresh rows (contestsGetCache is 30s live)
-    contestsGetCache.clear()
-    try { broadcastContestMutation({ action: 'fetched', fetched: result.fetched, updated: result.updated }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
+    // P0-B: bust shared 5m list so next list sees fresh rows (TTL backstop 5m).
+    // Fetch-now is global (all scopes) — bust caller + global best-effort.
+    try { void bustContestsList(listScopeForUser(user as any)); void bustContestsList('global') } catch {}
+    // P0-D: fetched contests are global (collegeId null) — pass explicit null
+    // so the emit stays global by intent (not by missing-field fallback).
+    try { broadcastContestMutation({ action: 'fetched', fetched: result.fetched, updated: result.updated, collegeId: null }) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
 
     res.json({
       message: `Fetched ${result.fetched} new contests (${result.updated} updated)`,
