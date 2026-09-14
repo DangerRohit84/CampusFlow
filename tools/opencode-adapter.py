@@ -66,6 +66,43 @@ def get_default_model() -> tuple[str, str]:
     return (env_p or "opencode"), (env_m or "default")
 
 
+def list_all_models() -> list:
+    """Enumerate every configured provider/model from opencode.
+
+    Returns OpenAI-compatible model entries [{id: "provider/model", ...}].
+    Raises on failure so callers can fall back to the static defaults.
+    """
+    cfg = _req("GET", f"{OPENCODE_URL}/config/providers", timeout=15)
+    providers = cfg.get("providers") or []
+    models: list = []
+    seen: set = set()
+    for p in providers:
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if not pid:
+            continue
+        raw = p.get("models") or {}
+        ids = list(raw.keys()) if isinstance(raw, dict) else raw
+        if not isinstance(ids, list):
+            continue
+        for m in ids:
+            mid = str(m or "").strip()
+            if not mid:
+                continue
+            full = f"{pid}/{mid}"
+            if full in seen:
+                continue
+            seen.add(full)
+            models.append({"id": full, "object": "model", "owned_by": "opencode"})
+    if not models:
+        raise RuntimeError("no models found in opencode provider config")
+    # Back-compat alias: callers may request model "default" (no slash),
+    # which run_completion resolves via get_default_model().
+    models.append({"id": "default", "object": "model", "owned_by": "opencode"})
+    return models
+
+
 def extract_text(parts: list) -> str:
     """Concatenate text parts from an opencode assistant message."""
     out = []
@@ -185,10 +222,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.rstrip("/") in ("/v1/models", "/models"):
             try:
-                provider_id, model_id = get_default_model()
-                models = [{"id": f"{provider_id}/{model_id}", "object": "model",
-                           "owned_by": "opencode"},
-                          {"id": "default", "object": "model", "owned_by": "opencode"}]
+                try:
+                    models = list_all_models()
+                except Exception as e:
+                    print(f"[adapter] model enumeration failed ({e}); using fallback")
+                    provider_id, model_id = get_default_model()
+                    models = [{"id": f"{provider_id}/{model_id}", "object": "model",
+                               "owned_by": "opencode"},
+                              {"id": "default", "object": "model", "owned_by": "opencode"}]
                 self._json({"object": "list", "data": models})
             except Exception as e:
                 openai_error(self, 502, f"opencode unreachable: {e}")
