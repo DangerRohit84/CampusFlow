@@ -52,10 +52,16 @@ import prisma, { warmupPool } from './config/db'
 import { storageMode } from './config/storage'
 import { checkMigrationStatus } from './config/migrationCheck'
 import { initCacheFromEnv } from './lib/cache'
-import { disconnectRedis, isRedisConfigured } from './lib/redis'
+import { disconnectRedis, ensureRedisRejectionGuard, isRedisConfigured } from './lib/redis'
 
 const app = express()
 const httpServer = createServer(app)
+
+// PROD crash guard (last resort): Redis commandTimeout rejections must never
+// exit(1) the Render service. Per-op try/catch + fire-and-forget .catch is
+// primary; this logs Redis unhandled/uncought and keeps the process alive
+// (fail-open to memory). Installed first so boot-time Redis blips are covered.
+ensureRedisRejectionGuard()
 
 // Scale10k: shared cache boot (Redis when REDIS_URL set, memory otherwise).
 // Lazy connect — never crashes boot when Redis blips; helpers fail open.

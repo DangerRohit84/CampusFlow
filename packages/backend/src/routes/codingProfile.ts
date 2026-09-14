@@ -79,7 +79,7 @@ router.get('/github-calendar', authenticate, async (req: AuthRequest, res: Respo
       // still serve cached data (githubActivity service has its own cache), just avoid hammering
     }
     githubThrottle.set(key, Date.now())
-    void noteGithubThrottleShared(key)
+    void noteGithubThrottleShared(key).catch(() => {})
 
     const daysParam = parseInt(String(req.query.days || '364'), 10)
     const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364
@@ -110,7 +110,7 @@ router.get('/github/:githubUsername', authenticate, async (req: AuthRequest, res
       // allow but update timestamp
     }
     githubThrottle.set(key, Date.now())
-    void noteGithubThrottleShared(key)
+    void noteGithubThrottleShared(key).catch(() => {})
 
     const daysParam = parseInt(String(req.query.days || '364'), 10)
     const days = Number.isFinite(daysParam) ? Math.min(730, Math.max(30, daysParam)) : 364

@@ -351,13 +351,13 @@ function presenceKey(userId: string): string {
 
 function markPresenceOnlineShared(userId: string): void {
   try {
-    if (getRedisClient()) void redisSet(presenceKey(userId), '1', PRESENCE_TTL_MS)
+    if (getRedisClient()) void redisSet(presenceKey(userId), '1', PRESENCE_TTL_MS).catch(() => {})
   } catch {}
 }
 
 function markPresenceOfflineShared(userId: string): void {
   try {
-    if (getRedisClient()) void redisDel(presenceKey(userId))
+    if (getRedisClient()) void redisDel(presenceKey(userId)).catch(() => {})
   } catch {}
 }
 

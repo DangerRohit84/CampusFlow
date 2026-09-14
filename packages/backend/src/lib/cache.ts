@@ -295,10 +295,17 @@ export function createCacheRateLimitStore(backend: CacheBackend = activeBackend,
  * shared memoization (already backend-agnostic).
  */
 export async function getOrSet<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
-  const hit = await activeBackend.get<T>(key)
-  if (hit !== null && hit !== undefined) return hit
+  // Fail-open: any cache blip (Command timed out via commandTimeout) must
+  // still serve the loader value, never reject the request. Every await
+  // lands in a handler so timeout rejections never escape as UNHANDLED.
+  try {
+    const hit = await activeBackend.get<T>(key)
+    if (hit !== null && hit !== undefined) return hit
+  } catch {}
   const fresh = await loader()
-  await activeBackend.set(key, fresh, ttlMs)
+  try {
+    await activeBackend.set(key, fresh, ttlMs)
+  } catch {}
   return fresh
 }
 
@@ -338,8 +345,10 @@ export function createSharedRateLimitStore(windowMs = 15 * 60 * 1000, prefix = '
     async get(key: string) {
       const cacheKey = prefix + key
       if (useRedis()) {
-        const hit = await redisRateLimitGet(cacheKey)
-        if (hit) return { totalHits: hit.totalHits, resetTime: new Date(hit.resetTimeMs) }
+        try {
+          const hit = await redisRateLimitGet(cacheKey)
+          if (hit) return { totalHits: hit.totalHits, resetTime: new Date(hit.resetTimeMs) }
+        } catch {}
         // Fall through to memory (may hold a fresher fallback count during blips).
       }
       const raw = await memory.get<{ totalHits: number; resetTime: number }>(cacheKey)
@@ -353,10 +362,12 @@ export function createSharedRateLimitStore(windowMs = 15 * 60 * 1000, prefix = '
     async increment(key: string) {
       const cacheKey = prefix + key
       if (useRedis()) {
-        const counted = await redisRateLimitIncrement(cacheKey, resolvedWindowMs)
-        if (counted) {
-          return { totalHits: counted.totalHits, resetTime: new Date(counted.resetTimeMs) }
-        }
+        try {
+          const counted = await redisRateLimitIncrement(cacheKey, resolvedWindowMs)
+          if (counted) {
+            return { totalHits: counted.totalHits, resetTime: new Date(counted.resetTimeMs) }
+          }
+        } catch {}
         // Redis blip mid-request → fail open to memory (same semantics).
       }
       const now = Date.now()

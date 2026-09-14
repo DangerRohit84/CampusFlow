@@ -105,9 +105,33 @@ function warnErrorOnce(err: unknown, op: string): void {
 
 let loggedReady = false
 
-/** True for prod TLS URLs (Upstash rediss://). Case-insensitive, trimmed. */
+/**
+ * True when hostname is Upstash (`*.upstash.io`). Upstash requires TLS —
+ * plaintext `redis://` to an Upstash host gets `read ECONNRESET` on connect.
+ * Best-effort parse, never throws, never logs the URL.
+ */
+export function isUpstashHost(url: string): boolean {
+  try {
+    const hostname = new URL(String(url || '').trim()).hostname?.trim().toLowerCase()
+    if (!hostname) return false
+    return hostname === 'upstash.io' || hostname.endsWith('.upstash.io')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * True for prod TLS URLs. Case-insensitive, trimmed.
+ * - `rediss://` scheme → TLS (Upstash prod, Render TLS).
+ * - `*.upstash.io` host → TLS regardless of scheme (treat `redis://` as
+ *   `rediss://`; plaintext to Upstash gets ECONNRESET).
+ * - Otherwise scheme-driven (internal Render KeyValue `redis://` stays plain).
+ */
 export function isTlsRedisUrl(url: string): boolean {
-  return /^rediss:\/\//i.test(String(url || '').trim())
+  const trimmed = String(url || '').trim()
+  if (/^rediss:\/\//i.test(trimmed)) return true
+  if (isUpstashHost(trimmed)) return true
+  return false
 }
 
 /**
@@ -130,7 +154,9 @@ export function redactedRedisTarget(url: string): string {
  *   completed — so no command ever reached the server (0 commands on dashboard).
  *   `5` tolerates ~7s of cold handshake (200+400+800+1600+2000+2000ms) yet still
  *   fails open; default `20` would hang request-path ops ~40s (too long).
- * - `tls: {}` (with SNI servername when parseable) for `rediss://`: ioredis
+ * - `tls: {}` (with SNI servername when parseable) for TLS URLs (`rediss://`
+ *   OR `*.upstash.io` host regardless of scheme — Upstash requires TLS;
+ *   plaintext `redis://` to Upstash gets `read ECONNRESET`): ioredis
  *   auto-TLS sets boolean `true`, which StandaloneConnector merges via
  *   `Object.assign(opts, true)` (no-op) — explicit object documents the TLS path
  *   and pins SNI for multi-tenant Upstash. Absent for internal `redis://`.
@@ -138,6 +164,8 @@ export function redactedRedisTarget(url: string): string {
  *   can hang past the retry budget before IPv4 fallback).
  * - `connectTimeout: 10000` / `commandTimeout: 5000` bound cold-start hangs so
  *   helpers fail open instead of blocking requests (was unset = indefinite).
+ *   Every commandTimeout rejection MUST land in a handler (helpers try/catch
+ *   + fire-and-forget .catch + process guard last resort) or Node exits 1.
  * - `enableOfflineQueue: true` (explicit) ensures warmup commands queue until
  *   ready instead of dropping; `keepAlive: 30000` survives LB idle.
  */
@@ -194,11 +222,15 @@ async function createClient(): Promise<RedisLike | null> {
       })
     } catch {}
     // Best-effort connect (don't await long — commands queue until ready).
+    // Attach .catch to the connect promise BEFORE racing so a late rejection
+    // (after the 1s timeout wins) still lands in a handler — otherwise the
+    // commandTimeout rejection escapes as UNHANDLED and kills Node (exit 1).
     try {
-      await Promise.race([
-        (c as any)?.connect?.(),
-        new Promise((r) => setTimeout(r, 1000)),
-      ])
+      const connectP =
+        typeof (c as any)?.connect === 'function'
+          ? (c as any).connect().catch(() => {})
+          : Promise.resolve()
+      await Promise.race([connectP, new Promise((r) => setTimeout(r, 1000))])
     } catch {}
     return c
   } catch (e) {
@@ -233,7 +265,9 @@ export function getRedisClient(): RedisLike | null {
 /** Async readiness probe (ping with short timeout). Null-safe, never throws. */
 export async function isRedisReady(): Promise<boolean> {
   try {
-    if (testOverride !== undefined) return testOverride !== null
+    // Null override = forced fallback (never ready). Non-null override must
+    // still ping so a failing FakeRedis reports false (fail-open, not false-ready).
+    if (testOverride !== undefined && testOverride === null) return false
     const c = getRedisClient()
     if (!c) return false
     const res = await Promise.race([
@@ -244,6 +278,108 @@ export async function isRedisReady(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// ---------------------------------------------------------------------------
+// Never-crash safety net (last resort ONLY — per-op try/catch is primary).
+// ---------------------------------------------------------------------------
+
+/**
+ * True when an error looks like a Redis connectivity/timeout failure
+ * (ECONNRESET plaintext-to-TLS, `Command timed out` via commandTimeout,
+ * max-retries flush, closed connection). Used by the process guard to log
+ * and survive Redis blips without crashing the API.
+ * Never throws, never inspects secrets (message only).
+ */
+export function isRedisError(err: unknown): boolean {
+  try {
+    if (!err) return false
+    const msg = String((err as any)?.message || err).toLowerCase()
+    if (!msg || msg === '[object object]') return false
+    return (
+      msg.includes('command timed out') ||
+      msg.includes('econnreset') ||
+      msg.includes('max retries per request') ||
+      msg.includes('connection is closed') ||
+      msg.includes('redis') ||
+      msg.includes('ioredis') ||
+      msg.includes('etimedout') ||
+      msg.includes('econnrefused') ||
+      msg.includes('socket closed unexpectedly') ||
+      msg.includes('ping timeout')
+    )
+  } catch {
+    return false
+  }
+}
+
+let guardInstalled = false
+
+/**
+ * Process-level safety net for Redis commandTimeout rejections.
+ * Installs `unhandledRejection` + `uncaughtException` handlers that LOG
+ * Redis errors and keep the process alive (fail-open to memory fallback).
+ * Non-Redis errors preserve default behavior (log; rethrow uncaught).
+ * Idempotent — safe to call twice (boot + tests). Returns true when
+ * handlers are installed (always true after first call).
+ *
+ * WHY last resort only: every redis op path already try/catches to memory
+ * fallback (lib/redis helpers, lib/cache getOrSet, throttle, locks, socket
+ * presence, pub/sub). commandTimeout rejections MUST land in a handler;
+ * any missed fire-and-forget `void` would otherwise exit(1) the Render
+ * service. This guard ensures a missed path degrades, never downs.
+ */
+export function ensureRedisRejectionGuard(): boolean {
+  if (guardInstalled) return true
+  guardInstalled = true
+  try {
+    process.on('unhandledRejection', (reason: unknown) => {
+      try {
+        if (isRedisError(reason)) {
+          logger.warn(
+            { err: (reason as any)?.message || String(reason) },
+            '[redis] unhandled rejection (fail-open to memory, process kept alive)'
+          )
+          return
+        }
+      } catch {}
+      // Non-redis: log (preserve visibility) but do not crash here —
+      // let Node default handle it (we only suppress redis).
+      try {
+        logger.error({ err: (reason as any)?.message || String(reason) }, '[unhandledRejection] non-redis')
+      } catch {}
+    })
+    process.on('uncaughtException', (err: unknown) => {
+      try {
+        if (isRedisError(err)) {
+          logger.warn(
+            { err: (err as any)?.message || String(err) },
+            '[redis] uncaught exception (fail-open to memory, process kept alive)'
+          )
+          return
+        }
+      } catch {}
+      // Non-redis uncaught: log then rethrow to preserve crash semantics
+      // (do not swallow real bugs). Re-emit async so handler returns.
+      try {
+        logger.error({ err: (err as any)?.message || String(err) }, '[uncaughtException] non-redis — crashing')
+      } catch {}
+      // Schedule exit(1) to preserve default crash for non-redis bugs.
+      setImmediate(() => {
+        try {
+          // Remove our handler to avoid loop, then throw.
+          process.removeAllListeners('uncaughtException')
+        } catch {}
+        throw err
+      })
+    })
+  } catch {}
+  return true
+}
+
+/** Test seam: reset guard flag (does NOT remove process listeners). */
+export function __resetRedisGuardForTests(): void {
+  guardInstalled = false
 }
 
 // ---------------------------------------------------------------------------

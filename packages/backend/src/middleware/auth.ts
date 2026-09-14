@@ -123,9 +123,11 @@ function getCachedRole(userId: string): string | null {
 function setCachedRole(userId: string, role: string, collegeId?: string | null): void {
   authorizeCache.set(userId, role)
   // Write-through to shared Redis (best-effort, never blocks auth).
+  // .catch lands the commandTimeout rejection in a handler — bare `void`
+  // without catch would surface as UNHANDLED and kill Node (exit 1).
   try {
     if (getRedisClient()) {
-      void redisSet(authorizeRedisKey(userId), { role, collegeId: collegeId ?? null } satisfies AuthorizeEntry, AUTHORIZE_TTL_MS)
+      void redisSet(authorizeRedisKey(userId), { role, collegeId: collegeId ?? null } satisfies AuthorizeEntry, AUTHORIZE_TTL_MS).catch(() => {})
     }
   } catch {}
 }
@@ -162,7 +164,7 @@ export function clearAuthorizeCache(userId?: string): void {
   authorizeCache.clear(userId)
   try {
     if (!getRedisClient()) return
-    if (userId) void redisDel(authorizeRedisKey(userId))
+    if (userId) void redisDel(authorizeRedisKey(userId)).catch(() => {})
     // No global clear: shared Redis holds other tenants' entries (per-key TTL
     // expires them); flushing would wipe prod. L1 clear-all is enough locally.
   } catch {}
