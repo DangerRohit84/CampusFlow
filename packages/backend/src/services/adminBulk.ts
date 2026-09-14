@@ -92,7 +92,13 @@ export interface BulkOptions {
 type Db = typeof prisma
 
 function rowEmail(r: BulkRow): string {
-  return String((r.email as string) || '').trim()
+  // EMAIL-CASE FIX: trim+lowercase at the boundary so bulk storage shares the
+  // auth SSOT key (see normalizeEmail in authHardening). Previously trimmed
+  // only, so `Example@x.com` bulk rows stored mixed-case while the `existing`
+  // prefetch compared lowercased — DB `in` query missed case variants and
+  // later logins with a different case missed. Legacy mixed-case rows untouched
+  // (backfill + citext/lower() index is a separate planned migration).
+  return String((r.email as string) || '').trim().toLowerCase()
 }
 
 async function hashPassword(plain: string): Promise<string> {

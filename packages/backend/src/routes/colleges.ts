@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
+import { normalizeEmail } from '../utils/authHardening'
 
 const router = Router()
 
@@ -35,7 +36,11 @@ router.post('/register', async (req: Request, res: Response) => {
     }
 
     const college = await prisma.college.create({
-      data: { name, code, address, phone, website, adminEmail, status: 'PENDING' },
+      // EMAIL-CASE FIX: store adminEmail normalized so the register
+      // COLLEGE_ADMIN comparison (normalizeEmail both sides in auth.ts)
+      // matches regardless of input case/whitespace. Legacy mixed-case rows
+      // stay as-is until a backfill + citext/lower() index lands (no migrate here).
+      data: { name, code, address, phone, website, adminEmail: normalizeEmail(adminEmail), status: 'PENDING' },
     })
 
     res.status(201).json(college)

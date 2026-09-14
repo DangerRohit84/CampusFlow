@@ -13,6 +13,7 @@ import { getSyncAgeMs, isPlatformStale, formatSyncAge } from '../types/codingPro
 import ActivityHeatmap from '../components/coding/ActivityHeatmap'
 import ProblemsTab from '../components/coding/ProblemsTab'
 import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBreakdown, unifiedActiveByDay, filterUnifiedDaysByYear, getAvailableHeatmapYears, getHeatmapYearOptions, formatHeatmapRangeLabel, parseStoredHeatmapYear, ALL_SOURCES_ON, HEATMAP_RANGE_LAST_6, HEATMAP_YEAR_STORAGE_KEY, type SourceToggles, type ActivitySource } from '../lib/codingStreak'
+import { shouldFetchLeaderboard, withTabVisited } from '../lib/codingTabs'
 import { downloadShareCard } from '../components/coding/shareCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -207,6 +208,17 @@ export default function CodingProfilePage() {
   // endpoints take no AbortSignal). Same data when current.
   const loadEpoch = useRef(0)
   const leaderboardEpoch = useRef(0)
+  // TAB-REPEAT FIX: last leaderboard filter key successfully fetched. The
+  // leaderboard effect below fetches once per first visit / filter change,
+  // NOT on every tab re-entry with identical filters (see shouldFetchLeaderboard).
+  // Reset to null after explicit profile mutations (save/sync) so the next
+  // visit refreshes; page remount naturally resets (fresh per page mount).
+  const leaderboardFetchedRef = useRef<{ platform: string; departmentId: string } | null>(null)
+  // TAB-REPEAT FIX: lazily-mounted panels (ProblemsTab) stay mounted hidden
+  // after first visit so their mount fetch + loader run once per page mount,
+  // not per tab switch. Stats/history/leaderboard panels are cheap (parent
+  // state, no remount fetch) and render inline as before.
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['stats']))
   // Cooldown remaining (seconds) before Sync may run again. Seeded from the
   // backend 429 retryAfterSec or the last-sync timestamp; ticks every 1s.
   const [cooldownSec, setCooldownSec] = useState(0)
@@ -330,6 +342,9 @@ export default function CodingProfilePage() {
       const data = await codingProfileAPI.getLeaderboard(params)
       if (epoch !== leaderboardEpoch.current) return
       setLeaderboard(data)
+      // TAB-REPEAT FIX: record the fetched key so pure tab re-entries skip.
+      // Only set on success — failures retry on next visit.
+      leaderboardFetchedRef.current = { platform, departmentId: deptId }
     } catch { }
   }
 
@@ -338,8 +353,17 @@ export default function CodingProfilePage() {
   // Departments now come from the shared useDepartments() hook above —
   // the old uncached mount useEffect was removed (PERPAGE-HALF1).
 
+  // TAB-REPEAT FIX: track visited outer tabs for keep-alive panels.
   useEffect(() => {
-    if (activeTab === 'leaderboard') loadLeaderboard()
+    setVisitedTabs((prev) => withTabVisited(prev, activeTab))
+  }, [activeTab])
+
+  useEffect(() => {
+    // TAB-REPEAT FIX: fetch once per first leaderboard visit / filter change,
+    // not per tab switch. Pure re-entries with identical filters skip (the
+    // reported repeat). See lib/codingTabs.shouldFetchLeaderboard.
+    if (!shouldFetchLeaderboard(activeTab, { platform: leaderboardPlatform, departmentId: leaderboardDept }, leaderboardFetchedRef.current)) return
+    loadLeaderboard()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, leaderboardPlatform, leaderboardDept])
 
@@ -398,6 +422,9 @@ export default function CodingProfilePage() {
       clearCooldownTimer()
       setCooldownSec(0)
       notifyEntityMutated('coding-profile')
+      // TAB-REPEAT FIX: handles changed → leaderboard rows may shift; drop the
+      // fetched key so the NEXT leaderboard visit refreshes once (not every switch).
+      leaderboardFetchedRef.current = null
       loadData()
     } catch (e: any) {
       const msg = e.response?.data?.error || 'Failed to save'
@@ -449,6 +476,8 @@ export default function CodingProfilePage() {
     const { completed } = await waitForCodingSync(baseline)
     if (completed) toast.success('Profiles synced!')
     else toast.error('Sync is taking longer than expected')
+    // TAB-REPEAT FIX: sync changed stats → same one-shot invalidation as save.
+    leaderboardFetchedRef.current = null
     loadData()
     setSyncing(false)
   }
@@ -1331,19 +1360,25 @@ export default function CodingProfilePage() {
       {/* Problems-to-Solve MVP: Daily card + Recommended (difficulty-split
           heuristic from the user's real LC easy/med/hard) + Explore filters
           (topic/difficulty, URL-synced) + Solved/Star (localStorage v1).
-          ≤2 backend calls per mount (daily + curated list, one round). */}
-      {activeTab === 'problems' && (
-        <ProblemsTab
-          lcStat={
-            statsMap.leetcode
-              ? {
-                  easySolved: statsMap.leetcode.easySolved,
-                  mediumSolved: statsMap.leetcode.mediumSolved,
-                  hardSolved: statsMap.leetcode.hardSolved,
-                }
-              : null
-          }
-        />
+          ≤2 backend calls per mount (daily + curated list, one round).
+          TAB-REPEAT FIX: keep-alive after first visit (hidden, not unmounted)
+          so the mount fetch + "Loading problems…" loader run once per page
+          mount, not on every outer tab switch. lcStat prop still flows while
+          hidden (recs recompute, no refetch). */}
+      {visitedTabs.has('problems') && (
+        <div className={activeTab === 'problems' ? '' : 'hidden'}>
+          <ProblemsTab
+            lcStat={
+              statsMap.leetcode
+                ? {
+                    easySolved: statsMap.leetcode.easySolved,
+                    mediumSolved: statsMap.leetcode.mediumSolved,
+                    hardSolved: statsMap.leetcode.hardSolved,
+                  }
+                : null
+            }
+          />
+        </div>
       )}
 
       {/* ===== First-time Prompt Modal ===== */}

@@ -121,8 +121,24 @@ export function isMissingRevocationTableError(err: any): boolean {
   );
 }
 
+/**
+ * Canonical email normalization (SSOT for auth + college adminEmail match +
+ * admin/bulk user creation).
+ * WHY: User.email is @unique in Postgres (case-sensitive B-tree), so
+ * `Example@gmail.com` and `example@gmail.com` are distinct keys. Every
+ * writer must store lowercased+trimmed and every lookup must query the same
+ * key, otherwise register/login diverge by case and duplicates are possible.
+ * Lockout keys already used this shape (normEmail); this export makes the
+ * DB path share it. Existing mixed-case rows stay distinct until a
+ * case-insensitive backfill + citext/lower() unique index lands (documented,
+ * NOT migrated here — prod LIVE).
+ */
+export function normalizeEmail(email: unknown): string {
+  return String(email ?? '').trim().toLowerCase();
+}
+
 function normEmail(email: string): string {
-  return String(email || '').trim().toLowerCase();
+  return normalizeEmail(email);
 }
 
 export function isLockedOut(email: string): { locked: boolean; retryAfterSec?: number } {

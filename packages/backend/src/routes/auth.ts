@@ -4,7 +4,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { config, getCookieMaxAgeMs } from '../config'
 import { authenticate, AuthRequest, clearAuthorizeCache } from '../middleware/auth'
-import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach, isRefreshTokenStaleAfterBulkReset } from '../utils/authHardening'
+import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach, isRefreshTokenStaleAfterBulkReset, normalizeEmail } from '../utils/authHardening'
 import { verifyTurnstile } from '../utils/turnstile'
 import { logger } from '../utils/logger'
 import { toRoleEnum } from '../lib/enums'
@@ -119,6 +119,11 @@ const loginSchema = z.object({
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const body = registerSchema.parse(req.body)
+    // EMAIL-CASE FIX: normalize once (trim+lowercase) — Postgres @unique is
+    // case-sensitive, so raw `Example@x.com` vs `example@x.com` were distinct
+    // keys (login miss + duplicate accounts). All existence checks, writes,
+    // lockout keys, and the college adminEmail comparison below share `email`.
+    const email = normalizeEmail(body.email)
 
     // CAPTCHA/bot defense (I-3): optional during rollout, enforced in prod when secret set
     try {
@@ -131,7 +136,7 @@ router.post('/register', async (req: Request, res: Response) => {
     } catch { /* verifyTurnstile never throws — fail-open dev, fail-closed prod inside */ }
 
     // Per-email lockout on register too (prevents enumeration sweeps).
-    const preLock = isLockedOut(body.email)
+    const preLock = isLockedOut(email)
     if (preLock.locked) {
       res.setHeader('Retry-After', String(preLock.retryAfterSec || 900))
       res.status(429).json({ error: 'Too many attempts, try again later' })
@@ -151,9 +156,9 @@ router.post('/register', async (req: Request, res: Response) => {
       }
     } catch { /* checkPasswordBreach never throws — offline handled inside */ }
 
-    const existingUser = await prisma.user.findUnique({ where: { email: body.email }, select: { id: true } }) // HALF2: narrow existence check (was full row incl. passwordHash)
+    const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row incl. passwordHash)
     if (existingUser) {
-      recordFailedLogin(body.email)
+      recordFailedLogin(email)
       // Generic — do not confirm existence (OWASP A07). Frontend shows
       // "Registration failed — if this email exists, please log in."
       res.status(400).json({ error: 'Registration failed. If this email is already registered, please log in.' })
@@ -187,8 +192,10 @@ router.post('/register', async (req: Request, res: Response) => {
       }
       // Allow if: (a) PENDING and email matches adminEmail (self-registration flow), or (b) APPROVED and email matches adminEmail (edge), else block
       const status = (c as any).status
-      const adminEmail = (c as any).adminEmail?.toLowerCase?.()
-      const reqEmail = String(body.email || '').toLowerCase()
+      // EMAIL-CASE FIX: both sides normalized (trim+lowercase). Stored
+      // adminEmail may be legacy mixed-case; input may carry case/whitespace.
+      const adminEmail = normalizeEmail((c as any).adminEmail)
+      const reqEmail = email
       if (status === 'PENDING' && adminEmail && adminEmail === reqEmail) {
         isCollegeAdminViaPublicFlow = true
       } else if (status === 'APPROVED' && adminEmail && adminEmail === reqEmail) {
@@ -232,20 +239,20 @@ router.post('/register', async (req: Request, res: Response) => {
       const exists = await (prisma as any).user.findFirst({ where: { username: s }, select: { id: true } }).catch(() => null) // HALF2: narrow existence check (was full row)
       if (exists) {
         // Generic — do not confirm existence (I-2 username oracle fix, OWASP A07)
-        recordFailedLogin(body.email)
+        recordFailedLogin(email)
         res.status(400).json({ error: 'Registration failed. If this email is already registered, please log in.' })
         return
       }
       username = s
     } else {
-      username = await generateUniqueUsername(body.name, body.email)
+      username = await generateUniqueUsername(body.name, email)
     }
 
     let user: any
     try {
       user = await (prisma as any).user.create({
         data: {
-          email: body.email,
+          email,
           name: body.name,
           username,
           passwordHash,
@@ -267,7 +274,7 @@ router.post('/register', async (req: Request, res: Response) => {
         // fallback for DB not yet migrated (leave dirty mode) — create without username
         user = await prisma.user.create({
           data: {
-            email: body.email,
+            email,
             name: body.name,
             passwordHash,
             departmentId: body.departmentId || undefined,
@@ -299,7 +306,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const token = signJwtWithJti(user.id).token
     const refresh = signRefreshToken(user.id)
     const csrfToken = generateCsrfToken()
-    recordSuccessfulLogin(body.email)
+    recordSuccessfulLogin(email)
     // HttpOnly migration (dual support, C2): same JWT as Secure/Lax HttpOnly
     // cookie (maxAge derived from JWT_EXPIRES_IN, 1d baseline) + rotating
     // refresh (Strict, /api/auth/refresh) + CSRF double-submit. JSON body keeps
@@ -342,6 +349,9 @@ router.post('/register', async (req: Request, res: Response) => {
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const body = loginSchema.parse(req.body)
+    // EMAIL-CASE FIX: same normalization as register — lookup + lockout share
+    // the lowercased key so `Example@x.com` registered logs in as `example@x.com`.
+    const email = normalizeEmail(body.email)
 
     try {
       const captchaToken = (req.body as any)?.turnstileToken || (req.body as any)?.captchaToken
@@ -355,28 +365,28 @@ router.post('/login', async (req: Request, res: Response) => {
       }
     } catch {}
 
-    const lock = isLockedOut(body.email)
+    const lock = isLockedOut(email)
     if (lock.locked) {
       res.setHeader('Retry-After', String(lock.retryAfterSec || 900))
       res.status(429).json({ error: 'Too many failed attempts, try again later' })
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } })
+    const user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
-      recordFailedLogin(body.email)
+      recordFailedLogin(email)
       res.status(401).json({ error: 'Invalid credentials' })
       return
     }
 
     const validPassword = await bcrypt.compare(body.password, user.passwordHash)
     if (!validPassword) {
-      recordFailedLogin(body.email)
+      recordFailedLogin(email)
       res.status(401).json({ error: 'Invalid credentials' })
       return
     }
 
-    recordSuccessfulLogin(body.email)
+    recordSuccessfulLogin(email)
     // jti-embedded JWT (revocable via RevokedToken / in-memory set)
     const token = signJwtWithJti(user.id).token
     const refresh = signRefreshToken(user.id)

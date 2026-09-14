@@ -9,7 +9,7 @@ import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 import { applyUserListFilters, buildAdminRoleCountsWheres, buildUserListOrderBy, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter, normalizeSearch, normalizeStudentId, normalizeEmpNumber, normalizeEmailFilter, normalizeIncomingYear, normalizeUserListOrder, normalizeUserListSort } from '../utils/userFilters'
 import { broadcastCollegeMutation, broadcastUserMutation, broadcastHackathonMutation, broadcastFormMutation } from '../services/socket'
 import { logger } from '../utils/logger'
-import { isCommonPassword, checkPasswordBreach } from '../utils/authHardening'
+import { isCommonPassword, checkPasswordBreach, normalizeEmail } from '../utils/authHardening'
 import { bulkCreateTeachers, bulkCreateStudents, dryRunBulkTeachers, dryRunBulkStudents } from '../services/adminBulk'
 import { bulkDeleteUsers } from '../services/bulkDelete'
 import { bulkPasswordReset } from '../services/bulkPassword'
@@ -1405,7 +1405,11 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { email, name, password, departmentId, empNumber } = req.body
+    const { email: rawEmail, name, password, departmentId, empNumber } = req.body
+    // EMAIL-CASE FIX: normalize single-create emails (same SSOT as auth) so
+    // admin-created `Example@x.com` doesn't become a duplicate/distinct key
+    // from self-registered `example@x.com`. Legacy mixed-case rows untouched.
+    const email = normalizeEmail(rawEmail)
 
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row)
     if (existingUser) {
@@ -1490,7 +1494,9 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { email, name, password, departmentId, studentId, incomingYear } = req.body
+    const { email: rawStudentEmail, name, password, departmentId, studentId, incomingYear } = req.body
+    // EMAIL-CASE FIX: see teacher route above — same normalization.
+    const email = normalizeEmail(rawStudentEmail)
 
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row)
     if (existingUser) {
