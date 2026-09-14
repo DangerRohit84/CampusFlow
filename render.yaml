@@ -120,7 +120,7 @@ services:
       # FRONTEND_URL(S) + API_BASE_URL + VITE_API_URL + VITE_SITE_URL + CSP connect-src.
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://res.cloudinary.com https://images.unsplash.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://campusflow-api.onrender.com wss://campusflow-api.onrender.com https://res.cloudinary.com; frame-src https://www.loom.com https://loom.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'deny'; upgrade-insecure-requests"
+        value: "default-src 'self'; script-src 'self' 'sha256-wdZA/lSyuTOvt4NF8r7xU2opYJ9Qrbtr/44+51FIPh4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://res.cloudinary.com https://images.unsplash.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://campusflow-api-xsa0.onrender.com wss://campusflow-api-xsa0.onrender.com https://res.cloudinary.com; frame-src https://www.loom.com https://loom.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'deny'; upgrade-insecure-requests"
       - path: /*
         name: Strict-Transport-Security
         value: max-age=63072000; includeSubDomains; preload
