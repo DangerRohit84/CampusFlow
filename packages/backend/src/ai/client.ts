@@ -16,7 +16,164 @@ export interface AIProvider {
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  content: string | Array<{
+    type: string
+    text?: string
+    image_url?: { url: string }
+    // Accepted on input (e.g. Anthropic-style parts); normalized to image_url below.
+    source?: { type?: string; media_type?: string; mimeType?: string; data?: string; url?: string }
+  }>
+}
+
+// ---------------------------------------------------------------------------
+// Vision normalization (fix: timetable upload reached the model as text-only).
+// Root cause: provider branches handled image parts inconsistently —
+// callAnthropic replaced every image with the literal text "[image]", and
+// callGoogle assumed data-URLs (http URLs produced `data: undefined`).
+// A text-only request makes the model truthfully reply "I don't see an image
+// attached" (~196 chars), which then fails JSON parsing → 0 periods parsed.
+// Contract now: vision calls ALWAYS carry the image inline as a base64
+// data-URL (downscaled when huge) regardless of provider; publicly-reachable
+// http(s) URLs are kept as-is as a fallback for the model host to fetch.
+// ---------------------------------------------------------------------------
+
+const VISION_MAX_DIM = 1568
+const VISION_MAX_BYTES = 900_000
+
+async function getSharp(): Promise<any | null> {
+  try {
+    const mod = await import('sharp')
+    return (mod as any)?.default ?? mod
+  } catch {
+    return null
+  }
+}
+
+function parseImageDataUrl(url: string): { mime: string; data: string } | null {
+  if (typeof url !== 'string' || !url.startsWith('data:')) return null
+  const comma = url.indexOf(',')
+  if (comma === -1) return null
+  const head = url.slice(5, comma) // e.g. "image/png;base64"
+  if (!/;base64$/i.test(head)) return null
+  const data = url.slice(comma + 1)
+  if (!data) return null
+  const mime = head.slice(0, head.length - ';base64'.length).trim() || 'image/jpeg'
+  return { mime, data }
+}
+
+/**
+ * Downscale a base64 data-URL image when it is huge (pixel dims or byte
+ * size), so OpenAI-compatible gateways (incl. OpenCode Serve) don't truncate
+ * or drop the image part. Non-data URLs pass through untouched. Never throws
+ * — returns the original URL when sharp is unavailable or input is unusual.
+ */
+export async function maybeDownscaleDataUrl(url: string): Promise<string> {
+  const parsed = parseImageDataUrl(url)
+  if (!parsed) return url
+  let buf: Buffer
+  try {
+    buf = Buffer.from(parsed.data, 'base64')
+  } catch {
+    return url
+  }
+  if (buf.length === 0) return url
+  const sharp = await getSharp()
+  if (!sharp) return url
+  try {
+    const meta = await sharp(buf, { failOn: 'none' }).metadata()
+    const overDim =
+      (typeof meta.width === 'number' && meta.width > VISION_MAX_DIM) ||
+      (typeof meta.height === 'number' && meta.height > VISION_MAX_DIM)
+    if (!overDim && buf.length <= VISION_MAX_BYTES) return url
+    const out = await sharp(buf, { failOn: 'none' })
+      .rotate()
+      .flatten({ background: '#ffffff' })
+      .resize({ width: VISION_MAX_DIM, height: VISION_MAX_DIM, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer()
+    if (!out || out.length === 0) return url
+    return `data:image/jpeg;base64,${out.toString('base64')}`
+  } catch {
+    return url
+  }
+}
+
+/**
+ * Canonicalize content parts to OpenAI shape: `{type:'image', ...}` variants
+ * become `{type:'image_url', image_url:{url}}` with an inline data-URL when
+ * the bytes are available (Anthropic-style base64 source). Plain http(s)
+ * URLs are kept as-is (publicly-reachable fallback).
+ */
+export function canonicalizeContentParts(
+  content: ChatMessage['content'],
+): ChatMessage['content'] {
+  if (typeof content === 'string' || !Array.isArray(content)) return content
+  return content.map((p: any) => {
+    if (!p || typeof p !== 'object') return p
+    if (p.type === 'text' || p.type === 'image_url') return p
+    if (p.type === 'image') {
+      const direct = p.image_url?.url ?? p.source?.url ?? p.url
+      if (typeof direct === 'string' && direct) {
+        return { type: 'image_url', image_url: { url: direct } }
+      }
+      const src = p.source
+      if (src && typeof src.data === 'string' && src.data) {
+        const mime = src.media_type || src.mimeType || 'image/jpeg'
+        return { type: 'image_url', image_url: { url: `data:${mime};base64,${src.data}` } }
+      }
+    }
+    return p
+  })
+}
+
+/**
+ * Full vision normalization: canonical part types + inline data-URL bytes
+ * (downscaled when huge) for every provider branch.
+ */
+export async function normalizeVisionMessages(messages: ChatMessage[]): Promise<ChatMessage[]> {
+  return Promise.all(
+    messages.map(async (m) => {
+      const content = canonicalizeContentParts(m.content)
+      if (typeof content === 'string' || !Array.isArray(content)) return { ...m, content }
+      const out = await Promise.all(
+        content.map(async (p: any) => {
+          if (p?.type === 'image_url' && typeof p?.image_url?.url === 'string') {
+            const url = await maybeDownscaleDataUrl(p.image_url.url)
+            return url === p.image_url.url ? p : { type: 'image_url', image_url: { url } }
+          }
+          return p
+        }),
+      )
+      return { ...m, content: out }
+    }),
+  )
+}
+
+/**
+ * Map normalized messages to Anthropic blocks. Images are sent as REAL image
+ * blocks (base64 or url source) — never the "[image]" text placeholder that
+ * caused "I don't see an image attached".
+ */
+export function toAnthropicMessages(messages: ChatMessage[]): any[] {
+  return messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => {
+      if (typeof m.content === 'string') return { role: m.role, content: m.content }
+      const blocks: any[] = (canonicalizeContentParts(m.content) as any[]).flatMap((p: any): any[] => {
+        if (!p || typeof p !== 'object') return []
+        if (p.type === 'text') return [{ type: 'text', text: p.text || '' }]
+        if (p.type === 'image_url' && typeof p.image_url?.url === 'string') {
+          const url: string = p.image_url.url
+          const parsed = parseImageDataUrl(url)
+          if (parsed) {
+            return [{ type: 'image', source: { type: 'base64', media_type: parsed.mime, data: parsed.data } }]
+          }
+          return [{ type: 'image', source: { type: 'url', url } }]
+        }
+        return []
+      })
+      return { role: m.role, content: blocks.length > 0 ? blocks : '' }
+    })
 }
 
 const NOT_CONFIGURED_MESSAGE = 'AI provider not configured. Please set up a provider in AI Manager.'
@@ -173,12 +330,16 @@ async function callGoogle(provider: AIProvider, messages: ChatMessage[], options
   // Handle vision messages
   const lastUserMsg = userMessages[userMessages.length - 1]
   if (lastUserMsg && Array.isArray(lastUserMsg.content)) {
-    const parts = lastUserMsg.content.map(p => {
+    const parts = (canonicalizeContentParts(lastUserMsg.content) as any[]).map((p: any) => {
       if (p.type === 'text') return { text: p.text }
       if (p.type === 'image_url' && p.image_url?.url) {
-        const base64 = p.image_url.url.split(',')[1]
-        const mimeType = p.image_url.url.match(/data:([^;]+)/)?.[1] || 'image/png'
-        return { inlineData: { data: base64, mimeType } }
+        const url: string = p.image_url.url
+        const parsed = parseImageDataUrl(url)
+        if (parsed) {
+          return { inlineData: { data: parsed.data, mimeType: parsed.mime } }
+        }
+        // Publicly-reachable URL fallback — model host fetches it.
+        return { fileData: { mimeType: 'image/jpeg', fileUri: url } }
       }
       return { text: '' }
     })
@@ -200,12 +361,8 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
 
   // Extract system message
   const systemMsg = messages.find(m => m.role === 'system')
-  const userMessages = messages.filter(m => m.role !== 'system')
 
-  const anthropicMessages = userMessages.map(m => ({
-    role: m.role as 'user' | 'assistant',
-    content: typeof m.content === 'string' ? m.content : m.content.map(p => p.type === 'text' ? { type: 'text' as const, text: p.text || '' } : { type: 'text' as const, text: '[image]' }),
-  }))
+  const anthropicMessages = toAnthropicMessages(messages)
 
   const result = await client.messages.create({
     model: provider.model,
@@ -224,6 +381,9 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
  */
 async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
   const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+  // Defensive: gateways (incl. OpenCode Serve) validate content-part variants
+  // strictly — always send canonical OpenAI parts so the image isn't dropped.
+  const wireMessages = messages.map(m => ({ ...m, content: canonicalizeContentParts(m.content) as any }))
   let response: Response
   try {
     response = await fetch(`${baseUrl}/chat/completions`, {
@@ -231,10 +391,11 @@ async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${provider.apiKey}`,
+        ...(provider.headers ?? {}),
       },
       body: JSON.stringify({
         model: provider.model,
-        messages,
+        messages: wireMessages,
         temperature: options?.temperature ?? 0.7,
         max_tokens: options?.max_tokens ?? 1024,
       }),
@@ -301,13 +462,17 @@ export async function chatCompletion(
 
 /**
  * Vision completion — supports image_url content type for image processing.
+ * Normalizes every call to inline base64 data-URL bytes (downscaled when
+ * huge) BEFORE provider failover, so all provider branches (OpenAI-
+ * compatible incl. OpenCode Serve, Anthropic, Google) receive the image.
  */
 export async function visionCompletion(
   feature: string,
   messages: ChatMessage[],
   options?: { temperature?: number; max_tokens?: number },
 ): Promise<string> {
-  return executeWithFailover(feature, messages, { temperature: 0.1, max_tokens: 16384, ...options })
+  const normalized = await normalizeVisionMessages(messages).catch(() => messages)
+  return executeWithFailover(feature, normalized, { temperature: 0.1, max_tokens: 16384, ...options })
 }
 
 // Per-user Groq key variants — use user's API key but superadmin's global model (AI Manager)
@@ -326,7 +491,8 @@ export async function visionCompletionWithUserKey(
   userApiKey: string,
   options?: { temperature?: number; max_tokens?: number },
 ): Promise<string> {
-  return executeWithFailoverWithUserKey(feature, messages, userApiKey, { temperature: 0.1, max_tokens: 16384, ...options })
+  const normalized = await normalizeVisionMessages(messages).catch(() => messages)
+  return executeWithFailoverWithUserKey(feature, normalized, userApiKey, { temperature: 0.1, max_tokens: 16384, ...options })
 }
 
 /**
