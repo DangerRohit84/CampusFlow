@@ -9,7 +9,7 @@ import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
 import { applyUserListFilters, buildAdminRoleCountsWheres, buildUserListOrderBy, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter, normalizeSearch, normalizeStudentId, normalizeEmpNumber, normalizeEmailFilter, normalizeIncomingYear, normalizeUserListOrder, normalizeUserListSort } from '../utils/userFilters'
 import { broadcastCollegeMutation, broadcastUserMutation, broadcastHackathonMutation, broadcastFormMutation } from '../services/socket'
 import { logger } from '../utils/logger'
-import { isCommonPassword, checkPasswordBreach, normalizeEmail } from '../utils/authHardening'
+import { isCommonPassword, checkPasswordBreach, normalizeEmail, findUserByEmailInsensitive } from '../utils/authHardening'
 import { bulkCreateTeachers, bulkCreateStudents, dryRunBulkTeachers, dryRunBulkStudents } from '../services/adminBulk'
 import { bulkDeleteUsers } from '../services/bulkDelete'
 import { bulkPasswordReset } from '../services/bulkPassword'
@@ -1045,7 +1045,9 @@ router.post('/colleges/register', async (req: AuthRequest, res: Response) => {
         address,
         phone,
         website,
-        adminEmail: user.email,
+        // EMAIL-CASE FIX (legacy-safe): store normalized so the COLLEGE_ADMIN
+        // emailsMatchInsensitive compare hits regardless of user.email legacy case.
+        adminEmail: normalizeEmail((user as any).email),
         status: 'PENDING',
       },
     })
@@ -1406,12 +1408,12 @@ router.post('/users/teacher', async (req: AuthRequest, res: Response) => {
     }
 
     const { email: rawEmail, name, password, departmentId, empNumber } = req.body
-    // EMAIL-CASE FIX: normalize single-create emails (same SSOT as auth) so
-    // admin-created `Example@x.com` doesn't become a duplicate/distinct key
-    // from self-registered `example@x.com`. Legacy mixed-case rows untouched.
+    // EMAIL-CASE FIX (legacy-safe): normalize single-create emails (SSOT) +
+    // case-INSENSITIVE duplicate check so legacy `Demo@gmail.com` blocks a
+    // duplicate `demo@gmail.com` (exact findUnique missed → dup accounts).
     const email = normalizeEmail(rawEmail)
 
-    const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row)
+    const existingUser = await findUserByEmailInsensitive(prisma as any, email, { select: { id: true } }) // HALF2: narrow existence check (was full row)
     if (existingUser) {
       res.status(400).json({ error: 'Email already exists' })
       return
@@ -1495,10 +1497,10 @@ router.post('/users/student', async (req: AuthRequest, res: Response) => {
     }
 
     const { email: rawStudentEmail, name, password, departmentId, studentId, incomingYear } = req.body
-    // EMAIL-CASE FIX: see teacher route above — same normalization.
+    // EMAIL-CASE FIX (legacy-safe): see teacher route above — same insensitive check.
     const email = normalizeEmail(rawStudentEmail)
 
-    const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row)
+    const existingUser = await findUserByEmailInsensitive(prisma as any, email, { select: { id: true } }) // HALF2: narrow existence check (was full row)
     if (existingUser) {
       res.status(400).json({ error: 'Email already exists' })
       return

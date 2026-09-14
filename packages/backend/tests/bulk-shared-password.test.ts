@@ -22,9 +22,32 @@ function fakeDb(opts: {
   return {
     user: {
       findMany: vi.fn(async (args: any) => {
+        const existing = opts.existing ?? []
         if (args?.where?.email?.in) {
           const want = new Set((args.where.email.in as string[]).map((e: string) => e.toLowerCase()))
-          return (opts.existing ?? []).filter((e) => want.has(e.toLowerCase())).map((email) => ({ email }))
+          return existing.filter((e) => want.has(e.toLowerCase())).map((email) => ({ email }))
+        }
+        if (Array.isArray(args?.where?.OR)) {
+          const want = new Set(
+            (args.where.OR as Array<{ email?: { equals?: unknown } }>).map((b) => String(b?.email?.equals ?? '').toLowerCase()).filter(Boolean),
+          )
+          return existing.filter((e) => want.has(e.toLowerCase())).map((email) => ({ email }))
+        }
+        if (Array.isArray(args?.where?.AND)) {
+          const orBranch = (args.where.AND as any[]).find((b) => b?.OR || b?.email)
+          if (orBranch) {
+            if (orBranch.email?.in) {
+              const want = new Set((orBranch.email.in as string[]).map((e: string) => e.toLowerCase()))
+              return existing.filter((e) => want.has(e.toLowerCase())).map((email) => ({ email }))
+            }
+            if (Array.isArray(orBranch.OR)) {
+              const want = new Set(
+                (orBranch.OR as Array<{ email?: { equals?: unknown } }>).map((b) => String(b?.email?.equals ?? '').toLowerCase()).filter(Boolean),
+              )
+              return existing.filter((e) => want.has(e.toLowerCase())).map((email) => ({ email }))
+            }
+          }
+          return existing.map((email) => ({ email }))
         }
         // CTI dual-write re-read (select id/studentId/...): return empty (best-effort skip)
         return []

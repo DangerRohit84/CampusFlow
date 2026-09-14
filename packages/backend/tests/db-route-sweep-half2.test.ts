@@ -130,15 +130,18 @@ describe('half2 narrow user.findUnique (no full rows)', () => {
     expect(src).toContain('select: { id: true, status: true, adminEmail: true }')
     expect(src).toContain('select: { id: true, status: true }')
     // Login still needs passwordHash (full row) — must remain.
-    // EMAIL-CASE hardening normalizes once (trim+lowercase); lookup uses the
-    // normalized `email` var, not raw `body.email`.
+    // EMAIL-CASE hardening (legacy-safe): normalize once (trim+lowercase) +
+    // case-INSENSITIVE lookup via findUserByEmailInsensitive (mode:insensitive)
+    // so legacy `Demo@gmail.com` is found via `demo@gmail.com`. Exact
+    // findUnique on the normalized key missed legacy rows → 401.
     expect(src).toContain('const email = normalizeEmail(body.email)')
-    expect(src).toContain('prisma.user.findUnique({ where: { email } })')
+    expect(src).toContain('findUserByEmailInsensitive')
+    expect(src).toContain('emailsMatchInsensitive')
     const loginIdx = src.indexOf("router.post('/login'")
     expect(loginIdx).toBeGreaterThan(-1)
     const loginSlice = src.slice(loginIdx, loginIdx + 3000)
     expect(loginSlice).toContain('normalizeEmail(body.email)')
-    expect(loginSlice).toContain('prisma.user.findUnique({ where: { email } })')
+    expect(loginSlice).toContain('findUserByEmailInsensitive')
     expect(loginSlice).not.toMatch(/findUnique\(\{ where: \{ email \}, select:/)
     // change-password still needs hash
     expect(src).toContain('prisma.user.findUnique({ where: { id: req.userId } })')

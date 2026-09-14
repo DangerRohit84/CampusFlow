@@ -137,6 +137,82 @@ export function normalizeEmail(email: unknown): string {
   return String(email ?? '').trim().toLowerCase();
 }
 
+/**
+ * Case-insensitive Prisma email filter sharing the normalizeEmail SSOT.
+ * WHY: Postgres `User.email @unique` is a case-sensitive B-tree, so legacy
+ * mixed-case rows (`Demo@gmail.com`) are distinct keys from `demo@gmail.com`.
+ * Every auth lookup MUST use this (findFirst + mode:insensitive on the
+ * normalized key) so BOTH new normalized rows AND legacy mixed-case rows hit.
+ * New writes still store normalizeEmail() (exact key); the insensitive read
+ * is the bridge until the lower() backfill + unique index lands (migration
+ * 20260928000000_email_case_insensitive, additive, NOT auto-applied to prod).
+ */
+export function emailInsensitiveFilter(email: unknown): { equals: string; mode: 'insensitive' } {
+  return { equals: normalizeEmail(email), mode: 'insensitive' };
+}
+
+/**
+ * JS-side case-insensitive email equality (College.adminEmail match + tests).
+ * Both sides go through normalizeEmail SSOT; empty never matches (prevents
+ * `'' === ''` from authorizing a missing adminEmail).
+ */
+export function emailsMatchInsensitive(a: unknown, b: unknown): boolean {
+  const x = normalizeEmail(a);
+  const y = normalizeEmail(b);
+  if (!x || !y) return false;
+  return x === y;
+}
+
+/**
+ * Runtime case-insensitive user lookup (login / register duplicate check /
+ * admin single-create). Uses findFirst + mode:insensitive on the normalized
+ * key so legacy `Demo@gmail.com` is found via `demo@gmail.com`,
+ * `DEMO@GMAIL.COM`, or `' demo@gmail.com '`.
+ * `extra` (e.g. `{ select: { id: true } }`) is shallow-merged; `where` in
+ * extra is AND-ed with the email condition (callers must not pass raw email).
+ */
+export async function findUserByEmailInsensitive(
+  db: { user: { findFirst: (args: unknown) => Promise<unknown> } },
+  email: unknown,
+  extra?: Record<string, unknown>,
+): Promise<any> {
+  const { where: extraWhere, ...rest } = (extra ?? {}) as { where?: Record<string, unknown> } & Record<string, unknown>;
+  const emailCond = { email: emailInsensitiveFilter(email) };
+  const where = extraWhere ? { AND: [emailCond, extraWhere] } : emailCond;
+  return (db as any).user.findFirst({ where, ...rest });
+}
+
+/**
+ * Bulk case-insensitive WHERE for `email IN (...)` lists.
+ * WHY: `where: { email: { in: emails } }` is exact in Postgres and MISSES
+ * legacy mixed-case rows. Prisma `in` + `mode` support varies by version, so
+ * this builds the portable single-query shape:
+ * `{ OR: emails.map(e => ({ email: { equals: e, mode: 'insensitive' } })) }`
+ * (one round-trip, no N+1). Input is normalized + deduped via SSOT; empty
+ * input returns `{ email: { in: [] } }` (matches nothing, valid Prisma).
+ */
+export function buildBulkEmailInsensitiveWhere(emails: unknown[]): Record<string, unknown> {
+  const list = [...new Set((Array.isArray(emails) ? emails : []).map((e) => normalizeEmail(e)).filter(Boolean))];
+  if (list.length === 0) return { email: { in: [] as string[] } };
+  return { OR: list.map((e) => ({ email: { equals: e, mode: 'insensitive' as const } })) };
+}
+
+/**
+ * Bulk case-insensitive fetch (prefetch existing + post-create dual-write
+ * re-read). Single findMany with the OR-insensitive WHERE above.
+ */
+export async function findUsersByEmailsInsensitive(
+  db: { user: { findMany: (args: unknown) => Promise<unknown> } },
+  emails: unknown[],
+  extra?: Record<string, unknown>,
+): Promise<any[]> {
+  const { where: extraWhere, ...rest } = (extra ?? {}) as { where?: Record<string, unknown> } & Record<string, unknown>;
+  const emailWhere = buildBulkEmailInsensitiveWhere(emails as unknown[]);
+  const where = extraWhere ? { AND: [emailWhere, extraWhere] } : emailWhere;
+  const rows = (await (db as any).user.findMany({ where, ...rest })) as any[];
+  return Array.isArray(rows) ? rows : [];
+}
+
 function normEmail(email: string): string {
   return normalizeEmail(email);
 }

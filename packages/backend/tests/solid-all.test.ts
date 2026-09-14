@@ -160,13 +160,38 @@ function fakeBulkDb(seed: {
 }) {
   const users = [...(seed.users ?? [])];
   const depts = [...(seed.depts ?? [])];
+  // CASE-INSENSITIVE mock (mirrors Postgres lower() semantics + new runtime):
+  // handles BOTH legacy `where.email.in` and new OR-insensitive
+  // `buildBulkEmailInsensitiveWhere` shape (`{ OR: [{ email: { equals, mode }}] }`)
+  // plus the dual-write AND wrapper (`{ AND: [OR-shape, { collegeId }] }`).
+  function emailsMatchWhere(u: { email: string }, where: any): boolean {
+    if (!where) return false;
+    if (where.email?.in) {
+      const wanted = new Set((where.email.in as string[]).map((e) => String(e).toLowerCase()));
+      return wanted.has(String(u.email).toLowerCase());
+    }
+    if (Array.isArray(where.OR)) {
+      return (where.OR as Array<{ email?: { equals?: unknown } }>).some((b) => {
+        const want = String(b?.email?.equals ?? '').toLowerCase();
+        return want !== '' && String(u.email).toLowerCase() === want;
+      });
+    }
+    if (Array.isArray(where.AND)) {
+      return (where.AND as any[]).every((branch) => {
+        // collegeId branch is a plain equality (no email) — ignore for email match
+        // (test seeds carry no collegeId on users, so treat as pass-through).
+        if (branch?.email || branch?.OR) return emailsMatchWhere(u, branch);
+        return true;
+      });
+    }
+    return false;
+  }
   return {
     users,
     depts,
     user: {
-      findMany: async ({ where }: { where: { email: { in: string[] } } }) => {
-        const wanted = new Set((where.email.in as string[]).map((e) => String(e).toLowerCase()));
-        return users.filter((u) => wanted.has(String(u.email).toLowerCase())).map((u) => ({ email: u.email }));
+      findMany: async ({ where }: { where: any }) => {
+        return users.filter((u) => emailsMatchWhere(u, where)).map((u) => ({ email: u.email }));
       },
       createMany: async ({ data }: { data: Array<{ email: string }> }) => {
         if (seed.failCreate) throw new Error('db down');

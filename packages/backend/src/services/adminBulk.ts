@@ -32,6 +32,7 @@
 import bcrypt from 'bcryptjs'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
+import { normalizeEmail, buildBulkEmailInsensitiveWhere, findUsersByEmailsInsensitive } from '../utils/authHardening'
 import type { BreachCheck as SharedBreachCheck } from '../utils/sharedPassword'
 
 export interface BulkRow {
@@ -92,13 +93,12 @@ export interface BulkOptions {
 type Db = typeof prisma
 
 function rowEmail(r: BulkRow): string {
-  // EMAIL-CASE FIX: trim+lowercase at the boundary so bulk storage shares the
-  // auth SSOT key (see normalizeEmail in authHardening). Previously trimmed
-  // only, so `Example@x.com` bulk rows stored mixed-case while the `existing`
-  // prefetch compared lowercased — DB `in` query missed case variants and
-  // later logins with a different case missed. Legacy mixed-case rows untouched
-  // (backfill + citext/lower() index is a separate planned migration).
-  return String((r.email as string) || '').trim().toLowerCase()
+  // EMAIL-CASE FIX (SSOT): normalizeEmail so bulk storage shares the auth key.
+  // Previously trimmed only, so `Example@x.com` bulk rows stored mixed-case
+  // while the `existing` prefetch compared lowercased — DB `in` missed case
+  // variants and later logins missed. Legacy rows bridged at READ time via
+  // buildBulkEmailInsensitiveWhere (below) until the lower() backfill lands.
+  return normalizeEmail((r as Record<string, unknown>).email)
 }
 
 async function hashPassword(plain: string): Promise<string> {
@@ -169,11 +169,13 @@ async function prefetchBulkContext(
   const emails = [...new Set(rows.map(rowEmail).filter(Boolean))]
   let existing = new Set<string>()
   try {
+    // CASE-INSENSITIVE (legacy-safe): OR-insensitive WHERE hits legacy
+    // `Demo@gmail.com` via `demo@gmail.com` (exact IN missed → dup accounts).
     const found = await (db as Db).user.findMany({
-      where: { email: { in: emails } },
+      where: buildBulkEmailInsensitiveWhere(emails),
       select: { email: true },
     })
-    existing = new Set(found.map((u) => String(u.email).trim().toLowerCase()))
+    existing = new Set(found.map((u) => normalizeEmail((u as { email: unknown }).email)))
   } catch (err) {
     logger.warn({ err: (err as Error)?.message || err }, '[adminBulk] dry-run existing-email prefetch failed')
   }
@@ -385,10 +387,10 @@ export async function bulkCreateTeachers(
   let existing = new Set<string>()
   try {
     const found = await (db as Db).user.findMany({
-      where: { email: { in: emails } },
+      where: buildBulkEmailInsensitiveWhere(emails),
       select: { email: true },
     })
-    existing = new Set(found.map((u) => String(u.email).trim().toLowerCase()))
+    existing = new Set(found.map((u) => normalizeEmail((u as { email: unknown }).email)))
   } catch (err) {
     logger.warn({ err: (err as Error)?.message || err }, '[adminBulk] existing-email prefetch failed (teachers)')
   }
@@ -499,7 +501,7 @@ export async function bulkCreateTeachers(
       // empNumber twins into StaffProfile rows for the just-created teachers.
       try {
         const emails = valid.map((v) => v.email)
-        const created = await (db as Db).user.findMany({ where: { email: { in: emails }, collegeId }, select: { id: true, empNumber: true } }).catch(() => [])
+        const created = await findUsersByEmailsInsensitive(db as any, emails, { where: { collegeId }, select: { id: true, empNumber: true } }).catch(() => [])
         const rows = (created as Array<{ id: string; empNumber: string | null }>)
           .filter((u) => u?.id)
           .map((u) => ({ userId: u.id, empNumber: u.empNumber ?? undefined }))
@@ -594,10 +596,10 @@ export async function bulkCreateStudents(
   let existing = new Set<string>()
   try {
     const found = await (db as Db).user.findMany({
-      where: { email: { in: emails } },
+      where: buildBulkEmailInsensitiveWhere(emails),
       select: { email: true },
     })
-    existing = new Set(found.map((u) => String(u.email).trim().toLowerCase()))
+    existing = new Set(found.map((u) => normalizeEmail((u as { email: unknown }).email)))
   } catch (err) {
     logger.warn({ err: (err as Error)?.message || err }, '[adminBulk] existing-email prefetch failed (students)')
   }
@@ -723,7 +725,7 @@ export async function bulkCreateStudents(
       // student twins into StudentProfile rows for the just-created students.
       try {
         const emails = valid.map((v) => v.email)
-        const created = await (db as Db).user.findMany({ where: { email: { in: emails }, collegeId }, select: { id: true, studentId: true, incomingYear: true, outgoingYear: true } }).catch(() => [])
+        const created = await findUsersByEmailsInsensitive(db as any, emails, { where: { collegeId }, select: { id: true, studentId: true, incomingYear: true, outgoingYear: true } }).catch(() => [])
         const rows = (created as Array<{ id: string; studentId: string | null; incomingYear: number | null; outgoingYear: number | null }>)
           .filter((u) => u?.id)
           .map((u) => ({ userId: u.id, studentId: u.studentId ?? undefined, incomingYear: u.incomingYear ?? undefined, outgoingYear: u.outgoingYear ?? undefined }))

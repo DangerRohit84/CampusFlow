@@ -4,7 +4,7 @@ import { z } from 'zod'
 import prisma from '../config/db'
 import { config, getCookieMaxAgeMs } from '../config'
 import { authenticate, AuthRequest, clearAuthorizeCache } from '../middleware/auth'
-import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach, isRefreshTokenStaleAfterBulkReset, normalizeEmail } from '../utils/authHardening'
+import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken, isLockedOut, recordFailedLogin, recordSuccessfulLogin, revokeJti, isCommonPassword, checkPasswordBreach, isRefreshTokenStaleAfterBulkReset, normalizeEmail, findUserByEmailInsensitive, emailsMatchInsensitive } from '../utils/authHardening'
 import { verifyTurnstile } from '../utils/turnstile'
 import { logger } from '../utils/logger'
 import { toRoleEnum } from '../lib/enums'
@@ -156,7 +156,7 @@ router.post('/register', async (req: Request, res: Response) => {
       }
     } catch { /* checkPasswordBreach never throws — offline handled inside */ }
 
-    const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } }) // HALF2: narrow existence check (was full row incl. passwordHash)
+    const existingUser = await findUserByEmailInsensitive(prisma as any, email, { select: { id: true } }) // HALF2: narrow existence check (was full row incl. passwordHash). CASE-INSENSITIVE: findFirst mode:insensitive so legacy `Demo@gmail.com` collides with `demo@gmail.com` (exact findUnique missed → duplicate accounts).
     if (existingUser) {
       recordFailedLogin(email)
       // Generic — do not confirm existence (OWASP A07). Frontend shows
@@ -192,13 +192,13 @@ router.post('/register', async (req: Request, res: Response) => {
       }
       // Allow if: (a) PENDING and email matches adminEmail (self-registration flow), or (b) APPROVED and email matches adminEmail (edge), else block
       const status = (c as any).status
-      // EMAIL-CASE FIX: both sides normalized (trim+lowercase). Stored
-      // adminEmail may be legacy mixed-case; input may carry case/whitespace.
-      const adminEmail = normalizeEmail((c as any).adminEmail)
-      const reqEmail = email
-      if (status === 'PENDING' && adminEmail && adminEmail === reqEmail) {
+      // EMAIL-CASE FIX (legacy-safe): emailsMatchInsensitive normalizes BOTH
+      // sides via SSOT, so legacy mixed-case College.adminEmail still matches.
+      // (Previous cut inlined normalizeEmail+===; helper is identical semantics.)
+      const adminMatches = emailsMatchInsensitive((c as any).adminEmail, email)
+      if (status === 'PENDING' && adminMatches) {
         isCollegeAdminViaPublicFlow = true
-      } else if (status === 'APPROVED' && adminEmail && adminEmail === reqEmail) {
+      } else if (status === 'APPROVED' && adminMatches) {
         // Allow APPROVED too for the immediate post-creation step before super admin explicitly approves (some deploys auto-approve)
         isCollegeAdminViaPublicFlow = true
       } else {
@@ -349,8 +349,10 @@ router.post('/register', async (req: Request, res: Response) => {
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const body = loginSchema.parse(req.body)
-    // EMAIL-CASE FIX: same normalization as register — lookup + lockout share
-    // the lowercased key so `Example@x.com` registered logs in as `example@x.com`.
+    // EMAIL-CASE FIX (legacy-safe): same normalization as register, but the
+    // DB lookup is case-INSENSITIVE (findFirst mode:insensitive) so legacy
+    // mixed-case rows (`Demo@gmail.com`) are found via `demo@gmail.com`.
+    // Exact findUnique missed them → 401 for valid users (reported bug).
     const email = normalizeEmail(body.email)
 
     try {
@@ -372,7 +374,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    const user = await prisma.user.findUnique({ where: { email } })
+    const user = await findUserByEmailInsensitive(prisma as any, email)
     if (!user) {
       recordFailedLogin(email)
       res.status(401).json({ error: 'Invalid credentials' })
