@@ -156,10 +156,12 @@ services:
   # Contest fetch - every 6 hours
   - type: cron
     name: campusflow-cron-contests
+    runtime: node
     plan: starter
     region: singapore
     schedule: "0 */6 * * *"
-    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contests -H "x-cron-secret: $CRON_SECRET"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contests -H "x-cron-secret: $CRON_SECRET"'
     envVars:
       # CRON_SECRET single source: API `generateValue` (campusflow-api). Paste the SAME value
       # here (manual copy — Blueprint `sync: false` does not auto-propagate). Rotate all together
@@ -173,10 +175,12 @@ services:
   # Coding profile sync - hourly
   - type: cron
     name: campusflow-cron-profile-sync
+    runtime: node
     plan: starter
     region: singapore
     schedule: "0 * * * *"
-    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/profile-sync -H "x-cron-secret: $CRON_SECRET"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS -X POST $API_BASE_URL/internal/cron/profile-sync -H "x-cron-secret: $CRON_SECRET"'
     envVars:
       # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
@@ -190,10 +194,12 @@ services:
   # while local dev uses the 60s embedded interval (jobs/cron.ts).
   - type: cron
     name: campusflow-cron-contest-reminders
+    runtime: node
     plan: starter
     region: singapore
     schedule: "*/5 * * * *"
-    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contest-reminders -H "x-cron-secret: $CRON_SECRET"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS -X POST $API_BASE_URL/internal/cron/contest-reminders -H "x-cron-secret: $CRON_SECRET"'
     envVars:
       # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
@@ -204,10 +210,12 @@ services:
   # Opportunity fetch + AI enrichment - every 12 hours
   - type: cron
     name: campusflow-cron-opportunities
+    runtime: node
     plan: starter
     region: singapore
     schedule: "0 */12 * * *"
-    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/opportunities -H "x-cron-secret: $CRON_SECRET"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS -X POST $API_BASE_URL/internal/cron/opportunities -H "x-cron-secret: $CRON_SECRET"'
     envVars:
       # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
@@ -219,10 +227,12 @@ services:
   # Cleanup old rejected items - Sundays at 3 AM UTC
   - type: cron
     name: campusflow-cron-cleanup
+    runtime: node
     plan: starter
     region: singapore
     schedule: "0 3 * * 0"
-    command: 'curl -fsS -X POST $API_BASE_URL/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS -X POST $API_BASE_URL/internal/cron/cleanup -H "x-cron-secret: $CRON_SECRET"'
     envVars:
       # CRON_SECRET single source: API `generateValue`. Paste the SAME value here (see contests stanza).
       - key: CRON_SECRET
@@ -234,10 +244,12 @@ services:
   # Keep-alive ping every 5 min to prevent Render + Neon free tier cold sleep
   - type: cron
     name: campusflow-keepalive
+    runtime: node
     plan: starter
     region: singapore
     schedule: "*/5 * * * *"
-    command: 'curl -fsS $API_BASE_URL/api/health > /dev/null && echo "keepalive ok"'
+    buildCommand: "true"
+    startCommand: 'curl -fsS $API_BASE_URL/api/health > /dev/null && echo "keepalive ok"'
     envVars:
       # NOTE: keepalive hits public GET /api/health (no secret) — no CRON_SECRET here by design
       # (removes the unused 7th slot; rotate API + 5 job crons together, keepalive unaffected).
