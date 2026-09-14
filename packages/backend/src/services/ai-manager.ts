@@ -65,16 +65,22 @@ export async function testProvider(id: string) {
   const start = Date.now()
 
   try {
-    const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+    // Same normalization as callOpenAICompatible (client.ts): trim whitespace
+    // so explicit IDs behave identically to `default`; ngrok bypass header
+    // matches the proven-working curl (harmless elsewhere, provider.headers
+    // still overrides when set).
+    const baseUrl = String(provider.baseUrl ?? '').trim().replace(/\/+$/, '')
+    const model = String(provider.model ?? '').trim()
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
+        'ngrok-skip-browser-warning': 'true',
         ...(typeof (provider as any).headers === 'string' ? JSON.parse((provider as any).headers || '{}') : ((provider as any).headers ?? {})),
       },
       body: JSON.stringify({
-        model: provider.model,
+        model,
         messages: [{ role: 'user', content: 'Say "Hello! I am working correctly."' }],
         max_tokens: 50,
       }),

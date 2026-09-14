@@ -380,7 +380,12 @@ async function callAnthropic(provider: AIProvider, messages: ChatMessage[], opti
  * Call OpenAI-compatible API (Groq, OpenAI, DeepSeek, Mistral, etc.)
  */
 async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[], options?: { temperature?: number; max_tokens?: number }): Promise<string> {
-  const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+  // Normalize: trim copy-paste whitespace (adapter also strips, defense in depth)
+  // so explicit IDs behave identically to `default`; bypass header matches the
+  // proven-working curl (ngrok free edge needs it, harmless elsewhere, and
+  // provider.headers still overrides when set).
+  const baseUrl = String(provider.baseUrl ?? '').trim().replace(/\/+$/, '')
+  const model = String(provider.model ?? '').trim()
   // Defensive: gateways (incl. OpenCode Serve) validate content-part variants
   // strictly — always send canonical OpenAI parts so the image isn't dropped.
   const wireMessages = messages.map(m => ({ ...m, content: canonicalizeContentParts(m.content) as any }))
@@ -391,10 +396,11 @@ async function callOpenAICompatible(provider: AIProvider, messages: ChatMessage[
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${provider.apiKey}`,
+        'ngrok-skip-browser-warning': 'true',
         ...(provider.headers ?? {}),
       },
       body: JSON.stringify({
-        model: provider.model,
+        model,
         messages: wireMessages,
         temperature: options?.temperature ?? 0.7,
         max_tokens: options?.max_tokens ?? 1024,

@@ -87,5 +87,54 @@ class ListAllModelsTests(unittest.TestCase):
         self.assertEqual(fallback[1]["id"], "default")
 
 
+class ResolveModelRefTests(unittest.TestCase):
+    """Root-cause regression: `default` ignored the stored string while explicit
+    IDs were forwarded verbatim (no trim), so copy-pasted whitespace failed
+    with an opencode 500 and bare IDs were silently replaced by the default."""
+
+    def setUp(self):
+        self.adapter = _load_adapter()
+        # Pin the default so no network is needed.
+        self.adapter.get_default_model = lambda: ("opencode", "big-pickle")
+
+    def test_default_and_empty_resolve_to_default(self):
+        self.assertEqual(self.adapter.resolve_model_ref("default"), ("opencode", "big-pickle"))
+        self.assertEqual(self.adapter.resolve_model_ref(""), ("opencode", "big-pickle"))
+        self.assertEqual(self.adapter.resolve_model_ref(None), ("opencode", "big-pickle"))
+        self.assertEqual(self.adapter.resolve_model_ref("   "), ("opencode", "big-pickle"))
+
+    def test_explicit_id_verbatim(self):
+        self.assertEqual(
+            self.adapter.resolve_model_ref("opencode/muse-spark-1.3-contributor-free"),
+            ("opencode", "muse-spark-1.3-contributor-free"),
+        )
+
+    def test_whitespace_is_stripped(self):
+        self.assertEqual(
+            self.adapter.resolve_model_ref("  opencode/muse-spark-1.3-contributor-free  "),
+            ("opencode", "muse-spark-1.3-contributor-free"),
+        )
+        self.assertEqual(
+            self.adapter.resolve_model_ref("opencode / muse-spark-1.3-contributor-free"),
+            ("opencode", "muse-spark-1.3-contributor-free"),
+        )
+
+    def test_bare_id_uses_default_provider(self):
+        self.assertEqual(
+            self.adapter.resolve_model_ref("muse-spark-1.3-contributor-free"),
+            ("opencode", "muse-spark-1.3-contributor-free"),
+        )
+
+    def test_multi_slash_keeps_rest_as_model(self):
+        self.assertEqual(
+            self.adapter.resolve_model_ref("openrouter/qwen/qwen3-32b"),
+            ("openrouter", "qwen/qwen3-32b"),
+        )
+
+    def test_dangling_slash_falls_back_to_default(self):
+        self.assertEqual(self.adapter.resolve_model_ref("opencode/"), ("opencode", "big-pickle"))
+        self.assertEqual(self.adapter.resolve_model_ref("/muse"), ("opencode", "big-pickle"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

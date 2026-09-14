@@ -149,33 +149,125 @@ def build_completion(model_id: str, content: str, finish: str = "stop") -> dict:
 
 # ---------------------------------------------------------------- core flow
 
+def _guess_mime(url: str) -> str:
+    """Infer MIME type for an OpenAI image_url so opencode FilePartInput validates."""
+    try:
+        if url.startswith("data:"):
+            header = url.split(",", 1)[0]
+            mime = header.split(";", 1)[0].split(":", 1)[1].strip()
+            if "/" in mime:
+                return mime
+            return "image/png"
+    except Exception:
+        pass
+    lower = (url or "").lower().split("?", 1)[0].split("#", 1)[0]
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    if lower.endswith(".pdf"):
+        return "application/pdf"
+    if lower.endswith(".mp4"):
+        return "video/mp4"
+    return "image/png"
+
+
+def _extract_image_url(part: dict) -> str | None:
+    """Pull the URL out of an OpenAI multimodal part (image_url / input_image)."""
+    if not isinstance(part, dict):
+        return None
+    iu = part.get("image_url")
+    if isinstance(iu, dict) and iu.get("url"):
+        return iu["url"]
+    if isinstance(iu, str) and iu:
+        return iu
+    # Defensive: some clients put the URL directly on the part.
+    url = part.get("url")
+    if isinstance(url, str) and url:
+        return url
+    return None
+
+
+def resolve_model_ref(raw) -> tuple:
+    """Normalize an OpenAI `model` value to (providerID, modelID).
+
+    Root-cause fix: `default` used to ignore the stored string entirely
+    (auto-detected default model) while explicit IDs were forwarded verbatim
+    with no trimming — so `"opencode/m... "` (trailing space from copy-paste)
+    failed with an opencode 500 while `default` succeeded, and bare IDs
+    without a slash were silently replaced by the default. Now:
+    - surrounding whitespace is stripped (both the whole value and each side
+      of the slash);
+    - "" / "default" resolve via get_default_model();
+    - "provider/model..." splits on the FIRST slash (multi-slash model IDs
+      like openrouter/qwen/qwen3-32b keep everything after it);
+    - bare "some-model" resolves to (default provider, given model) instead
+      of being silently dropped;
+    - empty provider/model parts after stripping fall back to the default.
+    """
+    cleaned = str(raw or "").strip()
+    if not cleaned or cleaned == "default":
+        return get_default_model()
+    if "/" in cleaned:
+        pid, mid = cleaned.split("/", 1)
+        pid, mid = pid.strip(), mid.strip()
+        if pid and mid:
+            return pid, mid
+        return get_default_model()
+    dflt_pid, _ = get_default_model()
+    return dflt_pid, cleaned
+
+
 def run_completion(body: dict) -> dict:
-    user_msg, model_id, system = "", "", None
+    user_texts, file_parts = [], []
+    model_id, system = "", None
     for m in body.get("messages") or []:
         role = m.get("role")
         content = m.get("content")
-        if isinstance(content, list):  # OpenAI multimodal -> keep text bits
-            content = "\n".join(
-                p.get("text", "") for p in content
-                if isinstance(p, dict) and p.get("type") == "text"
-            )
+        msg_files = []
+        if isinstance(content, list):  # OpenAI multimodal -> text + images
+            texts = []
+            for p in content:
+                if not isinstance(p, dict):
+                    continue
+                t = p.get("type")
+                if t == "text":
+                    if p.get("text"):
+                        texts.append(p["text"])
+                elif t in ("image_url", "input_image"):
+                    url = _extract_image_url(p)
+                    if url:
+                        msg_files.append(
+                            {"type": "file", "mime": _guess_mime(url), "url": url}
+                        )
+            content = "\n".join(texts)
         if role == "system" or role == "developer":
             system = content
         elif role == "user":
-            user_msg = content or ""
+            if content:
+                user_texts.append(content)
+            file_parts.extend(msg_files)
+    user_msg = "\n".join(user_texts)
 
-    if body.get("model") and "/" in str(body["model"]):
-        provider_id, model_id = str(body["model"]).split("/", 1)
-    else:
-        provider_id, model_id = get_default_model()
+    provider_id, model_id = resolve_model_ref(body.get("model"))
 
     # Fresh session per request: caller already sends full history in `messages`,
     # so reusing sessions would double the context.
     session = _req("POST", f"{OPENCODE_URL}/session", {"title": "campusflow"})
     sid = session.get("id")
 
+    parts: list = []
+    if user_msg:
+        parts.append({"type": "text", "text": user_msg})
+    parts.extend(file_parts)
+    if not parts:
+        parts = [{"type": "text", "text": ""}]
     msg_body = {
-        "parts": [{"type": "text", "text": user_msg}],
+        "parts": parts,
         "model": {"providerID": provider_id, "modelID": model_id},
     }
     if system:
@@ -199,7 +291,8 @@ def run_completion(body: dict) -> dict:
     except Exception:
         pass
 
-    return build_completion(str(body.get("model") or f"{provider_id}/{model_id}"),
+    echo_model = str(body.get("model") or "").strip() or f"{provider_id}/{model_id}"
+    return build_completion(echo_model,
                             content or "(empty response)")
 
 
