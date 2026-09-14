@@ -22,11 +22,143 @@ export const BLOCKED_SUBMISSION_EXTENSIONS = [...BLOCKED_UPLOAD_EXTENSIONS, '.ex
 // Allowed magic-byte types per upload surface. `file-type` returns ext like
 // 'pdf' | 'png' | 'jpg' | 'docx' (docx is zip) — we map zip to office formats
 // by extension allowlist (ooxml is a zip container, cannot distinguish alone).
-const ROOM_ALLOWED_EXTS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'txt', 'zip', 'rar']);
+// Timetable posts image/* (jpeg/png/webp/gif/bmp/tiff/heic) via multer, so
+// rooms surface must allow those image magics too (was missing webp/bmp/tiff/heic).
+const ROOM_ALLOWED_EXTS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif', 'txt', 'zip', 'rar']);
 const RESUME_ALLOWED_EXTS = new Set(['pdf', 'doc', 'docx', 'txt', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif']);
 
 function extOf(filename: string): string {
   return path.extname(filename || '').toLowerCase();
+}
+
+/**
+ * Pure-local magic-byte sniffing (no external service, no deps).
+ *
+ * WHY: `file-type` v19 is ESM-only (exports map has `import` only, no `require`).
+ * tsc `module:commonjs` rewrites `await import('file-type')` to
+ * `require('file-type')` in dist (see dist/utils/uploadScan.js), which throws
+ * ERR_PACKAGE_PATH_NOT_EXPORTED in prod (`node dist/index.js`), while
+ * `tsx` (dev) + vitest keep native ESM import and succeed. That divergence
+ * blocked ALL timetable photo uploads in prod with "scan unavailable".
+ *
+ * This fallback covers the upload surfaces (png/jpg/gif/webp/bmp/tiff/pdf/
+ * zip-docx/rar/heic/avif + exe for mismatch-blocking) with zero deps, so
+ * magic-byte verification works even when the `file-type` import fails.
+ * External AV (ClamAV/S3-Object-Lambda) stays optional and separate.
+ */
+export function detectFileTypeLocal(buffer: Buffer): { ext: string; mime: string } | undefined {
+  if (!buffer || buffer.length < 4) return undefined;
+  try {
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return { ext: 'png', mime: 'image/png' };
+    }
+    // JPEG: FF D8 FF
+    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return { ext: 'jpg', mime: 'image/jpeg' };
+    }
+    // GIF: GIF87a / GIF89a
+    if (buffer.length >= 6) {
+      const gif = buffer.toString('ascii', 0, 6);
+      if (gif === 'GIF87a' || gif === 'GIF89a') return { ext: 'gif', mime: 'image/gif' };
+    }
+    // WEBP: RIFF xxxx WEBP
+    if (
+      buffer.length >= 12 &&
+      buffer.toString('ascii', 0, 4) === 'RIFF' &&
+      buffer.toString('ascii', 8, 12) === 'WEBP'
+    ) {
+      return { ext: 'webp', mime: 'image/webp' };
+    }
+    // BMP: BM
+    if (buffer[0] === 0x42 && buffer[1] === 0x4d) {
+      return { ext: 'bmp', mime: 'image/bmp' };
+    }
+    // TIFF LE (49 49 2A 00) / BE (4D 4D 00 2A) — file-type reports 'tif'.
+    if (
+      (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+      (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
+    ) {
+      return { ext: 'tif', mime: 'image/tiff' };
+    }
+    // PDF: %PDF
+    if (buffer.length >= 4 && buffer.toString('ascii', 0, 4) === '%PDF') {
+      return { ext: 'pdf', mime: 'application/pdf' };
+    }
+    // ZIP (docx/xlsx/pptx/zip): PK\x03\x04 | PK\x05\x06 (empty) | PK\x07\x08 (spanned)
+    if (
+      buffer[0] === 0x50 &&
+      buffer[1] === 0x4b &&
+      ((buffer[2] === 0x03 && buffer[3] === 0x04) ||
+        (buffer[2] === 0x05 && buffer[3] === 0x06) ||
+        (buffer[2] === 0x07 && buffer[3] === 0x08))
+    ) {
+      return { ext: 'zip', mime: 'application/zip' };
+    }
+    // RAR: Rar!\x1A\x07\x00 | \x01
+    if (
+      buffer.length >= 7 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x61 &&
+      buffer[2] === 0x72 &&
+      buffer[3] === 0x21 &&
+      buffer[4] === 0x1a &&
+      buffer[5] === 0x07 &&
+      (buffer[6] === 0x00 || buffer[6] === 0x01)
+    ) {
+      return { ext: 'rar', mime: 'application/vnd.rar' };
+    }
+    // EXE (MZ) — not in allowlists, so detected mismatches still block.
+    if (buffer[0] === 0x4d && buffer[1] === 0x5a) {
+      return { ext: 'exe', mime: 'application/x-msdownload' };
+    }
+    // HEIC/HEIF/AVIF/MP4 via ftyp box (offset 4 = 'ftyp', 8..12 = brand).
+    if (buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp') {
+      const brand = buffer.toString('ascii', 8, 12);
+      if (
+        ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1', 'heif'].includes(brand)
+      ) {
+        return { ext: 'heic', mime: 'image/heic' };
+      }
+      if (['avif', 'avis'].includes(brand)) {
+        return { ext: 'avif', mime: 'image/avif' };
+      }
+      if (['isom', 'iso2', 'mp41', 'mp42', 'mp4v', 'avc1', 'qt  '].includes(brand)) {
+        return { ext: 'mp4', mime: 'video/mp4' };
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Load `file-type` via native ESM import that survives tsc CommonJS emit.
+ *
+ * Direct `await import('file-type')` in src compiles to
+ * `require('file-type')` in dist (module:commonjs), which throws for
+ * ESM-only file-type. `new Function('return import(...)')` is opaque to tsc,
+ * so dist keeps a real dynamic `import()` that works in Node CJS.
+ */
+async function loadFileTypeModule(): Promise<any> {
+  try {
+    const nativeImport = new Function('s', 'return import(s)') as (s: string) => Promise<any>;
+    return await nativeImport('file-type');
+  } catch {
+    // Fallback for locked-down Function environments (tsx/vitest path).
+    return await import('file-type');
+  }
 }
 
 /**
@@ -96,27 +228,40 @@ export async function validateUploadMagicBytes(
   // reject if it sniffs as HTML/XML (polyglot .txt).
   let detected: { ext?: string; mime?: string } | undefined;
   try {
-    const mod: any = await import('file-type');
+    const mod: any = await loadFileTypeModule();
     const fn = mod.fileTypeFromBuffer || mod.default?.fileTypeFromBuffer || mod.fromBuffer;
     if (typeof fn === 'function') detected = await fn(buffer);
   } catch {
-    // file-type missing/failed. UPLOAD_SCAN_STRICT=true (prod) fails closed:
-    // reject everything we cannot sniff. Default (dev) allows .txt/small-office
-    // fallback + heuristic scan (fail-open with no PII logged).
-    if (process.env.UPLOAD_SCAN_STRICT === 'true') return 'Unable to verify file type (scan unavailable)';
-    if (ext === '.txt' && buffer.length < 2 * 1024 * 1024) return null;
-    return 'Unable to verify file type (scan unavailable)';
+    // file-type import failed (prod dist: tsc CJS require vs ESM-only).
+    // Fall through to pure-local sniffing below — magic-byte verification
+    // must NOT depend on external service. Only when BOTH sniffers fail do
+    // we apply the legacy fail-closed below.
+    detected = undefined;
   }
 
   if (!detected) {
-    // No magic detected — ALWAYS run scan stub first (catches HTML/JS polyglots
-    // with no magic, e.g., `<html>` bytes named .pdf).
-    const scan = await scanBufferForMalware(buffer, originalname);
-    if (!scan.clean) return scan.reason || 'File rejected by scan';
+    try {
+      detected = detectFileTypeLocal(buffer) ?? undefined;
+    } catch {
+      detected = undefined;
+    }
+  }
+
+  if (!detected) {
+    // No magic from either sniffer — could mean truly unavailable (both
+    // failed) or truly unknown (text-like). Run heuristic first so
+    // polyglots/EICAR still block, then fail-closed ONLY when strict and
+    // we cannot verify. Legacy: strict blocks, else .txt/small-office
+    // fallback. This preserves security while letting local magic succeed
+    // with NO external service.
+    const unavailableScan = await scanBufferForMalware(buffer, originalname);
+    if (!unavailableScan.clean) return unavailableScan.reason || 'File rejected by scan';
+    if (process.env.UPLOAD_SCAN_STRICT === 'true') return 'Unable to verify file type (scan unavailable)';
+    if (ext === '.txt' && buffer.length < 2 * 1024 * 1024) return null;
     // Text-like passes; office small/empty lets downstream parser fail safely.
     if (ext === '.txt' || claimedMime === 'text/plain') return null;
     if (['.doc', '.docx', '.pdf'].includes(ext) && buffer.length < 1024) return null;
-    return null;
+    return 'Unable to verify file type (scan unavailable)';
   }
 
   const allowed = surface === 'resume' ? RESUME_ALLOWED_EXTS : ROOM_ALLOWED_EXTS;
