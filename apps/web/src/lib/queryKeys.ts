@@ -99,8 +99,10 @@ export const qk = {
     // Sort (2026-09-14, additive): trailing sort/order (default name/asc).
     // Old keys without sort still prefix-match for invalidation; new keys
     // bust cache once (order change) then hit. Pagination preserved (page in key).
-    users: (collegeId: CollegeScope, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }) =>
-      (['admin-users', normScope(collegeId), role, dept, page, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? '', sort?.field ?? 'name', sort?.order ?? 'asc'] as const),
+    // Page-size (2026-09-14, user wish): trailing limit (default 50, cap 100).
+    // Old keys without limit prefix-match; new keys bust once per size change.
+    users: (collegeId: CollegeScope, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }, pageSize?: number) =>
+      (['admin-users', normScope(collegeId), role, dept, page, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? '', sort?.field ?? 'name', sort?.order ?? 'asc', pageSize ?? 50] as const),
     roleCounts: (collegeId: CollegeScope, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
       (['admin-role-counts', normScope(collegeId), dept, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? ''] as const),
     colleges: () => (['admin-colleges'] as const),

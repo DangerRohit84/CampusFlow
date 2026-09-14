@@ -213,6 +213,21 @@ export function mergeSelection(selected: string[], pageIds: string[]): { selecte
   return { selected: [...set], capped }
 }
 
+/**
+ * Users-tab page-size (2026-09-14, user wish replaces cross-page persistence).
+ * Dropdown 10/25/50/100, default 50, URL-synced (?limit=), backend cap 100.
+ * Whitelisted only — invalid/absent falls back to 50 (never throws; old links
+ * without limit keep working via backend default 50).
+ */
+export const ADMIN_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
+export const DEFAULT_ADMIN_PAGE_SIZE = 50
+
+export function normalizeAdminPageSize(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10)
+  if (n === 10 || n === 25 || n === 50 || n === 100) return n
+  return DEFAULT_ADMIN_PAGE_SIZE
+}
+
 // WHY: single builder for the Students (name+roll+year+dept) / Teachers
 // (name+emp+dept, NO year) / Admins (name+email) contract (plan §2). Hooks
 // delegate here so tab switches can never leak `year` into teachers or

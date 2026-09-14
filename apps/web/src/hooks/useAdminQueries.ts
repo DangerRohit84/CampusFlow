@@ -18,8 +18,8 @@ import { buildAdminUserQuery, buildAdminRoleCountsQuery } from '../components/ad
  */
 export const adminKeys = {
   bundle: (collegeId: string | null) => qk.admin.bundle(collegeId),
-  users: (collegeId: string | null, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }) =>
-    qk.admin.users(collegeId, role, dept, page, filters, sort),
+  users: (collegeId: string | null, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }, sort?: { field?: string; order?: string }, pageSize?: number) =>
+    qk.admin.users(collegeId, role, dept, page, filters, sort, pageSize),
   roleCounts: (collegeId: string | null, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
     qk.admin.roleCounts(collegeId, dept, filters),
   colleges: () => qk.admin.colleges(),
@@ -78,13 +78,15 @@ export function useAdminUsers(
   const email = (filters?.email ?? '').trim()
   const sortField = (sort?.field ?? 'name').trim() || 'name'
   const sortOrder = (sort?.order ?? 'asc').trim().toLowerCase() === 'desc' ? 'desc' : 'asc'
+  // Page-size (user wish): clamp 1..100, default 50 (backend cap 100).
+  const limit = Number.isFinite(pageSize) ? Math.min(100, Math.max(1, Math.floor(pageSize))) || 50 : 50
   return useQuery({
-    queryKey: qk.admin.users(collegeId, role, dept, page, { q, roll, year, email }, { field: sortField, order: sortOrder }),
+    queryKey: qk.admin.users(collegeId, role, dept, page, { q, roll, year, email }, { field: sortField, order: sortOrder }, limit),
     queryFn: ({ signal }) => {
       // P2 builders own per-tab gating (teachers NO year, admins no roll/year)
       // so list/counts stay in parity; backend remains authoritative (ignores too).
       // Sort is additive: whitelisted at both ends, omitted = backend name asc.
-      const params = buildAdminUserQuery(role, dept, page, pageSize, { q, roll, year, email }, collegeId || undefined, { field: sortField as 'name' | 'email' | 'studentId' | 'empNumber', order: sortOrder as 'asc' | 'desc' })
+      const params = buildAdminUserQuery(role, dept, page, limit, { q, roll, year, email }, collegeId || undefined, { field: sortField as 'name' | 'email' | 'studentId' | 'empNumber', order: sortOrder as 'asc' | 'desc' })
       return adminAPI.getUsers({ ...params, signal })
     },
     staleTime: 60 * 1000,

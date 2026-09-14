@@ -27,11 +27,12 @@ import BulkImportModal, { type BulkRole } from '../components/admin/BulkImportMo
 import BulkDeleteModal from '../components/admin/BulkDeleteModal'
 import BulkPasswordModal from '../components/admin/BulkPasswordModal'
 import PasswordNudgeBanner from '../components/admin/PasswordNudgeBanner'
-import { pageSelectionState, emptyStateCopy, yearOptions, getSortableColumns, normalizeAdminSort, nextSortOrder, mergeSelection, MAX_BULK_SELECTION, type AdminUserSort } from '../components/admin/bulkHelpers'
+import { pageSelectionState, emptyStateCopy, yearOptions, getSortableColumns, normalizeAdminSort, normalizeAdminPageSize, nextSortOrder, mergeSelection, MAX_BULK_SELECTION, ADMIN_PAGE_SIZE_OPTIONS, DEFAULT_ADMIN_PAGE_SIZE, type AdminUserSort } from '../components/admin/bulkHelpers'
 
-// WHY: Users tab pages server-side at 50 (backend take:50+count dual-mode,
-// same cursor/page contract as notifications/rooms). Keeps 10k-scale lists correct.
-const USERS_PAGE_SIZE = 50
+// WHY: Users tab pages server-side (backend take + count dual-mode, same
+// cursor/page contract as notifications/rooms). Page-size dropdown 10/25/50/100
+// (default 50, URL-synced ?limit=, backend cap 100). Keeps 10k-scale correct.
+const USERS_PAGE_SIZE = DEFAULT_ADMIN_PAGE_SIZE
 const subTabToRole = (t: 'students' | 'teachers' | 'college_admins') =>
   t === 'students' ? 'STUDENT' : t === 'teachers' ? 'TEACHER' : 'COLLEGE_ADMIN'
 
@@ -109,11 +110,21 @@ export default function AdminPage() {
   const [deptFilter, setDeptFilter] = useState<string>(
     () => new URLSearchParams(window.location.search).get('dept') || 'all'
   )
-  // Users pager (server-side page/limit/total, limit 50). ?page= persists in URL;
-  // resets to 1 whenever role/dept/college filter changes.
+  // Users pager (server-side page/limit/total). ?page= + ?limit= persist in URL;
+  // resets to 1 whenever role/dept/college filter or page-size changes.
   const [usersPage, setUsersPage] = useState<number>(() => {
     const p = parseInt(new URLSearchParams(window.location.search).get('page') || '1', 10)
     return Number.isFinite(p) && p >= 1 ? p : 1
+  })
+  // Page-size dropdown (user wish 2026-09-14): 10/25/50/100, default 50,
+  // URL-synced (?limit=), backend cap 100. Changing size resets to page 1 +
+  // clears selection (same as page change).
+  const [usersPageSize, setUsersPageSize] = useState<number>(() => {
+    try {
+      return normalizeAdminPageSize(new URLSearchParams(window.location.search).get('limit'))
+    } catch {
+      return DEFAULT_ADMIN_PAGE_SIZE
+    }
   })
   const [usersTotal, setUsersTotal] = useState(0)
   const [usersTotalPages, setUsersTotalPages] = useState(1)
@@ -142,13 +153,13 @@ export default function AdminPage() {
       return { field: 'name', order: 'asc' }
     }
   })
-  // Cross-page selection (2026-09-14): selected-id set PERSISTS across
-  // page/filter/sort changes within the same tab+college (survives pagination,
-  // visible count + Clear in the sticky bar). Cleared ONLY on tab (role) or
-  // college change (avoids cross-role stale ids — BE guards remain
-  // authoritative). Capped at MAX_BULK_SELECTION (500) with a toast when
-  // truncated. Self row is never selectable (delete fails-all on self; pw
-  // strips self) — BE remains authoritative for last-admin guards.
+  // Selection (2026-09-14 user wish, replaces cross-page persistence):
+  // selected-id set CLEARS on page/filter/sort/page-size change (no stale
+  // off-page ids). Cleared on tab (role), college, page, dept, q/roll/year/
+  // email, sort, or page-size change (effect below + sync clears in handlers).
+  // Capped at MAX_BULK_SELECTION (500) with a toast when truncated. Self row is
+  // never selectable (delete fails-all on self; pw strips self) — BE remains
+  // authoritative for last-admin guards.
   // Select-all = CURRENT PAGE ONLY (clearly labelled in aria-label/title;
   // all-filtered would need server-side id enumeration — kept simple).
   const [selected, setSelected] = useState<string[]>([])
@@ -187,7 +198,7 @@ export default function AdminPage() {
     usersRole,
     deptFilter,
     usersPage,
-    USERS_PAGE_SIZE,
+    usersPageSize,
     inCollegeView,
     listFilters,
     listSort,
@@ -302,7 +313,7 @@ export default function AdminPage() {
       const pages = Array.isArray(v)
         ? 1
         : ((v as { pagination?: { pages?: number } })?.pagination?.pages ??
-          Math.max(1, Math.ceil(total / USERS_PAGE_SIZE)))
+          Math.max(1, Math.ceil(total / usersPageSize)))
       setUsers(rows as never[])
       setUsersTotal(total)
       setUsersTotalPages(Math.max(1, pages))
@@ -310,7 +321,7 @@ export default function AdminPage() {
     }
     if (usersQuery.error) logger.error('Failed to load users', { error: usersQuery.error })
     setUsersLoading(!!usersQuery.isFetching)
-  }, [usersQuery.data, usersQuery.error, usersQuery.isFetching, userSubTab])
+  }, [usersQuery.data, usersQuery.error, usersQuery.isFetching, userSubTab, usersPageSize])
   useEffect(() => {
     const c = roleCountsQuery.data as unknown as
       | { students?: number; teachers?: number; college_admins?: number }
@@ -332,20 +343,20 @@ export default function AdminPage() {
     }
   }, [departments, deptFilter])
 
-  // Cross-page selection: persist across page/filter/sort within the same
-  // tab+college; clear ONLY on tab (role) or college change (avoids
-  // cross-role stale ids — BE guards stay authoritative). Page/filter/sort
-  // changes intentionally preserve the set (visible count + Clear in bar).
+  // Selection clears on tab/college/page/filter/sort/page-size change (user wish
+  // 2026-09-14 replaces cross-page persistence — no stale off-page ids).
+  // Handlers below also clear synchronously to avoid one-render flash; this
+  // effect is the backup for URL-driven changes (back/forward, shared links).
   useEffect(() => {
     setSelected([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userSubTab, effectiveCollegeId])
+  }, [userSubTab, effectiveCollegeId, usersPage, usersPageSize, deptFilter, debouncedSearch, rollFilter, yearFilter, emailFilter, userSort.field, userSort.order])
 
-  // Persist users view (?tab=&role=&dept=&page=&q=&roll=&year=&email=&sort=&order=) —
+  // Persist users view (?tab=&role=&dept=&page=&limit=&q=&roll=&year=&email=&sort=&order=) —
   // shareable links, survives reload. Preserves existing params
   // (collegeId/collegeName); replace avoids history spam. Pagination preserved:
-  // page + sort coexist (sort change resets page to 1 via handleSort;
-  // page change keeps sort).
+  // page + sort + limit coexist (sort/limit change resets page to 1 via handlers;
+  // page change keeps sort + limit).
   useEffect(() => {
     const next = new URLSearchParams(searchParams)
     next.set('tab', activeTab)
@@ -353,6 +364,7 @@ export default function AdminPage() {
       next.set('role', userSubTab)
       next.set('dept', deptFilter)
       next.set('page', String(usersPage))
+      next.set('limit', String(usersPageSize))
       if (searchRaw.trim()) next.set('q', searchRaw.trim()); else next.delete('q')
       if (rollFilter.trim()) next.set('roll', rollFilter.trim()); else next.delete('roll')
       if (yearFilter) next.set('year', yearFilter); else next.delete('year')
@@ -362,7 +374,7 @@ export default function AdminPage() {
     }
     if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, userSubTab, deptFilter, usersPage, searchRaw, rollFilter, yearFilter, emailFilter, userSort.field, userSort.order])
+  }, [activeTab, userSubTab, deptFilter, usersPage, usersPageSize, searchRaw, rollFilter, yearFilter, emailFilter, userSort.field, userSort.order])
 
   // WHY one-click fix: sync ?collegeId/?collegeName URL → state + store when URL changes
   // (direct navigation from /superadmin/colleges, back/forward, manual edit).
@@ -447,10 +459,11 @@ export default function AdminPage() {
   // P2: sub-tab switch preserves dept, clears q/roll/year/email + resets page
   // (avoids cross-role stale `year` leaking to teachers, which has no Year control).
   // Sort resets to name asc when the current field is not sortable in the new
-  // tab (e.g., studentId → teachers); selection clears via the tab effect.
+  // tab (e.g., studentId → teachers); selection clears sync + via effect.
   const switchUserSubTab = (t: 'students' | 'teachers' | 'college_admins') => {
     setUserSubTab(t)
     setUsersPage(1)
+    setSelected([])
     setSearchRaw('')
     setRollFilter('')
     setYearFilter('')
@@ -468,14 +481,29 @@ export default function AdminPage() {
     setEmailFilter('')
     setDeptFilter('all')
     setUsersPage(1)
+    setSelected([])
     setUserSort({ field: 'name', order: 'asc' })
   }
 
   // Sortable header click: toggle asc/desc on same column, asc on new column.
-  // Resets to page 1 (new order); pagination otherwise preserved.
+  // Resets to page 1 + clears selection (new order); pagination otherwise preserved.
   const handleSort = (field: AdminUserSort['field']) => {
     setUserSort((prev) => ({ field, order: nextSortOrder(prev.field, prev.order, field) }))
     setUsersPage(1)
+    setSelected([])
+  }
+
+  // Pager + page-size (user wish): page change keeps sort+limit but clears
+  // selection; size change resets to page 1 + clears selection.
+  const handleUsersPageChange = (p: number) => {
+    setUsersPage(p)
+    setSelected([])
+  }
+  const handleUsersPageSizeChange = (size: number) => {
+    const next = normalizeAdminPageSize(size)
+    setUsersPageSize(next)
+    setUsersPage(1)
+    setSelected([])
   }
 
   const handleAddUser = async () => {
@@ -592,10 +620,10 @@ export default function AdminPage() {
       </span>
     )
 
-  // P3 selection math (cross-page persistent — selection survives page/filter/
-  // sort within the tab; cleared only on tab/college change above). Self row
-  // excluded from select-all (never actionable in bulk). Select-all = CURRENT
-  // PAGE ONLY (clearly labelled; all-filtered would need server id enumeration).
+  // P3 selection math (single-page — selection CLEARS on page/filter/sort/
+  // page-size change above, no stale off-page ids). Self row excluded from
+  // select-all (never actionable in bulk). Select-all = CURRENT PAGE ONLY
+  // (clearly labelled; all-filtered would need server id enumeration).
   const selfId = (user as unknown as { id?: string })?.id
   const selectableIds = (users as any[]).filter((u) => u.id !== selfId).map((u) => u.id as string)
   const { all: allPageSelected, some: somePageSelected } = pageSelectionState(selectableIds, selected)
@@ -603,7 +631,7 @@ export default function AdminPage() {
   // aria-sort helper for sortable headers (ascending/descending/none).
   const sortAria = (field: AdminUserSort['field']): 'ascending' | 'descending' | 'none' =>
     userSort.field === field ? (userSort.order === 'asc' ? 'ascending' : 'descending') : 'none'
-  // Cross-page selection helpers (cap 500 with message; select-all = page only).
+  // Single-page selection helpers (cap 500 with message; select-all = page only).
   const handleToggleOne = (id: string) => {
     setSelected((prev) => {
       if (prev.includes(id)) return prev.filter((s) => s !== id)
@@ -878,8 +906,8 @@ export default function AdminPage() {
           role="tab"
           aria-selected={activeTab === 'users'}
           onClick={() => setActiveTab('users')}
-          onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort), staleTime: 60 * 1000 }) }}
-          onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort), staleTime: 60 * 1000 }) }}
+          onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
+          onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, usersRole, deptFilter, usersPage, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
           className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
             activeTab === 'users' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
           )}
@@ -1045,7 +1073,7 @@ export default function AdminPage() {
               <h2 className="font-bold text-surface-900 dark:text-night-50">Users ({usersTotal})</h2>
               {usersTotalPages > 1 && (
                 <p className="text-xs text-surface-500 dark:text-night-400 mt-0.5">
-                  Showing {(usersPage - 1) * USERS_PAGE_SIZE + (users.length ? 1 : 0)}–{(usersPage - 1) * USERS_PAGE_SIZE + users.length} of {usersTotal} · {USERS_PAGE_SIZE} per page
+                  Showing {(usersPage - 1) * usersPageSize + (users.length ? 1 : 0)}–{(usersPage - 1) * usersPageSize + users.length} of {usersTotal} · {usersPageSize} per page
                 </p>
               )}
             </div>
@@ -1085,8 +1113,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'students'}
               onClick={() => switchUserSubTab('students')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'students' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1097,8 +1125,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'teachers'}
               onClick={() => switchUserSubTab('teachers')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'teachers' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1109,8 +1137,8 @@ export default function AdminPage() {
               role="tab"
               aria-selected={userSubTab === 'college_admins'}
               onClick={() => switchUserSubTab('college_admins')}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort), staleTime: 60 * 1000 }) }}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters, listSort, usersPageSize), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'college_admins' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -1129,7 +1157,7 @@ export default function AdminPage() {
                 id="users-search"
                 type="text"
                 value={searchRaw}
-                onChange={(e) => { setSearchRaw(e.target.value); setUsersPage(1) }}
+                onChange={(e) => { setSearchRaw(e.target.value); setUsersPage(1); setSelected([]) }}
                 placeholder="Search name"
                 className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 disabled:opacity-50"
               />
@@ -1142,7 +1170,7 @@ export default function AdminPage() {
                     id="users-roll"
                     type="text"
                     value={rollFilter}
-                    onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1) }}
+                    onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1); setSelected([]) }}
                     placeholder="Roll number"
                     className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                   />
@@ -1152,7 +1180,7 @@ export default function AdminPage() {
                   <select
                     id="users-year"
                     value={yearFilter}
-                    onChange={(e) => { setYearFilter(e.target.value); setUsersPage(1) }}
+                    onChange={(e) => { setYearFilter(e.target.value); setUsersPage(1); setSelected([]) }}
                     className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                   >
                     <option value="">All years</option>
@@ -1170,7 +1198,7 @@ export default function AdminPage() {
                   id="users-emp"
                   type="text"
                   value={rollFilter}
-                  onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1) }}
+                  onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1); setSelected([]) }}
                   placeholder="Employee number"
                   className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 />
@@ -1183,7 +1211,7 @@ export default function AdminPage() {
                   id="users-email"
                   type="text"
                   value={emailFilter}
-                  onChange={(e) => { setEmailFilter(e.target.value); setUsersPage(1) }}
+                  onChange={(e) => { setEmailFilter(e.target.value); setUsersPage(1); setSelected([]) }}
                   placeholder="Email"
                   className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 />
@@ -1197,7 +1225,7 @@ export default function AdminPage() {
                 <select
                   id="dept-filter"
                   value={departments.some((d) => d.id === deptFilter) ? deptFilter : 'all'}
-                  onChange={(e) => { setDeptFilter(e.target.value); setUsersPage(1) }}
+                  onChange={(e) => { setDeptFilter(e.target.value); setUsersPage(1); setSelected([]) }}
                   disabled={usersLoading}
                   className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 disabled:opacity-50"
                 >
@@ -1211,8 +1239,8 @@ export default function AdminPage() {
             {(usersLoading || isFiltering) && <span className="text-xs text-surface-400 dark:text-night-400 pb-2">Filtering…</span>}
           </div>
 
-          {/* Cross-page selected-count bar (sticky when selected>0; count includes
-              off-page ids — selection persists across pagination within the tab). */}
+          {/* Selected-count bar (sticky when selected>0; single-page — count is
+              current-page only, clears on page/filter/sort/size change). */}
           {selected.length > 0 && (
             <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-surface-900 dark:bg-white text-white dark:text-black text-sm">
               <span className="font-semibold" aria-live="polite">{selected.length} selected</span>
@@ -1244,7 +1272,7 @@ export default function AdminPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-100 dark:border-night-600">
-                  {/* Select-all = CURRENT PAGE ONLY (clearly labelled; persists set, never fetches all-filtered). */}
+                  {/* Select-all = CURRENT PAGE ONLY (clearly labelled; single-page set, never fetches all-filtered). */}
                   <th className="py-2 pr-2 w-8">
                     <input
                       type="checkbox"
@@ -1399,10 +1427,27 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Pager — Prev/Next + page numbers + total (limit 50, shared Pagination).
+          {/* Pager + page-size (user wish): dropdown 10/25/50/100 (default 50,
+              URL-synced ?limit=, backend cap 100) next to Pagination.
               WHY inner scroll=false: table lives inside a panel; scrolling main
               to top on every page turn would lose table context. */}
-          <Pagination page={usersPage} totalPages={usersTotalPages} onChange={setUsersPage} scroll={false} />
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+            <label htmlFor="users-page-size" className="inline-flex items-center gap-2 text-sm text-surface-600 dark:text-night-300">
+              <span className="font-medium">Rows per page</span>
+              <select
+                id="users-page-size"
+                value={usersPageSize}
+                onChange={(e) => handleUsersPageSizeChange(parseInt(e.target.value, 10))}
+                aria-label="Rows per page"
+                className="min-h-[44px] px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+              >
+                {ADMIN_PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+            <Pagination page={usersPage} totalPages={usersTotalPages} onChange={handleUsersPageChange} scroll={false} />
+          </div>
         </div>
       )}
       </div>

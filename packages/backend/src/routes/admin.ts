@@ -1258,8 +1258,10 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
     const orderBy = buildUserListOrderBy(sortField, sortOrder)
 
     const wantsPaged = req.query.page != null || req.query.limit != null || req.query.cursor != null
+    // Users tabs page-size (2026-09-14 user wish): dropdown 10/25/50/100,
+    // default 50, cap 100 (was 50). Hackathons/forms routes below stay at 50.
     const limitParam = parseInt(String(req.query.limit || '50'), 10)
-    const limit = Number.isFinite(limitParam) ? Math.min(50, Math.max(1, limitParam)) : 50
+    const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(1, limitParam)) : 50
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
     const skip = (page - 1) * limit
     const cursorId = req.query.cursor ? String(req.query.cursor) : null

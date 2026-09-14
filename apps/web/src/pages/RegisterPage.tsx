@@ -52,7 +52,11 @@ export default function RegisterPage() {
   const [collegeSearch, setCollegeSearch] = useState('')
   const [collegeOpen, setCollegeOpen] = useState(false)
   const [touched, setTouched] = useState<Record<string, boolean>>({})
-  const { register, loading } = useAuthStore()
+  // WHY login-race parity: whole-store subscribe re-rendered this page on the
+  // user/token set inside register(), racing GuestRoute's <Navigate> with manual
+  // navigate() in the same tick. Selectors isolate renders (same as LoginPage).
+  const register = useAuthStore((s) => s.register)
+  const loading = useAuthStore((s) => s.loading)
   const navigate = useNavigate()
   const shouldReduce = useReducedMotion()
 
@@ -98,6 +102,14 @@ export default function RegisterPage() {
     try {
       const payload = { ...form, email: vEmail, name: vName, incomingYear: form.incomingYear ? parseInt(form.incomingYear, 10) : undefined }
       await register(payload as any)
+      // Same-tick guard (LoginPage parity): verify the same source guards read
+      // (memory isAuthenticated + user) BEFORE navigate() — never navigate on a
+      // half-persisted state after logout→register.
+      const snap = useAuthStore.getState()
+      if (!snap.isAuthenticated || !snap.user) {
+        toast.error('Account saved incompletely — please try signing in')
+        return
+      }
       toast.success('Account created — welcome to the quad!')
       // WHY login parity (topbottom F5): honor 401 intent but drop stale
       // superadmin routes for a new STUDENT (else /superadmin/* → /403 bounce

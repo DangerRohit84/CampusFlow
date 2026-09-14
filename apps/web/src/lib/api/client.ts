@@ -192,6 +192,18 @@ api.interceptors.response.use(
       } catch { /* single-flight retry best-effort */ }
     }
     if (error?.response?.status === 401) {
+      // Deterministic logout→login (2026-09-14): fire-and-forget /auth/logout
+      // + failed /auth/login|register must NEVER trigger the expired-session
+      // side effects (save redirect + dispatch logout + 60ms pushState). A
+      // logout 401 (expired token) would otherwise re-dispatch logout AFTER a
+      // successful re-login's navigate() and push back to /login until refresh;
+      // a failed login would clear a still-valid existing session.
+      try {
+        const failedUrl = String((original as { url?: unknown })?.url || '')
+        if (failedUrl.includes('/auth/logout') || failedUrl.includes('/auth/login') || failedUrl.includes('/auth/register')) {
+          return Promise.reject(error)
+        }
+      } catch { /* url check best-effort — fall through to normal 401 path */ }
       try {
         const from = window.location.pathname + window.location.search
         if (from && !from.startsWith('/login') && !from.startsWith('/register')) {

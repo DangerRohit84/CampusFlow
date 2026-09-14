@@ -64,6 +64,24 @@ function writeAuthBlobSync(user: User, token: string | null, csrfToken: string |
   } catch {}
 }
 
+// Deterministic account-switch hygiene (logout→login fix, 2026-09-14):
+// college-scoped RQ keys (not user-scoped) + keepPreviousData 60s would flash
+// the PREVIOUS tenant's lists after login as a different user, looking like
+// "login fails" until manual refresh (which clears in-memory cache + socket).
+// Clear queries + disconnect socket synchronously on account switch (same-tick,
+// no await), mirroring logout(). Best-effort, never throws.
+function clearQueriesAndSocketSync(): void {
+  try {
+    void queryClient.cancelQueries().catch(() => {})
+  } catch {}
+  try {
+    queryClient.clear()
+  } catch {}
+  try {
+    disconnectSocket()
+  } catch {}
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -83,11 +101,18 @@ export const useAuthStore = create<AuthState>()(
           const nextUser = data.user as User
           const nextToken = (data.token as string | null) ?? null
           const nextCsrf = ((data as any).csrfToken as string | null) || null
+          const isAccountSwitch = !!(prevUserId && nextUser?.id && prevUserId !== nextUser.id)
           // Clear stale superadmin scope when switching accounts or landing as non-superadmin.
           // WHY: superadmin → college-admin without this keeps selectedCollegeId override,
           // polluting the new session's college scope + api headers.
-          if (nextUser?.role !== 'SUPER_ADMIN' || (prevUserId && nextUser?.id && prevUserId !== nextUser.id)) {
+          if (nextUser?.role !== 'SUPER_ADMIN' || isAccountSwitch) {
             clearStaleSuperAdminScope()
+          }
+          // Deterministic post-login hygiene (logout→login fix): drop previous
+          // tenant's RQ cache + old socket BEFORE persisting the new session,
+          // same-tick, no await. Otherwise college-scoped keys flash old lists.
+          if (isAccountSwitch) {
+            clearQueriesAndSocketSync()
           }
           // Same-tick: memory set + storage dual-write, no await between —
           // navigate() after await sees both (guards read memory, interceptor
@@ -112,8 +137,12 @@ export const useAuthStore = create<AuthState>()(
           const nextUser = data.user as User
           const nextToken = (data.token as string | null) ?? null
           const nextCsrf = ((data as any).csrfToken as string | null) || null
-          if (nextUser?.role !== 'SUPER_ADMIN' || (prevUserId && nextUser?.id && prevUserId !== nextUser.id)) {
+          const isAccountSwitch = !!(prevUserId && nextUser?.id && prevUserId !== nextUser.id)
+          if (nextUser?.role !== 'SUPER_ADMIN' || isAccountSwitch) {
             clearStaleSuperAdminScope()
+          }
+          if (isAccountSwitch) {
+            clearQueriesAndSocketSync()
           }
           set({ user: nextUser, token: nextToken, csrfToken: nextCsrf, isAuthenticated: true, loading: false })
           writeAuthBlobSync(nextUser, nextToken, nextCsrf)
