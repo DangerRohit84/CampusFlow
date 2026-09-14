@@ -16,6 +16,8 @@ export const AuditActions = {
   USER_DELETE: 'USER_DELETE',
   USER_BULK_CREATE: 'USER_BULK_CREATE',
   USER_BULK_DRY_RUN: 'USER_BULK_DRY_RUN',
+  USER_BULK_DELETE: 'USER_BULK_DELETE',
+  USER_BULK_PASSWORD_RESET: 'USER_BULK_PASSWORD_RESET',
   COLLEGE_REGISTER: 'COLLEGE_REGISTER',
   COLLEGE_APPROVE: 'COLLEGE_APPROVE',
   COLLEGE_REJECT: 'COLLEGE_REJECT',
@@ -48,7 +50,19 @@ type DbLike = {
 /** Build a safe metadata string (strips secret-looking keys, caps length). Kept string for test compat. */
 export function buildAuditMetadata(input: Record<string, unknown> | null | undefined): string | null {
   if (!input || typeof input !== 'object') return null
-  const DENY = ['password', 'passwordhash', 'temppassword', 'apikey', 'token', 'secret', 'authorization']
+  const DENY = [
+    'password',
+    'passwordhash',
+    'temppassword',
+    'sharedpassword',
+    'sharedtemppassword',
+    'newpassword',
+    'currentpassword',
+    'apikey',
+    'token',
+    'secret',
+    'authorization',
+  ]
   const clean: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(input)) {
     if (DENY.includes(k.toLowerCase())) continue

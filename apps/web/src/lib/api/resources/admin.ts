@@ -16,6 +16,12 @@ export interface AdminUserQuery {
   page?: number
   limit?: number
   search?: string
+  // P2 per-tab filters (composing, backward compat: absent = no filter).
+  studentId?: string
+  roll?: string
+  empNumber?: string
+  email?: string
+  incomingYear?: number
   signal?: AbortSignal
 }
 
@@ -43,7 +49,9 @@ export const adminAPI = {
     return api.get('/admin/users', { params, signal: opts?.signal }).then((r) => r.data)
   },
   // Tab-badge totals: single GROUP BY (was 3× take:1+count from the client).
-  getRoleCounts: (params?: { collegeId?: string; departmentId?: string; signal?: AbortSignal }) => {
+  // P2: accepts the SAME search/roll/year/email filters as getUsers so badges
+  // stay correct while filtering (absent = unfiltered totals, old behavior).
+  getRoleCounts: (params?: { collegeId?: string; departmentId?: string; search?: string; studentId?: string; roll?: string; empNumber?: string; email?: string; incomingYear?: number; signal?: AbortSignal }) => {
     const { signal, ...query } = (params as Record<string, unknown>) || {}
     return api.get('/admin/users/role-counts', { params: query, signal: signal as AbortSignal | undefined }).then((r) => r.data)
   },
@@ -53,12 +61,23 @@ export const adminAPI = {
   createUser: (data: unknown) => api.post('/admin/users', data).then((r) => r.data),
   addTeacher: (data: unknown) => api.post('/admin/users/teacher', data).then((r) => r.data),
   addStudent: (data: unknown) => api.post('/admin/users/student', data).then((r) => r.data),
-  bulkAddTeachers: (teachers: unknown[], collegeId?: string) =>
-    api.post('/admin/users/teachers/bulk', { teachers, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data),
-  bulkAddStudents: (students: unknown[], collegeId?: string) =>
-    api.post('/admin/users/students/bulk', { students, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data),
+  bulkAddTeachers: (teachers: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/teachers/bulk', { teachers, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}) }).then((r) => r.data),
+  bulkAddStudents: (students: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/students/bulk', { students, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}) }).then((r) => r.data),
   updateUser: (id: string, data: unknown) => api.put(`/admin/users/${id}`, data).then((r) => r.data),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`).then((r) => r.data),
+  // P3 transactional bulk delete (1–100 ids, type-to-confirm DELETE N server-side).
+  bulkDeleteUsers: (ids: string[], confirm: string, collegeId?: string) =>
+    api.post('/admin/users/bulk-delete', { ids, confirm, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data as { success: number; failed: number; errors: string[]; partial: boolean }),
+  // Bulk password (Option A shared set/reset + §10 nudge-only). Set: sharedPassword
+  // required. Reset: autoGenerate=true (sharedPassword must be absent).
+  bulkPassword: (payload: { ids: string[]; mode: 'shared-set' | 'shared-reset'; sharedPassword?: string; autoGenerate?: boolean; confirm: string; nudgeUsers?: boolean; dryRun?: boolean; collegeId?: string }) =>
+    api.post('/admin/users/bulk-password', payload).then((r) => r.data as {
+      success: number; failed: number; skippedSelf: number; partial: boolean; errors: string[];
+      nudgeEnabled: boolean; sharedTempPassword?: string; sharedPasswordEcho: false;
+      sharedPassword?: { valid: boolean; errors: string[] }; validCount?: number; dryRun?: true;
+    }),
   getHackathons: (collegeId?: string, signal?: AbortSignal) =>
     api.get('/admin/hackathons', { params: collegeId ? { collegeId } : {}, signal }).then((r) => r.data),
   getForms: (collegeId?: string, signal?: AbortSignal) =>
@@ -146,23 +165,27 @@ export interface BulkDryRunReport {
   invalidCount: number
   rows: BulkDryRunRow[]
   errors: string[]
+  // P1 shared-password validation (single HIBP call, server authoritative).
+  sharedPassword?: { valid: boolean; errors: string[] }
+  passwordColumnIgnored?: boolean
+  warnings?: string[]
 }
 
 export const bulkImportAPI = {
-  dryRunTeachers: (rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/teachers/bulk', { teachers: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
-  dryRunStudents: (rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/students/bulk', { students: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
+  dryRunTeachers: (rows: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/teachers/bulk', { teachers: rows, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
+  dryRunStudents: (rows: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/students/bulk', { students: rows, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
   // #11a unified import: one path for both roles ({role} + {rows} or {csv}).
   // Dry-run (?dryRun=true) returns the per-row report with zero writes.
-  dryRunImport: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
-  dryRunImportCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string) =>
-    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
-  importRows: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
-  importCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string) =>
-    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
+  dryRunImport: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
+  dryRunImportCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
+  importRows: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[]; tempPasswords?: Array<{ email: string; tempPassword: string }> }),
+  importCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string, sharedPassword?: string) =>
+    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}), ...(sharedPassword ? { sharedPassword } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[]; tempPasswords?: Array<{ email: string; tempPassword: string }> }),
 }
 
 export interface AuditLogItem {

@@ -4,19 +4,31 @@
 // → 400 round-trips for 100 rows (p95 regression, Neon pool exhaustion).
 // Batched: 3 pre-fetch queries (existing emails + depts by id + depts by name)
 // + 1 createMany per type (4 round-trips total regardless of N).
-// Validation semantics verbatim (per-row errors, dept-name resolution, password
-// rules, incomingYear parse). Result shape identical ({success,failed,errors}).
-// Injectable `db` for hermetic tests (DIP); logger on every catch (no silent {}).
+// P1 shared-password (2026-09-14, SUPERSEDES per-row password contract):
+// ONE sharedPassword per batch (admin-chosen, required on confirm, optional on
+// dry-run). CSV `password` column DEPRECATED: server ignores if present (warn +
+// ignore, not 400 this release), logs count only. Single HIBP call per import
+// (not N sequential) + single bcrypt hash reused for all rows (perf). All created
+// users get mustChangePassword=true (nudge-only, NO route block — see §10 addendum
+// philosophy). FE displays its held field value as show-once (never re-transmitted).
+// Validation semantics verbatim (per-row errors, dept-name resolution,
+// incomingYear parse) + dry-run parity (Name required, year range).
+// Result shape additive ({success,failed,errors} + mustChangePassword +
+// nudgeEnabled (§10 nudge-only, no route block) +
+// sharedPasswordEcho:false + passwordColumnIgnored). Injectable `db` +
+// `breachCheck` for hermetic tests (DIP); logger on every catch (no silent {});
+// never log password values (counts only).
 
 import bcrypt from 'bcryptjs'
-import crypto from 'crypto'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
-import { isCommonPassword } from '../utils/authHardening'
+import { validateSharedPasswordFull } from '../utils/sharedPassword'
+import type { BreachCheck as SharedBreachCheck } from '../utils/sharedPassword'
 
 export interface BulkRow {
   email?: unknown
   name?: unknown
+  /** @deprecated P1 shared-password: ignored if present (warn + ignore). Use sharedPassword opt. */
   password?: unknown
   departmentId?: unknown
   department?: unknown
@@ -29,16 +41,47 @@ export interface BulkResult {
   success: number
   failed: number
   errors: string[]
+  /**
+   * @deprecated P1 shared-password: per-row show-once REMOVED. FE holds the shared
+   * value it sent and displays it as show-once (avoids re-transmitting secret).
+   * Kept optional for backward-compat with old callers/tests (always absent on new path).
+   */
+  tempPasswords?: Array<{ email: string; tempPassword: string }>
+  /** P1: always false on wire (never echo secrets). */
+  sharedPasswordEcho?: false
+  /** P1: true when all created rows got mustChangePassword=true. */
+  mustChangePassword?: boolean
+  /**
+   * P1 §10 nudge-only (no route block): true when the batch should show the
+   * dismissible shared-password banner (FE localStorage `nudgeDismissed:<userId>`,
+   * no login redirect/block). Additive — old callers ignore it. Always true on
+   * success (banner ORs mustChangePassword/passwordNudge).
+   */
+  nudgeEnabled?: boolean
+  /** P1: true when legacy CSV password column was stripped. */
+  passwordColumnIgnored?: boolean
+  warnings?: string[]
+  /**
+   * P1 route helper (additive): true when the batch failed SOLELY on shared-password
+   * validation (missing/invalid/breached/hash-fail) with zero writes. Routes map
+   * this to 400 with a clear message (old API callers without sharedPassword get
+   * a 400, not a 200 with failed counts). Never true when any row was written.
+   */
+  sharedPasswordInvalid?: boolean
+}
+
+/** Injectable breach check for hermetic tests (DIP). Defaults to real HIBP k-anonymity. */
+export type BreachCheck = SharedBreachCheck
+export interface BulkOptions {
+  breachCheck?: BreachCheck
+  /** P1 shared password for the whole batch (required on confirm, optional on dry-run). */
+  sharedPassword?: string
 }
 
 type Db = typeof prisma
 
 function rowEmail(r: BulkRow): string {
   return String((r.email as string) || '').trim()
-}
-
-function tempPassword(): string {
-  return crypto.randomBytes(9).toString('base64url').slice(0, 12) + 'A1!'
 }
 
 async function hashPassword(plain: string): Promise<string> {
@@ -79,24 +122,6 @@ function resolveDeptId(
   return undefined
 }
 
-function checkPassword(row: BulkRow, errors: string[], onFailed: () => void): boolean {
-  const email = rowEmail(row)
-  const pw = row.password == null ? '' : String(row.password)
-  if (pw) {
-    if (isCommonPassword(pw)) {
-      onFailed()
-      errors.push(`${email}: Password is too common`)
-      return false
-    }
-    if (pw.length < 8 || pw.length > 72) {
-      onFailed()
-      errors.push(`${email}: Password must be 8-72 characters`)
-      return false
-    }
-  }
-  return true
-}
-
 export interface BulkRowReport {
   index: number
   email: string
@@ -111,6 +136,10 @@ export interface BulkDryRunResult {
   invalidCount: number
   rows: BulkRowReport[]
   errors: string[]
+  /** P1: shared-password validation (single HIBP call). Absent on dry-run → valid:false hint. */
+  sharedPassword: { valid: boolean; errors: string[] }
+  passwordColumnIgnored?: boolean
+  warnings?: string[]
 }
 
 const DRY_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -184,12 +213,8 @@ function dryRunOneRow(
     else deptId = String(mutable.departmentId)
   }
   void deptId
-  const pw = mutable.password
-  if (pw != null && String(pw) !== '') {
-    const s = String(pw)
-    if (s.length < 8 || s.length > 72) errors.push('Password must be 8-72 characters')
-    else if (isCommonPassword(s)) errors.push('Password is too common')
-  }
+  // P1: row.password ignored (deprecated). No per-row password validation —
+  // sharedPassword is validated once per batch (single HIBP call).
   if (type === 'student') {
     const raw = mutable.incomingYear
     if (raw != null && String(raw).trim() !== '') {
@@ -201,26 +226,61 @@ function dryRunOneRow(
   return { index, email, name, valid: errors.length === 0, errors }
 }
 
+/** P1: validate sharedPassword once per batch (single HIBP call). Absent → valid:false hint (dry-run rows-only). */
+async function checkSharedForDryRun(
+  sharedPassword: unknown,
+  breachCheck: BreachCheck | undefined,
+): Promise<{ valid: boolean; errors: string[] }> {
+  if (sharedPassword == null || String(sharedPassword) === '') {
+    return { valid: false, errors: ['Shared password required on confirm'] }
+  }
+  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
+  if (typeof validateSharedPasswordFull === 'function') {
+    return validateSharedPasswordFull(sharedPassword, breachCheck as any)
+  }
+  // Fallback (should never hit): format-only.
+  const { validateSharedPasswordFormat } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFormat: () => [] as string[] }))
+  const errs = (validateSharedPasswordFormat as any)(sharedPassword) as string[]
+  return { valid: errs.length === 0, errors: errs }
+}
+
+function toDryRunResult(
+  reports: BulkRowReport[],
+  sharedPassword: { valid: boolean; errors: string[] },
+  passwordColumnIgnored?: boolean,
+): BulkDryRunResult {
+  const errors = reports.flatMap((r) => r.errors.map((e) => `${r.email || `(row ${r.index + 1})`}: ${e}`))
+  const warnings: string[] = []
+  if (passwordColumnIgnored) warnings.push('password column ignored — use shared password field')
+  return {
+    total: reports.length,
+    validCount: reports.filter((r) => r.valid).length,
+    invalidCount: reports.filter((r) => !r.valid).length,
+    rows: reports,
+    errors,
+    sharedPassword,
+    ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  }
+}
+
 /**
  * Dry-run validation (no writes, no password hashing): per-row report for the
- * Admin bulk-import modal. Reads only (existing emails + departments).
+ * Admin bulk-import modal. Reads only (existing emails + departments) plus
+ * SINGLE HIBP check for sharedPassword (not per-row).
  */
 export async function dryRunBulkTeachers(
   collegeId: string,
   rows: BulkRow[],
   db: Db = prisma,
+  opts: BulkOptions = {},
 ): Promise<BulkDryRunResult> {
   const list = Array.isArray(rows) ? rows : []
+  const passwordColumnIgnored = list.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
   const ctx = { ...(await prefetchBulkContext(collegeId, list, db)), seen: new Set<string>() }
   const reports = list.map((r, i) => dryRunOneRow(r, i, collegeId, ctx, 'teacher'))
-  const errors = reports.flatMap((r) => r.errors.map((e) => `${r.email || `(row ${r.index + 1})`}: ${e}`))
-  return {
-    total: list.length,
-    validCount: reports.filter((r) => r.valid).length,
-    invalidCount: reports.filter((r) => !r.valid).length,
-    rows: reports,
-    errors,
-  }
+  const shared = await checkSharedForDryRun(opts.sharedPassword, opts.breachCheck)
+  return toDryRunResult(reports, shared, passwordColumnIgnored)
 }
 
 /** Dry-run validation for students (no writes, no password hashing). */
@@ -228,26 +288,24 @@ export async function dryRunBulkStudents(
   collegeId: string,
   rows: BulkRow[],
   db: Db = prisma,
+  opts: BulkOptions = {},
 ): Promise<BulkDryRunResult> {
   const list = Array.isArray(rows) ? rows : []
+  const passwordColumnIgnored = list.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
   const ctx = { ...(await prefetchBulkContext(collegeId, list, db)), seen: new Set<string>() }
   const reports = list.map((r, i) => dryRunOneRow(r, i, collegeId, ctx, 'student'))
-  const errors = reports.flatMap((r) => r.errors.map((e) => `${r.email || `(row ${r.index + 1})`}: ${e}`))
-  return {
-    total: list.length,
-    validCount: reports.filter((r) => r.valid).length,
-    invalidCount: reports.filter((r) => !r.valid).length,
-    rows: reports,
-    errors,
-  }
+  const shared = await checkSharedForDryRun(opts.sharedPassword, opts.breachCheck)
+  return toDryRunResult(reports, shared, passwordColumnIgnored)
 }
 
 export async function bulkCreateTeachers(
   collegeId: string,
   teachers: BulkRow[],
   db: Db = prisma,
+  opts: BulkOptions = {},
 ): Promise<BulkResult> {
   const errors: string[] = []
+  const warnings: string[] = []
   let success = 0
   let failed = 0
   const onFailed = () => {
@@ -255,6 +313,51 @@ export async function bulkCreateTeachers(
   }
   const rows = Array.isArray(teachers) ? teachers : []
   if (rows.length === 0) return { success: 0, failed: 0, errors }
+  const passwordColumnIgnored = rows.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
+  if (passwordColumnIgnored) warnings.push('password column ignored — use shared password field')
+  // P1: sharedPassword REQUIRED on confirm (route 400s first; service guards with zero writes).
+  if (opts.sharedPassword == null || String(opts.sharedPassword) === '') {
+    return {
+      success: 0,
+      failed: rows.length,
+      errors: ['Shared password is required. Set one password for all rows in this import.'],
+      sharedPasswordEcho: false,
+      sharedPasswordInvalid: true,
+      ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    }
+  }
+  // Single HIBP call per batch (not N sequential).
+  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
+  if (typeof validateSharedPasswordFull === 'function') {
+    const check = await (validateSharedPasswordFull as any)(opts.sharedPassword, opts.breachCheck)
+    if (!check.valid) {
+      return {
+        success: 0,
+        failed: rows.length,
+        errors: [...check.errors],
+        sharedPasswordEcho: false,
+        sharedPasswordInvalid: true,
+        ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+        ...(warnings.length ? { warnings } : {}),
+      }
+    }
+  }
+  // Single bcrypt hash reused for all rows (perf: bcrypt 12 ~200ms; N hashes would stall).
+  let sharedHash: string
+  try {
+    sharedHash = await hashPassword(String(opts.sharedPassword))
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message || err }, '[adminBulk] shared password hash failed (teachers)')
+    return {
+      success: 0,
+      failed: rows.length,
+      errors: ['Failed to hash shared password'],
+      sharedPasswordEcho: false,
+      sharedPasswordInvalid: true,
+      ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+    }
+  }
 
   const emails = [...new Set(rows.map(rowEmail).filter(Boolean))]
   let existing = new Set<string>()
@@ -313,41 +416,57 @@ export async function bulkCreateTeachers(
       errors.push(`${email}: Email already exists`)
       continue
     }
-    const deptId = resolveDeptId(t, collegeId, deptById, deptByName, errors, onFailed)
-    if (deptId === undefined && errors.length > 0 && errors[errors.length - 1].startsWith(`${email}: Unknown department`) ) continue
-    if (deptId === undefined && errors.length > 0 && errors[errors.length - 1] === `${email}: Invalid department`) continue
-    if (!checkPassword(t, errors, onFailed)) continue
-    const pw = t.password ? String(t.password) : tempPassword()
-    try {
-      const passwordHash = await hashPassword(t.password ? pw : pw)
-      valid.push({
-        email,
-        name: String(t.name || ''),
-        passwordHash,
-        departmentId: deptId,
-        empNumber: t.empNumber ? String(t.empNumber) : undefined,
-      })
-    } catch (err) {
-      logger.warn({ err: (err as Error)?.message || err, email }, '[adminBulk] password hash failed (teachers)')
+    // Dry-run parity: Name is required (was missing → empty-name users created).
+    const tName = String((t as Record<string, unknown>).name ?? '').trim()
+    if (!tName) {
       onFailed()
-      errors.push(`${email}: ${(err as Error)?.message || 'hash failed'}`)
+      errors.push(`${email}: Name is required`)
+      continue
     }
+    // Teacher parity with students dry-run (same before/after guard — dept
+    // errors fail the row, missing dept stays optional).
+    const beforeDept = errors.length
+    const deptId = resolveDeptId(t, collegeId, deptById, deptByName, errors, onFailed)
+    if (errors.length > beforeDept) continue
+    // P1: row.password ignored (deprecated). Trim empNumber (teacher parity).
+    const empRaw = (t as Record<string, unknown>).empNumber
+    const empNumber = empRaw != null && String(empRaw).trim() !== '' ? String(empRaw).trim() : undefined
+    valid.push({
+      email,
+      name: tName,
+      passwordHash: sharedHash,
+      departmentId: deptId,
+      empNumber,
+    })
   }
 
   if (valid.length > 0) {
+    // P1: mustChangePassword=true for all batch rows (nudge-only, NO route block —
+    // see §10 addendum philosophy). Response also carries nudgeEnabled:true so FE
+    // shows the dismissible banner (localStorage, no forced redirect).
+    // Pre-migration safe: try with flag, fallback without on P2022 (unknown column).
+    const baseData = valid.map((v) => ({
+      email: v.email,
+      name: v.name,
+      passwordHash: v.passwordHash,
+      role: 'TEACHER',
+      collegeId,
+      departmentId: v.departmentId || undefined,
+      empNumber: v.empNumber,
+    }))
     try {
-      const res = await (db as Db).user.createMany({
-        data: valid.map((v) => ({
-          email: v.email,
-          name: v.name,
-          passwordHash: v.passwordHash,
-          role: 'TEACHER',
-          collegeId,
-          departmentId: v.departmentId || undefined,
-          empNumber: v.empNumber,
-        })),
-        skipDuplicates: true,
-      })
+      let res: { count: number }
+      try {
+        res = await (db as Db).user.createMany({
+          data: baseData.map((d) => ({ ...d, mustChangePassword: true })) as any,
+          skipDuplicates: true,
+        })
+      } catch (err: any) {
+        if (err?.code === 'P2022' || /mustChangePassword/i.test(String(err?.message || ''))) {
+          logger.warn('[adminBulk] mustChangePassword column missing (pre-migration) — creating without flag')
+          res = await (db as Db).user.createMany({ data: baseData as any, skipDuplicates: true })
+        } else throw err
+      }
       success = res.count
       const skipped = valid.length - res.count
       for (let i = 0; i < skipped; i++) {
@@ -377,15 +496,26 @@ export async function bulkCreateTeachers(
       }
     }
   }
-  return { success, failed, errors }
+  return {
+    success,
+    failed,
+    errors,
+    sharedPasswordEcho: false as const,
+    mustChangePassword: true,
+    nudgeEnabled: true as const,
+    ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  }
 }
 
 export async function bulkCreateStudents(
   collegeId: string,
   students: BulkRow[],
   db: Db = prisma,
+  opts: BulkOptions = {},
 ): Promise<BulkResult> {
   const errors: string[] = []
+  const warnings: string[] = []
   let success = 0
   let failed = 0
   const onFailed = () => {
@@ -393,6 +523,48 @@ export async function bulkCreateStudents(
   }
   const rows = Array.isArray(students) ? students : []
   if (rows.length === 0) return { success: 0, failed: 0, errors }
+  const passwordColumnIgnored = rows.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
+  if (passwordColumnIgnored) warnings.push('password column ignored — use shared password field')
+  if (opts.sharedPassword == null || String(opts.sharedPassword) === '') {
+    return {
+      success: 0,
+      failed: rows.length,
+      errors: ['Shared password is required. Set one password for all rows in this import.'],
+      sharedPasswordEcho: false,
+      sharedPasswordInvalid: true,
+      ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    }
+  }
+  const { validateSharedPasswordFull } = await import('../utils/sharedPassword.js').catch(() => ({ validateSharedPasswordFull: null as any }))
+  if (typeof validateSharedPasswordFull === 'function') {
+    const check = await (validateSharedPasswordFull as any)(opts.sharedPassword, opts.breachCheck)
+    if (!check.valid) {
+      return {
+        success: 0,
+        failed: rows.length,
+        errors: [...check.errors],
+        sharedPasswordEcho: false,
+        sharedPasswordInvalid: true,
+        ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+        ...(warnings.length ? { warnings } : {}),
+      }
+    }
+  }
+  let sharedHash: string
+  try {
+    sharedHash = await hashPassword(String(opts.sharedPassword))
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message || err }, '[adminBulk] shared password hash failed (students)')
+    return {
+      success: 0,
+      failed: rows.length,
+      errors: ['Failed to hash shared password'],
+      sharedPasswordEcho: false,
+      sharedPasswordInvalid: true,
+      ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+    }
+  }
 
   const emails = [...new Set(rows.map(rowEmail).filter(Boolean))]
   let existing = new Set<string>()
@@ -456,52 +628,69 @@ export async function bulkCreateStudents(
       errors.push(`${email}: Email already exists`)
       continue
     }
+    // Dry-run parity: Name is required (was missing → empty-name users created).
+    const sName = String((s as Record<string, unknown>).name ?? '').trim()
+    if (!sName) {
+      onFailed()
+      errors.push(`${email}: Name is required`)
+      continue
+    }
     const before = errors.length
     const deptId = resolveDeptId(s, collegeId, deptById, deptByName, errors, onFailed)
     if (errors.length > before) continue
-    if (!checkPassword(s, errors, onFailed)) continue
+    // Dry-run parity: incomingYear range 1990..now+6 (was isNaN-only → 1800 accepted).
     const incomingRaw = (s as Record<string, unknown>).incomingYear
-    const incoming = incomingRaw != null && String(incomingRaw) !== '' ? parseInt(String(incomingRaw), 10) : undefined
-    if (incoming !== undefined && isNaN(incoming)) {
-      onFailed()
-      errors.push(`${email}: Invalid incomingYear value`)
-      continue
+    const incoming = incomingRaw != null && String(incomingRaw).trim() !== '' ? parseInt(String(incomingRaw), 10) : undefined
+    if (incoming !== undefined) {
+      const nowY = new Date().getFullYear()
+      if (isNaN(incoming) || incoming < 1990 || incoming > nowY + 6) {
+        onFailed()
+        errors.push(`${email}: Invalid incomingYear value`)
+        continue
+      }
     }
-    const pw = s.password ? String(s.password) : tempPassword()
-    try {
-      const passwordHash = await hashPassword(pw)
-      valid.push({
-        email,
-        name: String(s.name || ''),
-        passwordHash,
-        departmentId: deptId,
-        studentId: s.studentId ? String(s.studentId) : undefined,
-        incomingYear: incoming,
-        outgoingYear: incoming ? incoming + 4 : undefined,
-      })
-    } catch (err) {
-      logger.warn({ err: (err as Error)?.message || err, email }, '[adminBulk] password hash failed (students)')
-      onFailed()
-      errors.push(`${email}: ${(err as Error)?.message || 'hash failed'}`)
-    }
+    // P1: row.password ignored. Trim studentId (parity with empNumber trim).
+    const sidRaw = (s as Record<string, unknown>).studentId
+    const studentId = sidRaw != null && String(sidRaw).trim() !== '' ? String(sidRaw).trim() : undefined
+    valid.push({
+      email,
+      name: sName,
+      passwordHash: sharedHash,
+      departmentId: deptId,
+      studentId,
+      incomingYear: incoming,
+      outgoingYear: incoming ? incoming + 4 : undefined,
+    })
   }
 
   if (valid.length > 0) {
+    // P1: mustChangePassword=true (nudge-only, NO route block — §10 philosophy).
+    // Response also carries nudgeEnabled:true (dismissible banner, localStorage).
+    // Pre-migration fallback on P2022.
+    const baseData = valid.map((v) => ({
+      email: v.email,
+      name: v.name,
+      passwordHash: v.passwordHash,
+      role: 'STUDENT',
+      collegeId,
+      departmentId: v.departmentId || undefined,
+      studentId: v.studentId,
+      incomingYear: v.incomingYear,
+      outgoingYear: v.outgoingYear,
+    }))
     try {
-      const res = await (db as Db).user.createMany({
-        data: valid.map((v) => ({
-          email: v.email,
-          name: v.name,
-          passwordHash: v.passwordHash,
-          role: 'STUDENT',
-          collegeId,
-          departmentId: v.departmentId || undefined,
-          studentId: v.studentId,
-          incomingYear: v.incomingYear,
-          outgoingYear: v.outgoingYear,
-        })),
-        skipDuplicates: true,
-      })
+      let res: { count: number }
+      try {
+        res = await (db as Db).user.createMany({
+          data: baseData.map((d) => ({ ...d, mustChangePassword: true })) as any,
+          skipDuplicates: true,
+        })
+      } catch (err: any) {
+        if (err?.code === 'P2022' || /mustChangePassword/i.test(String(err?.message || ''))) {
+          logger.warn('[adminBulk] mustChangePassword column missing (pre-migration) — creating without flag')
+          res = await (db as Db).user.createMany({ data: baseData as any, skipDuplicates: true })
+        } else throw err
+      }
       success = res.count
       const skipped = valid.length - res.count
       for (let i = 0; i < skipped; i++) onFailed()
@@ -528,5 +717,14 @@ export async function bulkCreateStudents(
       }
     }
   }
-  return { success, failed, errors }
+  return {
+    success,
+    failed,
+    errors,
+    sharedPasswordEcho: false as const,
+    mustChangePassword: true,
+    nudgeEnabled: true as const,
+    ...(passwordColumnIgnored ? { passwordColumnIgnored: true as const } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  }
 }

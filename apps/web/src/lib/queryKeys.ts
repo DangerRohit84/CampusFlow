@@ -93,10 +93,13 @@ export const qk = {
   admin: {
     bundle: (collegeId: CollegeScope) =>
       (['admin', normScope(collegeId), 'bundle'] as const),
-    users: (collegeId: CollegeScope, role: string, dept: string, page: number) =>
-      (['admin-users', normScope(collegeId), role, dept, page] as const),
-    roleCounts: (collegeId: CollegeScope, dept: string) =>
-      (['admin-role-counts', normScope(collegeId), dept] as const),
+    // P2 per-tab filters compose into the key (q/roll/year/email). Absent =
+    // '' (same fetch as unfiltered). Prefix invalidation (['admin-users'])
+    // still catches every filtered variant (hierarchical keys rule).
+    users: (collegeId: CollegeScope, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
+      (['admin-users', normScope(collegeId), role, dept, page, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? ''] as const),
+    roleCounts: (collegeId: CollegeScope, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
+      (['admin-role-counts', normScope(collegeId), dept, filters?.q ?? '', filters?.roll ?? '', filters?.year ?? '', filters?.email ?? ''] as const),
     colleges: () => (['admin-colleges'] as const),
   },
   superDashboard: (collegeId?: string, from?: string, to?: string) =>

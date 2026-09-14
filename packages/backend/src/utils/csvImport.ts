@@ -3,7 +3,11 @@
 // write. CSV parsing + format checks are pure (no DB) so they are hermetic
 // Small tests (<100ms); DB checks (duplicate email, dept resolution) stay in
 // services/adminBulk.ts dry-run paths. Header aliases are case-insensitive:
-// name/email/dept|department|departmentId/year|incomingYear/studentId|empNumber/password.
+// name/email/dept|department|departmentId/year|incomingYear/studentId|empNumber.
+// P1 shared-password (2026-09-14, SUPERSEDES per-row password): CSV password
+// column REMOVED from templates. parseCsv still maps `password` alias (to detect
+// legacy uploads → warn + ignore, not 400 this release). validateRowsLocal IGNORES
+// row.password (server authoritative is sharedPassword via utils/sharedPassword).
 // Formula-injection guard: values starting with = + - @ are left as-is here
 // (storage is DB text, never Excel) — escapeExcelValue applies on export only.
 
@@ -102,6 +106,9 @@ export interface LocalRowIssue {
 /**
  * Local format validation (no DB): email shape, name required, year numeric,
  * role-specific id presence is optional (backend fills nothing — just format).
+ * P1 shared-password: row.password is IGNORED here (deprecated column → warn +
+ * ignore at route/service layer, not a local error). Shared strength/HIBP lives
+ * in utils/sharedPassword (single call per batch, server authoritative).
  * Returns per-row issues; valid rows have empty errors.
  */
 export function validateRowsLocal(rows: BulkRow[], type: 'teacher' | 'student'): LocalRowIssue[] {
@@ -122,18 +129,51 @@ export function validateRowsLocal(rows: BulkRow[], type: 'teacher' | 'student'):
       const nowY = new Date().getFullYear()
       if (isNaN(y) || y < 1990 || y > nowY + 6) errors.push('Invalid incomingYear value')
     }
-    const pw = (row as Record<string, unknown>).password
-    if (pw != null && String(pw) !== '' && (String(pw).length < 8 || String(pw).length > 72)) {
-      errors.push('Password must be 8-72 characters')
-    }
+    // P1: row.password intentionally ignored (deprecated shared-password migration).
+    // Do NOT validate per-row passwords here — see detectDeprecatedPasswordColumn
+    // + stripDeprecatedPasswordColumn (warn + ignore, not 400 this release).
     return { index: idx, email, errors }
   })
 }
 
-/** CSV template for the Admin UI download (role-specific columns). */
+/** CSV template for the Admin UI download (role-specific columns). P1 shared-password: NO password column. */
 export function csvTemplate(type: 'teacher' | 'student'): string {
-  if (type === 'teacher') return 'name,email,department,password\n"Jane Sharma",jane@college.edu,"Computer Science",\n'
+  if (type === 'teacher') return 'name,email,department,empNumber\n"Jane Sharma",jane@college.edu,"Computer Science",EMP001\n'
+  // Student shared-password: applies to every row, set in the modal (not in CSV).
   return 'name,email,department,incomingYear,studentId\n"Aarav Kumar",aarav@college.edu,"Computer Science",2024,STU001\n'
+}
+
+/**
+ * P1 backward compat: detect legacy CSVs that still contain a `password` header.
+ * parseCsv maps the alias → row.password key (even when blank). Presence of the
+ * KEY (not value) means the header existed. Caller warns:
+ * `password column ignored — use shared password field` (not 400 this release).
+ */
+export function detectDeprecatedPasswordColumn(rows: BulkRow[]): boolean {
+  return Array.isArray(rows) && rows.some((r) => r != null && Object.prototype.hasOwnProperty.call(r, 'password'))
+}
+
+/**
+ * Strip deprecated per-row passwords before shared-password processing.
+ * Returns cleaned rows (new objects, input untouched) + ignored count.
+ * Never logs values — counts only.
+ */
+export function stripDeprecatedPasswordColumn(rows: BulkRow[]): { cleaned: BulkRow[]; ignoredCount: number } {
+  if (!Array.isArray(rows)) return { cleaned: [], ignoredCount: 0 }
+  let ignoredCount = 0
+  const cleaned = rows.map((r) => {
+    const copy = { ...(r as Record<string, unknown>) } as BulkRow & Record<string, unknown>
+    if (Object.prototype.hasOwnProperty.call(copy, 'password')) {
+      const v = copy.password
+      if (v != null && String(v) !== '') ignoredCount++
+      else ignoredCount++ // header present even when blank → still counts as ignored
+      delete (copy as Record<string, unknown>).password
+    }
+    return copy as BulkRow
+  })
+  // Only report ignored when the column existed at all (avoid 0-noise).
+  const hadColumn = detectDeprecatedPasswordColumn(rows)
+  return { cleaned, ignoredCount: hadColumn ? ignoredCount : 0 }
 }
 
 export type BulkImportRole = 'STUDENT' | 'TEACHER'

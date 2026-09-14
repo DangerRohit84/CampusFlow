@@ -193,6 +193,9 @@ function fakeBulkDb(seed: {
 }
 
 describe('adminBulk batched (4 round-trips, not 4N)', () => {
+  // P1 shared-password (2026-09-14): confirm requires sharedPassword (hermetic
+  // mock breachCheck — never real HIBP in tests). Row semantics unchanged.
+  const SHARED = { sharedPassword: 'StrongX9!q2wE', breachCheck: async () => ({ breached: false }) } as never
   it('creates teachers via prefetch + createMany (same errors as per-row)', async () => {
     const db = fakeBulkDb({
       users: [{ email: 'taken@x.com' }],
@@ -206,6 +209,7 @@ describe('adminBulk batched (4 round-trips, not 4N)', () => {
         { email: 'bad@x.com', name: 'C', department: 'Nope' },
       ],
       db as never,
+      SHARED,
     );
     expect(res.success).toBe(1);
     expect(res.failed).toBe(2);
@@ -215,11 +219,11 @@ describe('adminBulk batched (4 round-trips, not 4N)', () => {
 
   it('validates incomingYear + reports insert failure (logged, not silent)', async () => {
     const db = fakeBulkDb({ depts: [] });
-    const bad = await bulkCreateStudents('c1', [{ email: 's@x.com', incomingYear: 'abc' }], db as never);
+    const bad = await bulkCreateStudents('c1', [{ email: 's@x.com', name: 'S', incomingYear: 'abc' }], db as never, SHARED);
     expect(bad.failed).toBe(1);
     expect(bad.errors.join('|')).toContain('incomingYear');
     const down = fakeBulkDb({ depts: [], failCreate: true });
-    const res = await bulkCreateStudents('c1', [{ email: 'ok@x.com', name: 'Ok' }], down as never);
+    const res = await bulkCreateStudents('c1', [{ email: 'ok@x.com', name: 'Ok' }], down as never, SHARED);
     expect(res.failed).toBe(1);
   });
 });

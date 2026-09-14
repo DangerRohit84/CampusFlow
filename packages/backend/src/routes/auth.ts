@@ -416,6 +416,20 @@ router.post('/login', async (req: Request, res: Response) => {
     const _outY = _stud?.outgoingYear ?? (user as any).outgoingYear ?? null
     const _sid = _stud?.studentId ?? (user as any).studentId ?? null
 
+    // P1 shared-password import + bulk-password nudge (§10): surface flags for the
+    // FE dismissible banner (NO route block — nudge only). Best-effort read so
+    // pre-migration DBs / stale clients never break login (P2022-tolerant).
+    let _mustChange = false
+    let _nudge = false
+    try {
+      const flags = await (prisma as any).user.findUnique({
+        where: { id: user.id },
+        select: { mustChangePassword: true, passwordNudgeAt: true },
+      })
+      _mustChange = (flags as any)?.mustChangePassword === true
+      _nudge = (flags as any)?.passwordNudgeAt != null
+    } catch {}
+
     res.json({
       user: {
         id: user.id,
@@ -433,6 +447,9 @@ router.post('/login', async (req: Request, res: Response) => {
         college: userWithCollege?.college,
         collegeId: user.collegeId,
         portfolioUrl: (user as any).portfolioUrl || null,
+        // Nudge-only flags (no login block): FE shows a dismissible banner.
+        mustChangePassword: _mustChange,
+        passwordNudge: _nudge,
       },
       token,
       csrfToken,
@@ -487,7 +504,18 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
     } catch {}
 
     const newHash = await bcrypt.hash(body.newPassword, 12)
-    await prisma.user.update({ where: { id: req.userId }, data: { passwordHash: newHash } as any })
+    // Clear shared-password flags on successful change (import mustChange +
+    // bulk-pw nudge) — best-effort with pre-migration fallback (P2022-tolerant).
+    try {
+      await (prisma as any).user.update({
+        where: { id: req.userId },
+        data: { passwordHash: newHash, mustChangePassword: false, passwordNudgeAt: null },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2022' || /mustChangePassword|passwordNudgeAt/i.test(String(err?.message || ''))) {
+        await prisma.user.update({ where: { id: req.userId }, data: { passwordHash: newHash } as any })
+      } else throw err
+    }
     // Revoke current jti so stolen-session replay ends on password change.
     try { if (req.jwtJti) revokeJti(req.jwtJti) } catch {}
     try { if (req.userId) clearAuthorizeCache(req.userId) } catch {}
@@ -527,6 +555,14 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       }
     } catch {}
 
+    // Nudge-only flags (same contract as login — no route block).
+    let _mMustChange = false
+    let _mNudge = false
+    try {
+      _mMustChange = (user as any)?.mustChangePassword === true
+      _mNudge = (user as any)?.passwordNudgeAt != null
+    } catch {}
+
     res.json({
       id: user.id,
       name: user.name,
@@ -542,6 +578,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       studentId: _mStud?.studentId ?? (user as any).studentId ?? null,
       empNumber: _mEmp ?? (user as any).empNumber ?? null,
       college: user.college,
+      mustChangePassword: _mMustChange,
+      passwordNudge: _mNudge,
     })
   } catch (error) {
     res.status(500).json({ error: 'Failed to get user' })

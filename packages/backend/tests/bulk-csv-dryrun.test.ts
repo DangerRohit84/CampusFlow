@@ -58,10 +58,12 @@ describe('validateRowsLocal', () => {
     expect(issues[0].errors).toContain('Name is required')
     expect(issues[2].errors).toContain('Duplicate email in upload')
   })
-  it('validateRowsLocal_flags_bad_year_and_short_password', () => {
+  it('validateRowsLocal_flags_bad_year_and_ignores_password_col (P1 shared-password)', () => {
+    // P1 (2026-09-14, SUPERSEDES per-row password): row.password is IGNORED here
+    // (deprecated column → warn + ignore at route/service layer, not a local error).
     const issues = validateRowsLocal([{ name: 'A', email: 'a@x.edu', incomingYear: 'abc', password: 'short' }], 'student')
     expect(issues[0].errors).toContain('Invalid incomingYear value')
-    expect(issues[0].errors).toContain('Password must be 8-72 characters')
+    expect(issues[0].errors).not.toContain('Password must be 8-72 characters')
   })
 })
 

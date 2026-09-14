@@ -221,6 +221,19 @@ model User {
   // room/mute.ts); writers pass objects (no JSON.stringify). Migration
   // 20260922000000_order5_9 backfills invalid → '{}' then ALTER USING ::jsonb.
   preferences    Json?    @default("{}")
+  // P1 shared-password import (2026-09-14): forced-change tracking for new
+  // shared-pw batches. Additive nullable-safe: @default(false) backfills existing
+  // rows to false (no lockout). Bulk import sets true; change-password clears to
+  // false. Login/me return mustChange flag (nudge-only, NO route block — see
+  // plan-bulk-password-reset §10 addendum philosophy). Pre-migration code paths
+  // use (prisma as any) + try/catch fallback (P2022-tolerant).
+  mustChangePassword Boolean @default(false)
+  // Bulk-password nudge (2026-09-14, §10 addendum): dismissible nudge for
+  // shared-set/shared-reset cohorts. mustChangePassword stays false for bulk-pw;
+  // this nullable timestamp is the trigger (set when nudgeUsers=true, cleared on
+  // change-password). Login/me return passwordNudge flag. FE dismiss persists in
+  // localStorage (V1, no BE ack). Additive, null = no nudge (backward compat).
+  passwordNudgeAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   reports        Report[]

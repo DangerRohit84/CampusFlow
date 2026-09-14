@@ -17,6 +17,7 @@ import CommandPalette from '../CommandPalette'
 import ThemeToggle from '../ThemeToggle'
 import AvatarDropdown from './AvatarDropdown'
 import UsernameSetupModal from '../UsernameSetupModal'
+import PasswordNudgeBanner from '../admin/PasswordNudgeBanner'
 import ReportModal from '../ReportModal'
 import toast from 'react-hot-toast'
 import { hackathonAPI, formAPI, roomAPI, internshipAPI, codingContestAPI, notificationAPI, assignmentHubAPI, authAPI } from '../../lib/api'
@@ -717,6 +718,14 @@ export default function Layout() {
         {/* WHY: programmatic route-change focus target (RouteFocus) must never show a visible ring — tabindex=-1 + outline-none only. Visible rings stay on interactive elements. */}
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none focus:outline-none focus-visible:outline-none">
           <div className="campus-shell py-6">
+            {/* §10 dismissible shared-password nudge (all authed pages, no forced block). */}
+            <div className="mb-4">
+              <PasswordNudgeBanner
+                userId={(user as any)?.id}
+                mustChangePassword={(user as any)?.mustChangePassword}
+                passwordNudge={(user as any)?.passwordNudge}
+              />
+            </div>
             <div className="animate-slideUp">
               <Outlet />
             </div>

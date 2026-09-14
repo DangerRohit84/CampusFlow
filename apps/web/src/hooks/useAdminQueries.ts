@@ -9,6 +9,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { adminAPI, departmentAPI } from '../lib/api'
 import { qk } from '../lib/queryKeys'
 import { logger } from '../lib/logger'
+import { buildAdminUserQuery, buildAdminRoleCountsQuery } from '../components/admin/bulkHelpers'
 
 /**
  * @deprecated Import from `../lib/queryKeys` (`qk.admin.*`) instead.
@@ -17,10 +18,10 @@ import { logger } from '../lib/logger'
  */
 export const adminKeys = {
   bundle: (collegeId: string | null) => qk.admin.bundle(collegeId),
-  users: (collegeId: string | null, role: string, dept: string, page: number) =>
-    qk.admin.users(collegeId, role, dept, page),
-  roleCounts: (collegeId: string | null, dept: string) =>
-    qk.admin.roleCounts(collegeId, dept),
+  users: (collegeId: string | null, role: string, dept: string, page: number, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
+    qk.admin.users(collegeId, role, dept, page, filters),
+  roleCounts: (collegeId: string | null, dept: string, filters?: { q?: string; roll?: string; year?: string; email?: string }) =>
+    qk.admin.roleCounts(collegeId, dept, filters),
   colleges: () => qk.admin.colleges(),
 }
 
@@ -60,7 +61,7 @@ export function useAdminBundle(collegeId: string | null, enabled = true) {
   })
 }
 
-/** Paged users (60s stale, server-side page/limit/total). */
+/** Paged users (60s stale, server-side page/limit/total). P2 filters compose. */
 export function useAdminUsers(
   collegeId: string | null,
   role: string,
@@ -68,18 +69,20 @@ export function useAdminUsers(
   page: number,
   pageSize = 50,
   enabled = true,
+  filters?: { q?: string; roll?: string; year?: string; email?: string },
 ) {
+  const q = (filters?.q ?? '').trim()
+  const roll = (filters?.roll ?? '').trim()
+  const year = (filters?.year ?? '').trim()
+  const email = (filters?.email ?? '').trim()
   return useQuery({
-    queryKey: qk.admin.users(collegeId, role, dept, page),
-    queryFn: ({ signal }) =>
-      adminAPI.getUsers({
-        collegeId: collegeId || undefined,
-        role,
-        departmentId: dept !== 'all' ? dept : undefined,
-        page,
-        limit: pageSize,
-        signal,
-      }),
+    queryKey: qk.admin.users(collegeId, role, dept, page, { q, roll, year, email }),
+    queryFn: ({ signal }) => {
+      // P2 builders own per-tab gating (teachers NO year, admins no roll/year)
+      // so list/counts stay in parity; backend remains authoritative (ignores too).
+      const params = buildAdminUserQuery(role, dept, page, pageSize, { q, roll, year, email }, collegeId || undefined)
+      return adminAPI.getUsers({ ...params, signal })
+    },
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
@@ -88,16 +91,26 @@ export function useAdminUsers(
   })
 }
 
-/** Role totals for tab badges (60s stale). */
-export function useAdminRoleCounts(collegeId: string | null, dept: string, enabled = true) {
+/** Role totals for tab badges (60s stale). P2: same filters as the list. */
+export function useAdminRoleCounts(
+  collegeId: string | null,
+  dept: string,
+  enabled = true,
+  filters?: { q?: string; roll?: string; year?: string; email?: string },
+  // Active tab role — maps the shared roll box to the single role-appropriate
+  // param (backend ANDs; studentId+empNumber together would match nothing).
+  activeRole?: string,
+) {
+  const q = (filters?.q ?? '').trim()
+  const roll = (filters?.roll ?? '').trim()
+  const year = (filters?.year ?? '').trim()
+  const email = (filters?.email ?? '').trim()
   return useQuery({
-    queryKey: qk.admin.roleCounts(collegeId, dept),
-    queryFn: ({ signal }) =>
-      adminAPI.getRoleCounts({
-        collegeId: collegeId || undefined,
-        departmentId: dept !== 'all' ? dept : undefined,
-        signal,
-      }),
+    queryKey: qk.admin.roleCounts(collegeId, dept, { q, roll, year, email }),
+    queryFn: ({ signal }) => {
+      const params = buildAdminRoleCountsQuery(activeRole, dept, { q, roll, year, email }, collegeId || undefined)
+      return adminAPI.getRoleCounts({ ...params, signal })
+    },
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,

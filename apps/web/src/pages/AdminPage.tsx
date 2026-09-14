@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { adminAPI, departmentAPI } from '../lib/api'
 import { useAdminBundle, useAdminUsers, useAdminRoleCounts, useAdminColleges } from '../hooks/useAdminQueries'
+import { useDebounce } from '../hooks/useDebounce'
 import { useQueryClient } from '@tanstack/react-query'
 import { adminKeys as deprecatedAdminKeys } from '../hooks/useAdminQueries'
 void deprecatedAdminKeys; // compat import kept (SSOT is qk.admin.*)
@@ -23,6 +24,10 @@ import CenteredLoader from '../components/ui/CenteredLoader'
 import Pagination from '../components/shared/Pagination'
 import { useConfirm } from '../components/ui/ConfirmModal'
 import BulkImportModal, { type BulkRole } from '../components/admin/BulkImportModal'
+import BulkDeleteModal from '../components/admin/BulkDeleteModal'
+import BulkPasswordModal from '../components/admin/BulkPasswordModal'
+import PasswordNudgeBanner from '../components/admin/PasswordNudgeBanner'
+import { pageSelectionState, toggleSelected, emptyStateCopy, yearOptions } from '../components/admin/bulkHelpers'
 
 // WHY: Users tab pages server-side at 50 (backend take:50+count dual-mode,
 // same cursor/page contract as notifications/rooms). Keeps 10k-scale lists correct.
@@ -114,6 +119,21 @@ export default function AdminPage() {
   const [usersTotalPages, setUsersTotalPages] = useState(1)
   const [roleTotals, setRoleTotals] = useState({ students: 0, teachers: 0, college_admins: 0 })
   const [usersLoading, setUsersLoading] = useState(false)
+  // P2 per-tab filters: debounced name search (300ms) + roll/year/email.
+  // Tab switch preserves dept but clears q/roll/year/email (avoids stale
+  // `year` leaking from students to teachers, which has no Year control).
+  const [searchRaw, setSearchRaw] = useState(() => new URLSearchParams(window.location.search).get('q') || '')
+  const [rollFilter, setRollFilter] = useState(() => new URLSearchParams(window.location.search).get('roll') || '')
+  const [yearFilter, setYearFilter] = useState(() => new URLSearchParams(window.location.search).get('year') || '')
+  const [emailFilter, setEmailFilter] = useState(() => new URLSearchParams(window.location.search).get('email') || '')
+  const debouncedSearch = useDebounce(searchRaw, 300)
+  const isFiltering = searchRaw.trim() !== debouncedSearch.trim()
+  // P3 + bulk-pw multi-select (cleared on tab/filter/page change — avoids
+  // cross-role stale ids). Self row is never selectable (delete fails-all on
+  // self; pw strips self) — BE remains authoritative for last-admin guards.
+  const [selected, setSelected] = useState<string[]>([])
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkPwMode, setBulkPwMode] = useState<'shared-set' | 'shared-reset' | null>(null)
   const [showAddCollege, setShowAddCollege] = useState(false)
   const [newCollege, setNewCollege] = useState({ name: '', code: '', address: '' })
   // #11 bulk CSV import modal (dry-run → confirm). Role follows the users
@@ -133,6 +153,11 @@ export default function AdminPage() {
   const collegesEnabled = isSuperAdmin && !selectedCollegeId
   const bundleQuery = useAdminBundle(effectiveCollegeId, inCollegeView)
   const usersRole = subTabToRole(userSubTab)
+  // P2: list + counts share the same filter object so badges == list totals.
+  const listFilters = useMemo(
+    () => ({ q: debouncedSearch, roll: rollFilter, year: yearFilter, email: emailFilter }),
+    [debouncedSearch, rollFilter, yearFilter, emailFilter],
+  )
   const usersQuery = useAdminUsers(
     effectiveCollegeId,
     usersRole,
@@ -140,8 +165,9 @@ export default function AdminPage() {
     usersPage,
     USERS_PAGE_SIZE,
     inCollegeView,
+    listFilters,
   )
-  const roleCountsQuery = useAdminRoleCounts(effectiveCollegeId, deptFilter, inCollegeView)
+  const roleCountsQuery = useAdminRoleCounts(effectiveCollegeId, deptFilter, inCollegeView, listFilters, usersRole)
   const collegesQuery = useAdminColleges(collegesEnabled)
 
   // (Deleted 200-line manual cache: 4 Maps + 4 AbortControllers + 4 seqs +
@@ -171,29 +197,29 @@ export default function AdminPage() {
     }
   }, [queryClient])
 
-  // Compat: RQ owns ['admin-users', collegeId, role, dept, page] (60s stale,
-  // keepPreviousData). Paging never refetches the bundle (separate query key).
+  // Compat: RQ owns ['admin-users', ...] (60s stale, keepPreviousData).
+  // Paging never refetches the bundle (separate query key). Prefix
+  // invalidation catches every P2 filtered variant (hierarchical keys rule).
   const loadUsers = useCallback(async (collegeId: string, deptId: string, roleTab: 'students' | 'teachers' | 'college_admins', page: number, opts?: { force?: boolean }) => {
     try {
-      const role = subTabToRole(roleTab)
-      const dept = deptId ?? 'all'
+      void collegeId; void deptId; void roleTab; void page
       if (opts?.force) {
-        await queryClient.invalidateQueries({ queryKey: qk.admin.users(collegeId, role, dept, page) })
+        await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       } else {
-        await queryClient.refetchQueries({ queryKey: qk.admin.users(collegeId, role, dept, page) }, { throwOnError: false } as never).catch((err) => { logger.warn('admin refetch failed (non-fatal)', { err }) })
+        await queryClient.refetchQueries({ queryKey: ['admin-users'] }, { throwOnError: false } as never).catch((err) => { logger.warn('admin refetch failed (non-fatal)', { err }) })
       }
     } catch (e) {
       logger.error('Failed to load users', { error: e })
     }
   }, [queryClient])
 
-  // Compat: RQ owns ['admin-role-counts', collegeId, dept] via single GROUP BY
+  // Compat: RQ owns ['admin-role-counts', ...] via single GROUP BY
   // (was 3× take:1+count round-trips). Badges can never disagree with the list.
   const loadRoleCounts = useCallback(async (collegeId: string, deptId: string, opts?: { force?: boolean }) => {
     try {
-      const dept = deptId ?? 'all'
-      if (opts?.force) await queryClient.invalidateQueries({ queryKey: qk.admin.roleCounts(collegeId, dept) })
-      else await queryClient.refetchQueries({ queryKey: qk.admin.roleCounts(collegeId, dept) }, { throwOnError: false } as never).catch((err) => { logger.warn('admin refetch failed (non-fatal)', { err }) })
+      void collegeId; void deptId
+      if (opts?.force) await queryClient.invalidateQueries({ queryKey: ['admin-role-counts'] })
+      else await queryClient.refetchQueries({ queryKey: ['admin-role-counts'] }, { throwOnError: false } as never).catch((err) => { logger.warn('admin refetch failed (non-fatal)', { err }) })
     } catch (e) {
       logger.error('Failed to load role counts', { error: e })
     }
@@ -281,8 +307,15 @@ export default function AdminPage() {
     }
   }, [departments, deptFilter])
 
-  // Persist users view (?tab=&role=&dept=&page=) — shareable links, survives reload.
-  // Preserves existing params (collegeId/collegeName); replace avoids history spam.
+  // P3: clear multi-select whenever the visible slice changes (tab/filter/page)
+  // so bulk actions can never carry cross-role stale ids.
+  useEffect(() => {
+    setSelected([])
+  }, [userSubTab, deptFilter, usersPage, debouncedSearch, rollFilter, yearFilter, emailFilter, effectiveCollegeId])
+
+  // Persist users view (?tab=&role=&dept=&page=&q=&roll=&year=&email=) —
+  // shareable links, survives reload. Preserves existing params
+  // (collegeId/collegeName); replace avoids history spam.
   useEffect(() => {
     const next = new URLSearchParams(searchParams)
     next.set('tab', activeTab)
@@ -290,10 +323,14 @@ export default function AdminPage() {
       next.set('role', userSubTab)
       next.set('dept', deptFilter)
       next.set('page', String(usersPage))
+      if (searchRaw.trim()) next.set('q', searchRaw.trim()); else next.delete('q')
+      if (rollFilter.trim()) next.set('roll', rollFilter.trim()); else next.delete('roll')
+      if (yearFilter) next.set('year', yearFilter); else next.delete('year')
+      if (emailFilter.trim()) next.set('email', emailFilter.trim()); else next.delete('email')
     }
     if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, userSubTab, deptFilter, usersPage])
+  }, [activeTab, userSubTab, deptFilter, usersPage, searchRaw, rollFilter, yearFilter, emailFilter])
 
   // WHY one-click fix: sync ?collegeId/?collegeName URL → state + store when URL changes
   // (direct navigation from /superadmin/colleges, back/forward, manual edit).
@@ -375,6 +412,25 @@ export default function AdminPage() {
     notifyEntityMutated('user')
   }
 
+  // P2: sub-tab switch preserves dept, clears q/roll/year/email + resets page
+  // (avoids cross-role stale `year` leaking to teachers, which has no Year control).
+  const switchUserSubTab = (t: 'students' | 'teachers' | 'college_admins') => {
+    setUserSubTab(t)
+    setUsersPage(1)
+    setSearchRaw('')
+    setRollFilter('')
+    setYearFilter('')
+    setEmailFilter('')
+  }
+  const clearUserFilters = () => {
+    setSearchRaw('')
+    setRollFilter('')
+    setYearFilter('')
+    setEmailFilter('')
+    setDeptFilter('all')
+    setUsersPage(1)
+  }
+
   const handleAddUser = async () => {
     if (!newUser.email || !newUser.name) {
       toast.error('Email and name required')
@@ -395,15 +451,15 @@ export default function AdminPage() {
     }
   }
 
-  const handleDeleteUser = async (id: string) => {
-    const ok = await confirmDialog({ title: 'Delete user?', message: 'Delete this user? They will lose access immediately.', confirmLabel: 'Delete' })
+  const handleDeleteUser = async (id: string, name?: string) => {
+    const ok = await confirmDialog({ title: 'Delete user?', message: `Delete ${name || 'this user'}? They will lose access immediately. This cannot be undone.`, confirmLabel: 'Delete' })
     if (!ok) return
     try {
       await adminAPI.deleteUser(id)
       toast.success('User deleted')
       if (selectedCollegeId) refreshUsersView(selectedCollegeId)
-    } catch (err) {
-      toast.error('Failed to delete user')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to delete user')
     }
   }
 
@@ -488,6 +544,15 @@ export default function AdminPage() {
         </select>
       </span>
     )
+
+  // P3 selection math (derived, current page only — selection clears on slice
+  // change). Self row excluded from select-all (never actionable in bulk).
+  const selfId = (user as unknown as { id?: string })?.id
+  const selectableIds = (users as any[]).filter((u) => u.id !== selfId).map((u) => u.id as string)
+  const { all: allPageSelected, some: somePageSelected } = pageSelectionState(selectableIds, selected)
+  const selectedUsers = (users as any[]).filter((u) => selected.includes(u.id))
+  const hasActiveFilters =
+    searchRaw.trim() !== '' || rollFilter.trim() !== '' || yearFilter !== '' || emailFilter.trim() !== '' || deptFilter !== 'all'
 
   const handleDeleteHackathon = async (id: string) => {
     const ok = await confirmDialog({ title: 'Delete hackathon?', message: 'Delete this hackathon and its registrations?', confirmLabel: 'Delete' })
@@ -933,9 +998,9 @@ export default function AdminPage() {
             <button
               role="tab"
               aria-selected={userSubTab === 'students'}
-              onClick={() => { setUserSubTab('students'); setUsersPage(1) }}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1), staleTime: 60 * 1000 }) }}
+              onClick={() => switchUserSubTab('students')}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'STUDENT', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'students' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -945,9 +1010,9 @@ export default function AdminPage() {
             <button
               role="tab"
               aria-selected={userSubTab === 'teachers'}
-              onClick={() => { setUserSubTab('teachers'); setUsersPage(1) }}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1), staleTime: 60 * 1000 }) }}
+              onClick={() => switchUserSubTab('teachers')}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'TEACHER', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'teachers' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -957,9 +1022,9 @@ export default function AdminPage() {
             <button
               role="tab"
               aria-selected={userSubTab === 'college_admins'}
-              onClick={() => { setUserSubTab('college_admins'); setUsersPage(1) }}
-              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1), staleTime: 60 * 1000 }) }}
-              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1), staleTime: 60 * 1000 }) }}
+              onClick={() => switchUserSubTab('college_admins')}
+              onMouseEnter={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
+              onFocus={() => { const cid = effectiveCollegeId; if (cid) void queryClient.prefetchQuery({ queryKey: qk.admin.users(cid, 'COLLEGE_ADMIN', deptFilter, 1, listFilters), staleTime: 60 * 1000 }) }}
               className={clsx('px-4 py-2 rounded-xl text-sm font-medium transition-all',
                 userSubTab === 'college_admins' ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300' : 'text-surface-500 dark:text-zinc-400 hover:bg-surface-100 dark:hover:bg-white/5 hover:text-surface-700 dark:hover:text-white'
               )}
@@ -968,25 +1033,122 @@ export default function AdminPage() {
             </button>
           </div>
 
-          {/* Department filter — shared by the students + teachers lists, default All */}
-          {(userSubTab === 'students' || userSubTab === 'teachers') && (
-            <div className="flex items-center gap-2 mb-4">
-              <label htmlFor="dept-filter" className="text-xs font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">
-                Department
-              </label>
-              <select
-                id="dept-filter"
-                value={departments.some((d) => d.id === deptFilter) ? deptFilter : 'all'}
-                onChange={(e) => { setDeptFilter(e.target.value); setUsersPage(1) }}
-                disabled={usersLoading}
+          {/* P2 per-tab filters (AND together with college+role+dept, page resets to 1).
+              Students: name + roll + year + dept. Teachers: name + emp + dept (NO year).
+              College admins: name + email only (minimal). Debounced 300ms search. */}
+          <div className="flex flex-wrap items-end gap-2 mb-4">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="users-search" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">Search name</label>
+              <input
+                id="users-search"
+                type="text"
+                value={searchRaw}
+                onChange={(e) => { setSearchRaw(e.target.value); setUsersPage(1) }}
+                placeholder="Search name"
                 className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 disabled:opacity-50"
+              />
+            </div>
+            {userSubTab === 'students' && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="users-roll" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">Roll number</label>
+                  <input
+                    id="users-roll"
+                    type="text"
+                    value={rollFilter}
+                    onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1) }}
+                    placeholder="Roll number"
+                    className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="users-year" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">Year</label>
+                  <select
+                    id="users-year"
+                    value={yearFilter}
+                    onChange={(e) => { setYearFilter(e.target.value); setUsersPage(1) }}
+                    className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                  >
+                    <option value="">All years</option>
+                    {yearOptions().map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+            {userSubTab === 'teachers' && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="users-emp" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">Employee number</label>
+                <input
+                  id="users-emp"
+                  type="text"
+                  value={rollFilter}
+                  onChange={(e) => { setRollFilter(e.target.value); setUsersPage(1) }}
+                  placeholder="Employee number"
+                  className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                />
+              </div>
+            )}
+            {userSubTab === 'college_admins' && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="users-email" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">Email</label>
+                <input
+                  id="users-email"
+                  type="text"
+                  value={emailFilter}
+                  onChange={(e) => { setEmailFilter(e.target.value); setUsersPage(1) }}
+                  placeholder="Email"
+                  className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                />
+              </div>
+            )}
+            {(userSubTab === 'students' || userSubTab === 'teachers') && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="dept-filter" className="text-[11px] font-semibold text-surface-500 dark:text-night-400 uppercase tracking-wide">
+                  Department
+                </label>
+                <select
+                  id="dept-filter"
+                  value={departments.some((d) => d.id === deptFilter) ? deptFilter : 'all'}
+                  onChange={(e) => { setDeptFilter(e.target.value); setUsersPage(1) }}
+                  disabled={usersLoading}
+                  className="px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-white dark:bg-night-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 disabled:opacity-50"
+                >
+                  <option value="all">All departments</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {(usersLoading || isFiltering) && <span className="text-xs text-surface-400 dark:text-night-400 pb-2">Filtering…</span>}
+          </div>
+
+          {/* P3 selected-count bar (sticky above table when selected>0). */}
+          {selected.length > 0 && (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-surface-900 dark:bg-white text-white dark:text-black text-sm">
+              <span className="font-semibold">{selected.length} selected</span>
+              <button onClick={() => setSelected([])} className="px-2 py-1 rounded-lg text-xs font-semibold underline underline-offset-2">Clear</button>
+              <span className="flex-1" />
+              <button
+                onClick={() => setBulkPwMode('shared-set')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 dark:bg-black/10 hover:bg-white/25 dark:hover:bg-black/20 text-xs font-semibold"
               >
-                <option value="all">All departments</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-              {usersLoading && <span className="text-xs text-surface-400 dark:text-night-400">Filtering…</span>}
+                Set password…
+              </button>
+              <button
+                onClick={() => setBulkPwMode('shared-reset')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 dark:bg-black/10 hover:bg-white/25 dark:hover:bg-black/20 text-xs font-semibold"
+              >
+                Reset…
+              </button>
+              <button
+                onClick={() => setBulkDeleteOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-danger-600 hover:bg-danger-700 text-white text-xs font-semibold"
+              >
+                Delete {selected.length}…
+              </button>
             </div>
           )}
 
@@ -995,6 +1157,21 @@ export default function AdminPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-100 dark:border-night-600">
+                  {/* P3 checkbox col: header selects page (indeterminate when partial). */}
+                  <th className="py-2 pr-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={allPageSelected}
+                      ref={(el) => { if (el) el.indeterminate = somePageSelected }}
+                      onChange={() => {
+                        if (allPageSelected) setSelected((prev) => prev.filter((id) => !selectableIds.includes(id)))
+                        else setSelected((prev) => Array.from(new Set([...prev, ...selectableIds])))
+                      }}
+                      disabled={selectableIds.length === 0}
+                      aria-label="Select all users on this page"
+                      className="h-4 w-4 accent-primary-600"
+                    />
+                  </th>
                   <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Name</th>
                   <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Email</th>
                   {userSubTab === 'students' && (
@@ -1023,6 +1200,21 @@ export default function AdminPage() {
                   })
                   .map((u) => (
                     <tr key={u.id} className="border-b border-surface-50 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-700 dark:bg-night-800 transition-all">
+                      <td className="py-2 pr-2">
+                        {u.id === selfId ? (
+                          <span title="You cannot bulk-select yourself — use Change Password in Settings">
+                            <input type="checkbox" disabled aria-label="You cannot select yourself" className="h-4 w-4" />
+                          </span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(u.id)}
+                            onChange={() => setSelected((prev) => toggleSelected(prev, u.id))}
+                            aria-label={`Select ${u.name}`}
+                            className="h-4 w-4 accent-primary-600"
+                          />
+                        )}
+                      </td>
                       <td className="py-2 font-medium text-surface-900 dark:text-night-50">{u.name}</td>
                       <td className="py-2 text-surface-600 dark:text-night-300">{u.email}</td>
                       {userSubTab === 'students' && (
@@ -1056,8 +1248,9 @@ export default function AdminPage() {
                             {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
                           </select>
                           <button
-                            onClick={() => handleDeleteUser(u.id)}
+                            onClick={() => handleDeleteUser(u.id, u.name)}
                             className="p-1 rounded-lg text-surface-400 dark:text-night-400 hover:text-danger-500 hover:bg-danger-50"
+                            aria-label={`Delete ${u.name}`}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -1073,7 +1266,16 @@ export default function AdminPage() {
               if (userSubTab === 'college_admins') return u.role === 'COLLEGE_ADMIN'
               return false
             }).length === 0 && !usersLoading && (
-              <p className="text-center text-surface-400 dark:text-night-400 py-8">No users in this category</p>
+              <div className="text-center py-8">
+                <p className="text-surface-400 dark:text-night-400">
+                  {emptyStateCopy(userSubTab, searchRaw.trim() || rollFilter.trim() || yearFilter.trim() || emailFilter.trim())}
+                </p>
+                {hasActiveFilters && (
+                  <button onClick={clearUserFilters} className="mt-2 px-3 py-1.5 rounded-lg border border-surface-200 dark:border-night-600 text-xs font-semibold hover:bg-surface-50 dark:hover:bg-night-700">
+                    Clear filters
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1295,6 +1497,27 @@ export default function AdminPage() {
         role={(userSubTab === 'teachers' ? 'TEACHER' : 'STUDENT') as BulkRole}
         onImported={() => { if (effectiveCollegeId) refreshUsersView(effectiveCollegeId) }}
       />
+      {/* P3 transactional bulk delete (type-to-confirm DELETE N, partial report). */}
+      <BulkDeleteModal
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        collegeId={effectiveCollegeId}
+        roleLabel={userSubTab === 'students' ? 'students' : userSubTab === 'teachers' ? 'teachers' : 'college admins'}
+        users={selectedUsers}
+        onDeleted={() => { setSelected([]); if (effectiveCollegeId) refreshUsersView(effectiveCollegeId) }}
+      />
+      {/* Bulk password set/reset (Option A shared + §10 nudge-only). */}
+      {bulkPwMode && (
+        <BulkPasswordModal
+          open
+          mode={bulkPwMode}
+          onClose={() => setBulkPwMode(null)}
+          collegeId={effectiveCollegeId}
+          users={selectedUsers}
+          selfId={selfId}
+          onReset={() => { setSelected([]); if (effectiveCollegeId) refreshUsersView(effectiveCollegeId) }}
+        />
+      )}
     </div>
   )
 }

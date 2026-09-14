@@ -211,6 +211,18 @@ export default function SettingsPage() {
       await authAPI.changePassword({ currentPassword, newPassword })
       toast.success('Password changed successfully')
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+      // §10 nudge lifecycle: a successful change resolves any active nudge, so
+      // clear the per-user dismiss key — the NEXT bulk reset's nudge must show
+      // again (otherwise the stale dismiss would suppress it forever).
+      try {
+        const uid = (useAuthStore.getState()?.user as { id?: string } | null)?.id
+        if (uid) localStorage.removeItem(`nudgeDismissed:${uid}`)
+      } catch {}
+      // Refresh flags (login/me surface mustChangePassword/passwordNudge).
+      try {
+        const me = await userAPI.me()
+        if (me) useAuthStore.getState().updateUser({ mustChangePassword: (me as any).mustChangePassword, passwordNudge: (me as any).passwordNudge } as any)
+      } catch {}
     } catch (e:any) { toast.error(e.response?.data?.error || 'Failed to change password') }
     finally { setChangeSaving(false) }
   }

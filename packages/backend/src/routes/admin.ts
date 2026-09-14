@@ -6,11 +6,14 @@ import bcrypt from 'bcryptjs'
 import { storageMode } from '../config/storage'
 import { isAssignmentVisibleToUser, buildHubListWhere } from '../utils/assignmentVisibility'
 import { deriveCollegeId, getSuperAdminTargetCollegeId } from '../utils/roles'
-import { applyUserListFilters, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter } from '../utils/userFilters'
+import { applyUserListFilters, isInvalidRoleFilter, normalizeDepartmentFilter, normalizeRoleFilter, normalizeSearch, normalizeStudentId, normalizeEmpNumber, normalizeEmailFilter, normalizeIncomingYear } from '../utils/userFilters'
 import { broadcastCollegeMutation, broadcastUserMutation, broadcastHackathonMutation, broadcastFormMutation } from '../services/socket'
 import { logger } from '../utils/logger'
 import { isCommonPassword, checkPasswordBreach } from '../utils/authHardening'
 import { bulkCreateTeachers, bulkCreateStudents, dryRunBulkTeachers, dryRunBulkStudents } from '../services/adminBulk'
+import { bulkDeleteUsers } from '../services/bulkDelete'
+import { bulkPasswordReset } from '../services/bulkPassword'
+import { sharedPasswordOf, sharedPw400, importRowsGuard } from '../utils/bulkRouteHelpers'
 import { parseCsv, resolveBulkImportRole, extractImportRows } from '../utils/csvImport'
 import { recordAudit, listAuditLogs, buildAuditMetadata, AuditActions } from '../services/auditLog'
 import { getUsageSummary } from '../services/aiMetering'
@@ -1217,9 +1220,26 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Invalid role filter. Use STUDENT, TEACHER, COLLEGE_ADMIN or SUPER_ADMIN.' })
       return
     }
+    // P2 per-tab filters (backward compat: absent = no filter, old behavior).
+    // ?search= name contains, ?studentId=/?roll= student roll contains,
+    // ?empNumber= teacher emp contains, ?email= contains, ?incomingYear= int
+    // (students only — silently ignored for TEACHER/COLLEGE_ADMIN/SUPER_ADMIN
+    // role queries so tab switches stay simple).
+    const roleFilter = normalizeRoleFilter(req.query.role)
+    const yearParsed = normalizeIncomingYear(req.query.incomingYear ?? (req.query as any).year)
+    if (yearParsed.invalid) {
+      res.status(400).json({ error: 'Invalid incomingYear filter' })
+      return
+    }
+    const ignoreYear = roleFilter === 'TEACHER' || roleFilter === 'COLLEGE_ADMIN' || roleFilter === 'SUPER_ADMIN'
     where = applyUserListFilters(where, {
-      role: normalizeRoleFilter(req.query.role),
+      role: roleFilter,
       departmentId: normalizeDepartmentFilter(req.query.departmentId),
+      search: normalizeSearch(req.query.search ?? (req.query as any).q),
+      studentId: normalizeStudentId((req.query as any).studentId ?? (req.query as any).roll),
+      empNumber: normalizeEmpNumber((req.query as any).empNumber),
+      email: normalizeEmailFilter(req.query.email),
+      incomingYear: ignoreYear ? null : yearParsed.value,
     })
 
     const wantsPaged = req.query.page != null || req.query.limit != null || req.query.cursor != null
@@ -1292,8 +1312,23 @@ router.get('/users/role-counts', async (req: AuthRequest, res: Response) => {
     } else {
       where = { collegeId: user.collegeId }
     }
+    // P2: counts apply the SAME search/roll/year/email filters as GET /users so
+    // badges stay correct while filtering. incomingYear narrows non-student
+    // badges toward 0 (they carry no year) — students badge == students list
+    // total under student filters (contract-tested). Teachers tab never sends
+    // year (no Year control; tab switch clears it). Invalid year → 400 (parity).
+    const countsYear = normalizeIncomingYear(req.query.incomingYear ?? (req.query as any).year)
+    if (countsYear.invalid) {
+      res.status(400).json({ error: 'Invalid incomingYear filter' })
+      return
+    }
     where = applyUserListFilters(where, {
       departmentId: normalizeDepartmentFilter(req.query.departmentId),
+      search: normalizeSearch(req.query.search ?? (req.query as any).q),
+      studentId: normalizeStudentId((req.query as any).studentId ?? (req.query as any).roll),
+      empNumber: normalizeEmpNumber((req.query as any).empNumber),
+      email: normalizeEmailFilter(req.query.email),
+      incomingYear: countsYear.value,
     })
 
     const groups = await prisma.user.groupBy({
@@ -1511,6 +1546,10 @@ function isDryRun(req: AuthRequest): boolean {
   return (req.body as any)?.dryRun === true || (req.body as any)?.dryRun === 'true' || req.query.dryRun === 'true'
 }
 
+// P1 shared-password import (2026-09-14, SUPERSEDES per-row password contract):
+// ONE sharedPassword per batch (required on confirm, optional on dry-run).
+// Pure shapes live in utils/bulkRouteHelpers.ts (hermetic-tested); routes stay thin.
+
 // Bulk add teachers via CSV (batched — see services/adminBulk.ts).
 // Behavior identical ({success,failed,errors}); 4 round-trips total, not 4N.
 // #11: ?dryRun=true (or {dryRun:true}) returns a per-row validation report
@@ -1530,8 +1569,9 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
     }
 
     const rows = extractBulkRows(req.body, 'teachers')
+    const sharedPassword = sharedPasswordOf(req.body)
     if (isDryRun(req)) {
-      const report = await dryRunBulkTeachers(collegeId, rows)
+      const report = await dryRunBulkTeachers(collegeId, rows, undefined, { sharedPassword })
       void recordAudit({
         actorId: user.id, actorEmail: (user as any).email ?? null, actorRole: user.role,
         action: AuditActions.USER_BULK_DRY_RUN, entityType: 'TEACHER', collegeId,
@@ -1540,7 +1580,12 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
       res.json({ dryRun: true, ...report })
       return
     }
-    const results = await bulkCreateTeachers(collegeId, rows)
+    const guard = importRowsGuard(rows)
+    if (guard) {
+      res.status(400).json(guard)
+      return
+    }
+    const results = await bulkCreateTeachers(collegeId, rows, undefined, { sharedPassword })
     if (results.success > 0) {
       try {
         broadcastUserMutation({ collegeId, action: 'teachers:bulk-created', count: results.success })
@@ -1554,6 +1599,13 @@ router.post('/users/teachers/bulk', async (req: AuthRequest, res: Response) => {
       metadata: buildAuditMetadata({ type: 'teachers', success: results.success, failed: results.failed }),
     })
 
+    // P1: old API callers without sharedPassword → clear 400, no partial writes
+    // (service guarantees zero writes when sharedPasswordInvalid).
+    const teachersPw400 = sharedPw400(results)
+    if (teachersPw400) {
+      res.status(400).json(teachersPw400)
+      return
+    }
     res.json(results)
   } catch (error) {
     logger.warn({ err: (error as Error)?.message || error }, '[admin] bulk teachers failed:')
@@ -1579,8 +1631,9 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
     }
 
     const rows = extractBulkRows(req.body, 'students')
+    const sharedPassword = sharedPasswordOf(req.body)
     if (isDryRun(req)) {
-      const report = await dryRunBulkStudents(collegeId, rows)
+      const report = await dryRunBulkStudents(collegeId, rows, undefined, { sharedPassword })
       void recordAudit({
         actorId: user.id, actorEmail: (user as any).email ?? null, actorRole: user.role,
         action: AuditActions.USER_BULK_DRY_RUN, entityType: 'STUDENT', collegeId,
@@ -1589,7 +1642,12 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
       res.json({ dryRun: true, ...report })
       return
     }
-    const results = await bulkCreateStudents(collegeId, rows)
+    const guard = importRowsGuard(rows)
+    if (guard) {
+      res.status(400).json(guard)
+      return
+    }
+    const results = await bulkCreateStudents(collegeId, rows, undefined, { sharedPassword })
     if (results.success > 0) {
       try {
         broadcastUserMutation({ collegeId, action: 'students:bulk-created', count: results.success })
@@ -1603,6 +1661,12 @@ router.post('/users/students/bulk', async (req: AuthRequest, res: Response) => {
       metadata: buildAuditMetadata({ type: 'students', success: results.success, failed: results.failed }),
     })
 
+    // P1: old API callers without sharedPassword → clear 400, no partial writes.
+    const studentsPw400 = sharedPw400(results)
+    if (studentsPw400) {
+      res.status(400).json(studentsPw400)
+      return
+    }
     res.json(results)
   } catch (error) {
     logger.warn({ err: (error as Error)?.message || error }, '[admin] bulk students failed:')
@@ -1648,10 +1712,12 @@ router.post('/users/import', async (req: AuthRequest, res: Response) => {
 
     const isTeacher = role === 'TEACHER'
     const entityType = isTeacher ? 'TEACHER' : 'STUDENT'
+    // P1: sharedPassword REQUIRED on confirm (optional on dry-run → hint).
+    const sharedPassword = sharedPasswordOf(req.body)
     if (isDryRun(req)) {
       const report = isTeacher
-        ? await dryRunBulkTeachers(collegeId, rows)
-        : await dryRunBulkStudents(collegeId, rows)
+        ? await dryRunBulkTeachers(collegeId, rows, undefined, { sharedPassword })
+        : await dryRunBulkStudents(collegeId, rows, undefined, { sharedPassword })
       void recordAudit({
         actorId: user.id, actorEmail: (user as any).email ?? null, actorRole: user.role,
         action: AuditActions.USER_BULK_DRY_RUN, entityType, collegeId,
@@ -1660,9 +1726,14 @@ router.post('/users/import', async (req: AuthRequest, res: Response) => {
       res.json({ dryRun: true, role, ...report })
       return
     }
+    const guard = importRowsGuard(rows)
+    if (guard) {
+      res.status(400).json(guard)
+      return
+    }
     const results = isTeacher
-      ? await bulkCreateTeachers(collegeId, rows)
-      : await bulkCreateStudents(collegeId, rows)
+      ? await bulkCreateTeachers(collegeId, rows, undefined, { sharedPassword })
+      : await bulkCreateStudents(collegeId, rows, undefined, { sharedPassword })
     if (results.success > 0) {
       try {
         broadcastUserMutation({ collegeId, action: isTeacher ? 'teachers:bulk-created' : 'students:bulk-created', count: results.success })
@@ -1676,10 +1747,129 @@ router.post('/users/import', async (req: AuthRequest, res: Response) => {
       metadata: buildAuditMetadata({ type: role.toLowerCase() + 's', via: 'import', success: results.success, failed: results.failed }),
     })
 
+    // P1: old API callers without sharedPassword → clear 400, no partial writes.
+    const importPw400 = sharedPw400(results)
+    if (importPw400) {
+      res.status(400).json(importPw400)
+      return
+    }
     res.json({ role, ...results })
   } catch (error) {
     logger.warn({ err: (error as Error)?.message || error }, '[admin] unified import failed:')
     res.status(500).json({ error: 'Failed to bulk import users' })
+  }
+})
+
+// P3 — NEW POST /admin/users/bulk-delete (all three tabs).
+// Multi-select + transactional bulk delete + safeguards + audit. Limits 1–100
+// ids/call, type-to-confirm `DELETE N`, guards fail the ENTIRE batch with 400
+// (zero writes): self / last SUPER_ADMIN globally / last COLLEGE_ADMIN in
+// college. Partial race/FK failures → 200 {partial:true}. Single USER_BULK_DELETE
+// audit entry (counts-only, no PII dump). BE authoritative — FE disables as hint.
+router.post('/users/bulk-delete', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, email: true } })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+    const collegeId = deriveCollegeId(user as any, (req.body as any)?.collegeId as string | null | undefined, req)
+    if (user.role !== 'SUPER_ADMIN' && !collegeId) {
+      res.status(400).json({ error: 'College ID is required' })
+      return
+    }
+    let result: Awaited<ReturnType<typeof bulkDeleteUsers>>
+    try {
+      result = await bulkDeleteUsers((req.body as any)?.ids, {
+        actorId: user.id,
+        actorRole: user.role,
+        collegeId: collegeId ?? null,
+      }, { confirm: (req.body as any)?.confirm })
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || 'Bulk delete failed' })
+      return
+    }
+    if (result.success > 0 && collegeId) {
+      try {
+        broadcastUserMutation({ collegeId, action: 'users:bulk-deleted', count: result.success })
+      } catch (err) {
+        logger.debug({ err }, '[admin] bulk-delete broadcast failed (non-fatal)')
+      }
+    }
+    // Counts-only audit (no emails/secrets — buildAuditMetadata strips anyway).
+    const { normalizeBulkIds: normalizeDeleteIds } = await import('../utils/sharedPassword.js').catch(() => ({ normalizeBulkIds: (v: unknown) => (Array.isArray(v) ? v : []) as string[] }))
+    void recordAudit({
+      actorId: user.id, actorEmail: (user as any).email ?? null, actorRole: user.role,
+      action: AuditActions.USER_BULK_DELETE, entityType: 'USER', entityId: null, collegeId: collegeId ?? null,
+      metadata: buildAuditMetadata({
+        requested: (normalizeDeleteIds as (v: unknown) => unknown[])((req.body as any)?.ids).length,
+        success: result.success, failed: result.failed, partial: result.partial,
+      }),
+    })
+    res.json(result)
+  } catch (error) {
+    logger.warn({ err: (error as Error)?.message || error }, '[admin] bulk delete failed:')
+    res.status(500).json({ error: 'Failed to bulk delete users' })
+  }
+})
+
+// Bulk-password — NEW POST /admin/users/bulk-password (unified, all roles).
+// Option A (V1): ONE shared password for all selected — admin-typed `shared-set`
+// or auto-generated `shared-reset`. §10 ADDENDUM: nudge-only (no forced block,
+// mustChangePassword stays false); response carries nudgeEnabled + (reset only)
+// sharedTempPassword ONCE. Guards: self-strip (skippedSelf, batch proceeds),
+// role matrix 403s, college scope, 1–100 ids, RESET N confirm, 5 ops/10min +
+// 1000 users/day 429s. dryRun=true → zero writes + sharedPassword hint.
+// Audit: single USER_BULK_PASSWORD_RESET counts-only (no hashes/plaintext).
+router.post('/users/bulk-password', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, email: true } })
+    if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      res.status(403).json({ error: 'College admin or super admin access required' })
+      return
+    }
+    const scopeCollegeId = deriveCollegeId(user as any, (req.body as any)?.collegeId as string | null | undefined, req)
+    if (user.role !== 'SUPER_ADMIN' && !scopeCollegeId) {
+      res.status(400).json({ error: 'College ID is required' })
+      return
+    }
+    let result: Awaited<ReturnType<typeof bulkPasswordReset>>
+    try {
+      result = await bulkPasswordReset((req.body ?? {}) as any, {
+        actorId: user.id,
+        actorRole: user.role,
+        actorCollegeId: user.collegeId ?? null,
+        scopeCollegeId: scopeCollegeId ?? null,
+      })
+    } catch (e: any) {
+      const status = (e as any)?.status ?? 400
+      if (status === 429) {
+        const retryAfterSec = (e as any)?.retryAfterSec ?? 60
+        try { res.setHeader('Retry-After', String(retryAfterSec)) } catch {}
+        res.status(429).json({ error: e?.message || 'Too many password resets', retryAfterSec })
+        return
+      }
+      res.status(status === 403 ? 403 : 400).json({ error: e?.message || 'Bulk password reset failed' })
+      return
+    }
+    const { normalizeBulkIds: normalizePwIds } = await import('../utils/sharedPassword.js').catch(() => ({ normalizeBulkIds: (v: unknown) => (Array.isArray(v) ? v : []) as string[] }))
+    void recordAudit({
+      actorId: user.id, actorEmail: (user as any).email ?? null, actorRole: user.role,
+      action: (req.body as any)?.dryRun === true ? AuditActions.USER_BULK_DRY_RUN : AuditActions.USER_BULK_PASSWORD_RESET,
+      entityType: 'USER', entityId: null, collegeId: scopeCollegeId ?? null,
+      // Counts-only: mode/requested/success/failed/skippedSelf/partial/nudge —
+      // never hashes/plaintext (buildAuditMetadata strips secret-looking keys).
+      metadata: buildAuditMetadata({
+        mode: String((req.body as any)?.mode ?? ''),
+        requested: (normalizePwIds as (v: unknown) => unknown[])((req.body as any)?.ids).length,
+        success: result.success, failed: result.failed, skippedSelf: result.skippedSelf,
+        partial: result.partial, nudgeEnabled: result.nudgeEnabled, via: 'bulk-select',
+      }),
+    })
+    res.json(result)
+  } catch (error) {
+    logger.warn({ err: (error as Error)?.message || error }, '[admin] bulk password failed:')
+    res.status(500).json({ error: 'Failed to reset passwords' })
   }
 })
 
@@ -1756,13 +1946,15 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Delete user (college-scoped)
+// Delete user (college-scoped) + P3 authoritative guards (BE enforces, FE hints).
+// Never allow: self-delete, last SUPER_ADMIN globally, last COLLEGE_ADMIN in
+// college. All three fail with 400 and zero writes (counts checked pre-delete).
 router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
     // HALF2: parallel independent reads (was user then target sequential) + narrow kept
     const [user, targetUser] = await Promise.all([
       prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, email: true } }),
-      prisma.user.findUnique({ where: { id: req.params.id as string }, select: { id: true, collegeId: true } }),
+      prisma.user.findUnique({ where: { id: req.params.id as string }, select: { id: true, role: true, collegeId: true } }),
     ])
     if (!user || (user.role !== 'COLLEGE_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       res.status(403).json({ error: 'Access denied' })
@@ -1776,6 +1968,32 @@ router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
     }
     if (user.role !== 'SUPER_ADMIN' && targetUser.collegeId !== user.collegeId) {
       res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    // P3 guards (authoritative, zero writes on violation).
+    if (req.params.id === user.id) {
+      res.status(400).json({ error: 'Cannot delete yourself' })
+      return
+    }
+    try {
+      if ((targetUser as { role?: string }).role === 'SUPER_ADMIN') {
+        const superCount = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } })
+        if (superCount <= 1) {
+          res.status(400).json({ error: 'Cannot delete the last super admin' })
+          return
+        }
+      }
+      if ((targetUser as { role?: string }).role === 'COLLEGE_ADMIN' && targetUser.collegeId) {
+        const adminCount = await prisma.user.count({ where: { role: 'COLLEGE_ADMIN', collegeId: targetUser.collegeId } })
+        if (adminCount <= 1) {
+          res.status(400).json({ error: 'Cannot delete the last college admin' })
+          return
+        }
+      }
+    } catch (guardErr) {
+      logger.warn({ err: (guardErr as Error)?.message || guardErr }, '[admin] delete guard check failed (fail-closed)')
+      res.status(500).json({ error: 'Failed to verify delete guards' })
       return
     }
 

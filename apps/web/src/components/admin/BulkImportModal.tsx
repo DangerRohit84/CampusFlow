@@ -1,15 +1,22 @@
-// components/admin/BulkImportModal.tsx — #11 bulk CSV import (dry-run → confirm).
-// WHY: single-user create does not scale to semester onboarding (100s of
-// rows). Flow: upload CSV → client parse → server dry-run report (errors per
-// row, duplicate/dept checks) → confirm import (createMany skipDuplicates).
-// CSV columns: name,email,department|dept,incomingYear|year,studentId|empNumber,
-// password (optional). No secrets rendered: passwords never displayed back.
+// components/admin/BulkImportModal.tsx — P1 shared-password bulk CSV import.
+// WHY: semester onboarding needs 100s of rows. Flow: set ONE shared password
+// (card top, required) → upload/paste CSV (NO password column) → server dry-run
+// (per-row report + sharedPassword validation, single HIBP call, zero writes)
+// → confirm import (all rows share one hash, nudge-only: nudgeEnabled flag, NO
+// route block/forced redirect — dismissible banner via localStorage).
+// Show-once: the FE-HELD field value is displayed once (never re-transmitted —
+// the server never echoes secrets). Legacy CSVs with a `password` header warn:
+// `password column ignored — use shared password field` (not a hard fail).
+// Teacher parity: same UX/copy/validation as students (no year validation).
 
 import { useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Upload, Download, CheckCircle, XCircle, Loader2, FileText } from 'lucide-react'
 import clsx from 'clsx'
 import { adminAPI, bulkImportAPI, type BulkDryRunReport } from '../../lib/api/resources/admin'
+import SharedPasswordField from './SharedPasswordField'
+import ShowOncePanel from './ShowOncePanel'
+import { stripPasswordColumn, validateSharedPasswordLocal } from './bulkHelpers'
 
 export type BulkRole = 'STUDENT' | 'TEACHER'
 
@@ -49,6 +56,8 @@ const ALIASES: Record<string, string> = {
   year: 'incomingYear', incomingyear: 'incomingYear', 'incoming year': 'incomingYear',
   studentid: 'studentId', 'student id': 'studentId', rollnumber: 'studentId', 'roll number': 'studentId',
   empnumber: 'empNumber', 'emp number': 'empNumber',
+  // P1: legacy alias kept ONLY to detect old templates (stripped before send,
+  // server warns `password column ignored — use shared password field`).
   password: 'password',
 }
 
@@ -69,9 +78,10 @@ export function parseCsvClient(text: string): Record<string, string>[] {
   return rows
 }
 
+/** P1 shared-password: NO password column (shared field in the modal). */
 export function bulkTemplate(role: BulkRole): string {
   return role === 'TEACHER'
-    ? 'name,email,department,password\n"Jane Sharma",jane@college.edu,"Computer Science",\n'
+    ? 'name,email,department,empNumber\n"Jane Sharma",jane@college.edu,"Computer Science",EMP001\n'
     : 'name,email,department,incomingYear,studentId\n"Aarav Kumar",aarav@college.edu,"Computer Science",2024,STU001\n'
 }
 
@@ -80,12 +90,19 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
   const [fileName, setFileName] = useState('')
   const [pastedCsv, setPastedCsv] = useState('')
   const [rows, setRows] = useState<Record<string, string>[]>([])
+  const [sharedPassword, setSharedPassword] = useState('')
   const [report, setReport] = useState<BulkDryRunReport | null>(null)
+  const [pwColumnWarn, setPwColumnWarn] = useState(false)
   const [validating, setValidating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null)
+  // Show-once holds the FE field value captured at confirm (cleared on close).
+  const [showOnce, setShowOnce] = useState<string | null>(null)
 
   const validRows = useMemo(() => report?.rows.filter((r) => r.valid) ?? [], [report])
+  const localPwErrors = useMemo(() => validateSharedPasswordLocal(sharedPassword), [sharedPassword])
+  const sharedValid = (report?.sharedPassword?.valid ?? false) && localPwErrors.length === 0
+  const canConfirm = !!report && report.validCount > 0 && sharedValid && !importing
 
   if (!open) return null
 
@@ -93,19 +110,29 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
     setFileName('')
     setPastedCsv('')
     setRows([])
+    setSharedPassword('')
+    setReport(null)
+    setPwColumnWarn(false)
+    setResult(null)
+    setShowOnce(null)
+  }
+
+  const ingestParsed = (parsed: Record<string, string>[], name: string) => {
+    const { cleaned, hadColumn } = stripPasswordColumn(parsed)
+    setFileName(name)
+    setRows(cleaned)
     setReport(null)
     setResult(null)
+    setShowOnce(null)
+    setPwColumnWarn(hadColumn)
+    if (hadColumn) toast('password column ignored — use shared password field', { icon: '⚠️' })
+    else toast.success(`${cleaned.length} rows ready to validate`)
   }
 
   const handleUsePasted = () => {
     if (!pastedCsv.trim()) { toast.error('Paste CSV text first'); return }
     try {
-      const parsed = parseCsvClient(pastedCsv)
-      setFileName('pasted.csv')
-      setRows(parsed)
-      setReport(null)
-      setResult(null)
-      toast.success(`${parsed.length} pasted rows ready to validate`)
+      ingestParsed(parseCsvClient(pastedCsv), 'pasted.csv')
     } catch (e: any) {
       toast.error(e?.message || 'Could not parse pasted CSV')
     }
@@ -115,11 +142,7 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
     if (!f) return
     try {
       const text = await f.text()
-      const parsed = parseCsvClient(text)
-      setFileName(f.name)
-      setRows(parsed)
-      setReport(null)
-      setResult(null)
+      ingestParsed(parseCsvClient(text), f.name)
     } catch (e: any) {
       toast.error(e?.message || 'Could not parse CSV')
     }
@@ -127,13 +150,17 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
 
   const handleValidate = async () => {
     if (!rows.length) { toast.error('Upload a CSV first'); return }
+    if (localPwErrors.length > 0) { toast.error(localPwErrors[0]); return }
     setValidating(true)
     try {
+      const pw = sharedPassword || undefined
       const r = role === 'TEACHER'
-        ? await bulkImportAPI.dryRunTeachers(rows, collegeId ?? undefined)
-        : await bulkImportAPI.dryRunStudents(rows, collegeId ?? undefined)
+        ? await bulkImportAPI.dryRunTeachers(rows, collegeId ?? undefined, pw)
+        : await bulkImportAPI.dryRunStudents(rows, collegeId ?? undefined, pw)
       setReport(r)
-      if (r.invalidCount === 0) toast.success(`${r.validCount} rows ready to import`)
+      if (r.sharedPassword && !r.sharedPassword.valid) {
+        toast.error(r.sharedPassword.errors[0] || 'Shared password invalid')
+      } else if (r.invalidCount === 0) toast.success(`${r.validCount} rows ready to import`)
       else toast.error(`${r.invalidCount} of ${r.total} rows need fixes`)
     } catch (e: any) {
       toast.error(e?.response?.data?.error || 'Dry-run validation failed')
@@ -144,15 +171,18 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
 
   const handleConfirm = async () => {
     if (!report || report.validCount === 0) { toast.error('Nothing valid to import'); return }
+    if (!sharedValid) { toast.error(report.sharedPassword?.errors[0] || 'Set a valid shared password first'); return }
     setImporting(true)
     try {
       // Re-send only valid rows (skip invalid client-side; server re-validates).
       const validIdx = new Set(validRows.map((r) => r.index))
       const payload = rows.filter((_, i) => validIdx.has(i))
+      const held = sharedPassword // captured for show-once (never re-transmitted back)
       const res = role === 'TEACHER'
-        ? await adminAPI.bulkAddTeachers(payload, collegeId ?? undefined)
-        : await adminAPI.bulkAddStudents(payload, collegeId ?? undefined)
+        ? await adminAPI.bulkAddTeachers(payload, collegeId ?? undefined, held)
+        : await adminAPI.bulkAddStudents(payload, collegeId ?? undefined, held)
       setResult(res)
+      setShowOnce(held)
       if (res.success > 0) {
         toast.success(`Imported ${res.success} ${role === 'TEACHER' ? 'teachers' : 'students'}`)
         onImported()
@@ -160,7 +190,7 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
         toast.error('Import finished with 0 successes — see errors')
       }
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || 'Import failed')
+      toast.error(e?.response?.data?.error || e?.response?.data?.errors?.[0] || 'Import failed')
     } finally {
       setImporting(false)
     }
@@ -193,12 +223,19 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
           </button>
         </div>
         <p className="text-xs text-surface-500 dark:text-night-400 mb-4">
-          Upload CSV (name, email, department, {role === 'TEACHER' ? 'empNumber' : 'incomingYear, studentId'}) → dry-run validation → confirm import.
+          Set one password for the batch → upload CSV (name, email, department, {role === 'TEACHER' ? 'empNumber' : 'incomingYear, studentId'}) → dry-run validation → confirm import.
         </p>
+
+        {/* Step 0: shared password (required) */}
+        <SharedPasswordField
+          value={sharedPassword}
+          onChange={(v) => { setSharedPassword(v); setReport(null); setShowOnce(null) }}
+          label={`Password for all ${rows.length || 'N'} rows in this import`}
+        />
 
         {/* Step 1: upload */}
         <div
-          className="rounded-2xl border-2 border-dashed border-surface-200 dark:border-night-600 p-6 text-center cursor-pointer hover:border-primary-300 transition-colors"
+          className="mt-3 rounded-2xl border-2 border-dashed border-surface-200 dark:border-night-600 p-6 text-center cursor-pointer hover:border-primary-300 transition-colors"
           onClick={() => fileRef.current?.click()}
         >
           <Upload size={20} className="mx-auto text-surface-400 mb-2" />
@@ -214,6 +251,11 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
         </div>
+        {pwColumnWarn && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1.5">
+            ⚠️ password column ignored — use shared password field
+          </p>
+        )}
 
         {/* Step 1b: paste CSV (alternative to file upload) */}
         <div className="mt-3">
@@ -242,7 +284,7 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
         <div className="flex gap-2 mt-4">
           <button
             onClick={handleValidate}
-            disabled={!rows.length || validating}
+            disabled={!rows.length || validating || localPwErrors.length > 0}
             className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl bg-surface-900 dark:bg-white text-white dark:text-black text-sm font-semibold disabled:opacity-50"
           >
             {validating ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
@@ -250,7 +292,7 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!report || report.validCount === 0 || importing}
+            disabled={!canConfirm}
             className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50"
           >
             {importing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
@@ -265,6 +307,9 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
               <span className="inline-flex items-center gap-1 font-semibold text-emerald-600"><CheckCircle size={14} /> {report.validCount} valid</span>
               <span className="inline-flex items-center gap-1 font-semibold text-danger-600"><XCircle size={14} /> {report.invalidCount} invalid</span>
               <span className="text-surface-400 text-xs">of {report.total}</span>
+              {report.sharedPassword && !report.sharedPassword.valid && (
+                <span className="text-[11px] text-danger-600 font-medium">{report.sharedPassword.errors[0]}</span>
+              )}
             </div>
             <div className="overflow-x-auto rounded-xl border border-surface-200 dark:border-night-600 max-h-64 overflow-y-auto">
               <table className="w-full text-xs">
@@ -301,6 +346,12 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
             <p className="font-semibold text-surface-900 dark:text-night-50">
               Imported {result.success}, failed {result.failed}
             </p>
+            {showOnce && result.success > 0 && (
+              <ShowOncePanel
+                secret={showOnce}
+                title={`Shared password (show once): share securely. Users will be nudged (not forced) to change. Closing hides it.`}
+              />
+            )}
             {result.errors.length > 0 && (
               <ul className="mt-1 max-h-32 overflow-y-auto text-xs text-danger-600 list-disc pl-4">
                 {result.errors.slice(0, 50).map((e, i) => <li key={i}>{e}</li>)}

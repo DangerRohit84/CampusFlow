@@ -22,4 +22,8 @@ export interface User {
   avatarUrl?: string
   avatar?: string | null
   portfolioUrl?: string | null
+  // P1 shared-password import + bulk-password nudge (§10): nudge-only flags
+  // (no login block). FE shows a dismissible banner when either is true.
+  mustChangePassword?: boolean
+  passwordNudge?: boolean
 }
