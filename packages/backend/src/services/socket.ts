@@ -5,7 +5,7 @@ import { config } from '../config'
 import prisma, { withRetry } from '../config/db'
 import { logger } from '../utils/logger'
 import { isJtiRevoked, isJtiRevokedWithDb } from '../utils/authHardening'
-import { getRedisClient, redisDel, redisGet, redisSet } from '../lib/redis'
+import { getRedisClient, isRedisConfigured, buildRedisOptions, redactedRedisTarget, redisDel, redisGet, redisSet } from '../lib/redis'
 
 // ---------------------------------------------------------------------------
 // Multi-instance scale-out (10k concurrent sockets) — Track D.
@@ -98,10 +98,26 @@ export function getSocketAdapterMode(): 'redis' | 'memory' {
     const fresh = String(process.env.SOCKET_ADAPTER || '').trim().toLowerCase()
     const configured = String((config as { socketAdapter?: string }).socketAdapter || '').trim().toLowerCase()
     const forced = fresh || configured
+    // NOTE: gate on isRedisConfigured() as well as getRedisClient() — the lazy
+    // singleton is still null during the first ~1s of boot (background connect),
+    // but the adapter owns its own pub/sub clients, so REDIS_URL presence alone
+    // must select redis mode. Test seam (__setRedisClientForTests) still works
+    // via getRedisClient().
+    const redisAvailable = (): boolean => {
+      try {
+        return getRedisClient() !== null || isRedisConfigured()
+      } catch {
+        return false
+      }
+    }
     if (forced === 'memory') return 'memory'
-    if (forced === 'redis') return getRedisClient() ? 'redis' : 'memory'
+    if (forced === 'redis') return redisAvailable() ? 'redis' : 'memory'
   } catch {}
-  return getRedisClient() ? 'redis' : 'memory'
+  try {
+    return getRedisClient() !== null || isRedisConfigured() ? 'redis' : 'memory'
+  } catch {
+    return 'memory'
+  }
 }
 
 /**
@@ -126,11 +142,19 @@ export function attachSocketAdapter(target: Server): 'redis' | 'memory' {
     const IORedis = require('ioredis') as new (url: string, opts?: unknown) => { on?: (e: string, l: (...a: unknown[]) => void) => void; quit?: () => Promise<void>; disconnect?: () => void }
     const url = String(process.env.REDIS_URL || '').trim()
     if (!url) return 'memory'
-    const pub = new IORedis(url, { lazyConnect: true, maxRetriesPerRequest: 2, enableReadyCheck: true })
-    const sub = new IORedis(url, { lazyConnect: true, maxRetriesPerRequest: 2, enableReadyCheck: true })
+    // Shared resilient defaults (TLS auto from scheme, IPv4, sane retries —
+    // see lib/redis buildRedisOptions). Pub/sub previously used maxRetriesPerRequest: 2
+    // and hit the same Upstash 0-commands flush as the data client.
+    const redacted = redactedRedisTarget(url)
+    const pub = new IORedis(url, buildRedisOptions(url))
+    const sub = new IORedis(url, buildRedisOptions(url))
     try {
-      ;(pub as { on?: (e: string, l: () => void) => void }).on?.('error', () => {})
-      ;(sub as { on?: (e: string, l: () => void) => void }).on?.('error', () => {})
+      ;(pub as { on?: (e: string, l: (err?: unknown) => void) => void }).on?.('error', (err) => {
+        logger.warn({ err: (err as Error)?.message || String(err) }, `[socket] redis pub error (${redacted}), fan-out degraded`)
+      })
+      ;(sub as { on?: (e: string, l: (err?: unknown) => void) => void }).on?.('error', (err) => {
+        logger.warn({ err: (err as Error)?.message || String(err) }, `[socket] redis sub error (${redacted}), fan-out degraded`)
+      })
       void (pub as unknown as { connect?: () => Promise<void> }).connect?.()?.catch(() => {})
       void (sub as unknown as { connect?: () => Promise<void> }).connect?.()?.catch(() => {})
     } catch {}

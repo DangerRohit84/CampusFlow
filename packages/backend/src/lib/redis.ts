@@ -79,6 +79,7 @@ export function __resetRedisForTests(): void {
   clientPromise = null
   warnedUnset = false
   warnedError = false
+  loggedReady = false
 }
 
 function warnUnsetOnce(): void {
@@ -98,25 +99,99 @@ function warnErrorOnce(err: unknown, op: string): void {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Resilient defaults (Upstash rediss:// + Render KeyValue redis://).
+// ---------------------------------------------------------------------------
+
+let loggedReady = false
+
+/** True for prod TLS URLs (Upstash rediss://). Case-insensitive, trimmed. */
+export function isTlsRedisUrl(url: string): boolean {
+  return /^rediss:\/\//i.test(String(url || '').trim())
+}
+
+/**
+ * Redacted target for logs — scheme + REDACTED only (never host/password/token).
+ * e.g. `rediss://REDACTED` (TLS) vs `redis://REDACTED` (internal, no TLS).
+ */
+export function redactedRedisTarget(url: string): string {
+  const scheme = isTlsRedisUrl(url) ? 'rediss' : 'redis'
+  return `${scheme}://REDACTED`
+}
+
+/**
+ * Shared ioredis options (single source of truth for lib/redis + socket adapter).
+ *
+ * WHY these values (prod incident: Upstash 0 commands + every op
+ * `max retries per request limit (2)` failing open to memory):
+ * - `maxRetriesPerRequest: 2` flushed the offline queue after 3 reconnect
+ *   attempts (~200+400+800ms ≈ 1.4s), before external TLS handshake
+ *   (DNS+TCP+TLS+AUTH+HELLO+INFO ready-check, often 1–3s cold from Render)
+ *   completed — so no command ever reached the server (0 commands on dashboard).
+ *   `5` tolerates ~7s of cold handshake (200+400+800+1600+2000+2000ms) yet still
+ *   fails open; default `20` would hang request-path ops ~40s (too long).
+ * - `tls: {}` (with SNI servername when parseable) for `rediss://`: ioredis
+ *   auto-TLS sets boolean `true`, which StandaloneConnector merges via
+ *   `Object.assign(opts, true)` (no-op) — explicit object documents the TLS path
+ *   and pins SNI for multi-tenant Upstash. Absent for internal `redis://`.
+ * - `family: 4` avoids Render→Upstash IPv6 stalls (default `0` tries IPv6 first,
+ *   can hang past the retry budget before IPv4 fallback).
+ * - `connectTimeout: 10000` / `commandTimeout: 5000` bound cold-start hangs so
+ *   helpers fail open instead of blocking requests (was unset = indefinite).
+ * - `enableOfflineQueue: true` (explicit) ensures warmup commands queue until
+ *   ready instead of dropping; `keepAlive: 30000` survives LB idle.
+ */
+export function buildRedisOptions(url: string): Record<string, unknown> {
+  const tls = isTlsRedisUrl(url)
+  const opts: Record<string, unknown> = {
+    lazyConnect: true,
+    enableReadyCheck: true,
+    enableOfflineQueue: true,
+    maxRetriesPerRequest: 5,
+    connectTimeout: 10_000,
+    commandTimeout: 5_000,
+    family: 4,
+    keepAlive: 30_000,
+    retryStrategy: (times: number) => Math.min(2000, 100 * Math.pow(2, times)),
+  }
+  if (tls) {
+    // Pin SNI servername for multi-tenant TLS (Upstash routes by SNI).
+    // Hostname parse is best-effort — fallback to empty tls object (Node still
+    // derives SNI from host). Never throws, never logs the URL.
+    try {
+      const hostname = new URL(String(url).trim()).hostname?.trim()
+      const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')
+      opts.tls = hostname && !isIp ? { servername: hostname } : {}
+    } catch {
+      opts.tls = {}
+    }
+  }
+  return opts
+}
+
 async function createClient(): Promise<RedisLike | null> {
   const url = redisUrl()
   if (!url) {
     warnUnsetOnce()
     return null
   }
+  const target = redactedRedisTarget(url)
   try {
     // Static import keeps bundling simple; lazy `new` keeps import side-effect free.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const IORedis = require('ioredis') as new (url: string, opts?: any) => RedisLike
-    const c = new IORedis(url, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 2,
-      enableReadyCheck: true,
-      retryStrategy: (times: number) => Math.min(2000, 100 * Math.pow(2, times)),
-    })
+    const c = new IORedis(url, buildRedisOptions(url))
     try {
-      // Swallow async error events — helpers already fail open per-op.
-      ;(c as any)?.on?.('error', () => {})
+      // Ready once (redacted target only — never host/password/token).
+      ;(c as any)?.on?.('ready', () => {
+        if (loggedReady) return
+        loggedReady = true
+        logger.info(`[redis] ready (${target} family=4 tls=${isTlsRedisUrl(url)})`)
+      })
+      // First connection error only (helpers already fail open per-op).
+      ;(c as any)?.on?.('error', (err: unknown) => {
+        warnErrorOnce(err, `connect ${target}`)
+      })
     } catch {}
     // Best-effort connect (don't await long — commands queue until ready).
     try {
@@ -127,7 +202,7 @@ async function createClient(): Promise<RedisLike | null> {
     } catch {}
     return c
   } catch (e) {
-    warnErrorOnce(e, 'connect')
+    warnErrorOnce(e, `connect ${target}`)
     return null
   }
 }
