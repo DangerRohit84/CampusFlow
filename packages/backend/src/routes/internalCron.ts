@@ -52,18 +52,9 @@ function requireCronSecret(req: Request, res: Response, next: () => void) {
   next()
 }
 
-export async function runContestsJob(opts?: {
-  /** Injectable gate for hermetic tests (defaults to the DB+env master toggle). */
-  isEnabled?: () => Promise<boolean>;
-}): Promise<{ fetched: number; updated: number }> {
-  // Master toggle: scheduled auto-fetch skips when SUPER_ADMIN paused it
-  // (FetchPage) or AUTO_FETCH_ENABLED=false. Manual POST /fetch/* + contest
-  // routes never consult this flag — explicit user action always allowed.
-  const enabled = await (opts?.isEnabled ? opts.isEnabled() : isAutoFetchEnabled());
-  if (!enabled) {
-    logger.info('[Cron] Auto-fetch disabled (master toggle OFF) — skipping contest fetch (manual fetch still allowed)');
-    return { fetched: 0, updated: 0 };
-  }
+export async function runContestsJob(): Promise<{ fetched: number; updated: number }> {
+  // Contests ALWAYS run — the master auto-fetch toggle gates ONLY the
+  // opportunities job. POST /internal/cron/contests never skips.
   logger.info('[Cron] Running contest fetch...')
   return fetchAndStoreContests()
 }

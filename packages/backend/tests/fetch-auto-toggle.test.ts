@@ -2,8 +2,9 @@
  * SuperAdmin auto-fetch master toggle + per-platform targets.
  * Covers: env parsing, precedence (env > DB > default-ON), never-throw
  * fallbacks (missing table/stale client/DB error → default ON), DB persist,
- * cron skip for BOTH auto-fetch jobs (opportunities + contests) with manual
- * fetch unaffected (route-level: no flag check in POST /fetch/*), and
+ * cron skip for the opportunities auto-fetch job ONLY (contests always run,
+ * master toggle gates opportunities with manual fetch unaffected at
+ * route-level: no flag check in POST /fetch/*), and
  * per-platform caps (normalize + capItemsByLimits).
  * Hermetic: DB/env injected, no network, no real Prisma.
  */
@@ -17,6 +18,11 @@ import {
 } from '../src/services/fetch/autoFetch';
 import { normalizeFetchLimits, capItemsByLimits } from '../src/services/fetch/limits';
 import { runContestsJob, runOpportunitiesJob } from '../src/routes/internalCron';
+import { fetchAndStoreContests } from '../src/services/contestFetcher';
+
+vi.mock('../src/services/contestFetcher', () => ({
+  fetchAndStoreContests: vi.fn(async () => ({ fetched: 7, updated: 3 })),
+}));
 
 const ALL = ['DEVFOLIO', 'DEVPOST', 'MLH'];
 const TYPES: Record<string, string> = { DEVFOLIO: 'HACKATHON', DEVPOST: 'HACKATHON', MLH: 'HACKATHON' };
@@ -103,7 +109,12 @@ describe('setAutoFetchEnabled', () => {
   });
 });
 
-describe('cron master-toggle skip', () => {
+describe('cron master-toggle scope (opportunities-only, contests always run)', () => {
+  beforeEach(() => {
+    vi.mocked(fetchAndStoreContests).mockClear();
+    vi.mocked(fetchAndStoreContests).mockResolvedValue({ fetched: 7, updated: 3 });
+  });
+
   it('runOpportunitiesJob returns all-zero when toggle is OFF (before any DB/fetch)', async () => {
     const res = await runOpportunitiesJob({ isEnabled: async () => false });
     expect(res).toEqual({
@@ -113,9 +124,17 @@ describe('cron master-toggle skip', () => {
     });
   });
 
-  it('runContestsJob returns zero when toggle is OFF (before any fetch)', async () => {
-    const res = await runContestsJob({ isEnabled: async () => false });
-    expect(res).toEqual({ fetched: 0, updated: 0 });
+  it('runContestsJob ignores master toggle OFF and always runs fetch', async () => {
+    // Legacy gate arg (if still accepted) must NOT skip — contests always run.
+    const res = await (runContestsJob as (...args: unknown[]) => Promise<{ fetched: number; updated: number }>)({ isEnabled: async () => false } as unknown);
+    expect(fetchAndStoreContests).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ fetched: 7, updated: 3 });
+  });
+
+  it('runContestsJob runs with no gate args (POST /internal/cron/contests always runs)', async () => {
+    const res = await runContestsJob();
+    expect(fetchAndStoreContests).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ fetched: 7, updated: 3 });
   });
 });
 

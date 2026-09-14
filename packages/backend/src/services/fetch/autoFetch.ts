@@ -1,12 +1,13 @@
 // services/fetch/autoFetch.ts — global auto-fetch master toggle (SUPER_ADMIN kill-switch).
 // WHY: cron fetched on a fixed schedule with no way to pause without redeploy
 // (env-only flag) or code change. This module owns a DB-backed flag so the
-// FetchPage toggle pauses ALL scheduled auto-fetch without redeploy.
+// FetchPage toggle pauses scheduled opportunities auto-fetch without redeploy
+// (contests always run — toggle gates opportunities only).
 // Precedence: explicit AUTO_FETCH_ENABLED env (ops emergency kill-switch,
 // no DB hit) > fetch_config singleton row > default ON (true).
 // Manual POST /fetch/* endpoints NEVER consult this flag — explicit user
-// action is always allowed. Only cron jobs (internalCron runOpportunitiesJob
-// + runContestsJob) skip when off, with a logged reason.
+// action is always allowed. Only the opportunities cron job (internalCron
+// runOpportunitiesJob) skips when off, with a logged reason.
 // Deploy safety: fetch_config is additive (see migration); until applied the
 // delegate/table may be absent — reads degrade to default-ON (warn once),
 // never throw into the cron/fetch path. Follows the SourceHealth
