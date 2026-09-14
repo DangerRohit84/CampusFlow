@@ -11,6 +11,23 @@ import { isAutoFetchEnabled } from '../services/fetch/autoFetch'
 
 const ENRICH_DELAY_MS = 12000
 
+// In-process overlap guard for the long opportunities job (same-instance
+// double-run: embedded setInterval + QStash/cron-job.org POST + manual retry).
+// Mirrors profileSyncInFlight in syncEngine.ts (cheap, no DB round-trip).
+// HTTP layer is ack-first 202 (see handleJob), so overlapping scheduler
+// retries would otherwise pile up 12s-delayed enrichment loops.
+let opportunitiesInFlight = false
+
+/** Test-only: reset opportunities in-flight guard. */
+export function __resetInternalCronForTests(): void {
+  opportunitiesInFlight = false
+}
+
+/** Test-only: observe opportunities in-flight guard. */
+export function __isOpportunitiesJobInFlightForTests(): boolean {
+  return opportunitiesInFlight
+}
+
 function secretsMatch(provided: string, expected: string): boolean {
   const a = Buffer.from(provided)
   const b = Buffer.from(expected)
@@ -88,6 +105,15 @@ export async function runOpportunitiesJob(opts?: {
   /** Injectable gate for hermetic tests (defaults to the DB+env master toggle). */
   isEnabled?: () => Promise<boolean>;
 }): Promise<OpportunitiesJobResult> {
+  // Same-process overlap guard (cheap, no DB round-trip). Set synchronously
+  // before the first await so concurrent schedulers serialize: second run
+  // returns all-zero immediately instead of piling up 12s-delayed loops.
+  if (opportunitiesInFlight) {
+    logger.info('[Cron] opportunities job already running — skipping overlapping run');
+    return { hackathonsFetched: 0, hackathonsSkipped: 0, internshipsFetched: 0, internshipsSkipped: 0, hackathonsEnriched: 0, internshipsEnriched: 0 };
+  }
+  opportunitiesInFlight = true
+  try {
   // Master toggle FIRST (before any DB/admin lookup): scheduled auto-fetch
   // skips when SUPER_ADMIN paused it (FetchPage) or AUTO_FETCH_ENABLED=false.
   // Manual POST /fetch/all + /:platform + /other/* never consult this flag.
@@ -351,6 +377,9 @@ export async function runOpportunitiesJob(opts?: {
     hackathonsEnriched,
     internshipsEnriched,
   }
+  } finally {
+    opportunitiesInFlight = false
+  }
 }
 
 export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number }> {
@@ -412,22 +441,27 @@ router.use(requireCronSecret)
 
 type JobRunner = () => Promise<object>
 
-const handleJob = (job: string, runner: JobRunner) => async (_req: Request, res: Response) => {
+// Ack-first for free schedulers (QStash / cron-job.org free tiers time out
+ // on long jobs: 12s-delayed enrichment + external fetches run minutes).
+ // Auth/secret checks stay synchronous in requireCronSecret middleware
+ // (401/503 unchanged) — this wrapper only detaches the long runner:
+ // respond 202 {ok,job,startedAt,status:'started'} immediately, then
+ // setImmediate-run the job with logger completion/error. Manual
+ // POST /fetch/* routes are untouched (separate router, still await results).
+export const handleJob = (job: string, runner: JobRunner) => async (_req: Request, res: Response) => {
   const startedAt = new Date().toISOString()
-  try {
-    const result = await runner()
-    res.json({ ok: true, job, startedAt, finishedAt: new Date().toISOString(), ...result })
-  } catch (err) {
-    logger.error({ err: err }, `[Cron] ${job} job failed:`)
-    // Generic error only - raw messages can embed Prisma/DB internals; full error stays in server logs
-    res.status(500).json({
-      ok: false,
-      job,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      error: 'Job execution failed',
-    })
-  }
+  res.status(202).json({ ok: true, job, startedAt, status: 'started' })
+  setImmediate(() => {
+    Promise.resolve()
+      .then(() => runner())
+      .then((result) => {
+        logger.info({ job, startedAt, ...(result as object) }, `[Cron] ${job} job completed (detached)`)
+      })
+      .catch((err) => {
+        // Full error stays in server logs; generic only (raw can embed Prisma/DB internals).
+        logger.error({ err }, `[Cron] ${job} job failed:`)
+      })
+  })
 }
 
 router.post('/contests', handleJob('contests', runContestsJob))
