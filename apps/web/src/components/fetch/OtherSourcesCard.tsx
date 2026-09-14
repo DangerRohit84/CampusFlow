@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Download, RefreshCw, Loader2, Globe } from 'lucide-react'
 import api from '../../lib/api'
+import { qk } from '../../lib/queryKeys'
+import { useFetchSettings } from '../../hooks/useFetchSettings'
 
 interface Props {
   type: 'hackathons' | 'internships'
@@ -54,25 +57,29 @@ export default function OtherSourcesCard({ type, platform, onRefresh }: Props) {
   // Fallback to legacy split platform supports existing rows after migration.
   const LIMIT_PLATFORM = 'OTHER'
 
-  const loadLimit = async () => {
-    try {
-      const { data } = await api.get('/fetch/settings/all')
-      const expectedType = type === 'hackathons' ? 'HACKATHON' : 'INTERNSHIP'
-      // Primary: unified OTHER (preferred per PlatformSettings pattern like PlatformCard)
-      let setting = data.settings?.find((s: any) => s.platform === LIMIT_PLATFORM && s.type === expectedType)
-      // Fallback: legacy split (OTHER_HACKATHON / OTHER_INTERNSHIP) for backward compat
-      if (!setting) {
-        setting = data.settings?.find((s: any) => s.platform === platform && s.type === expectedType)
-      }
-      if (setting) setLimit(setting.fetchLimit)
-    } catch {}
-  }
+  // PERF: shared settings query (was a per-card GET /fetch/settings/all on
+  // every mount). NOTE: this component is currently unmounted (no imports);
+  // if re-mounted, pass stats as props like PlatformCard instead of loadStats.
+  const queryClient = useQueryClient()
+  const { data: settingsData } = useFetchSettings()
 
   useEffect(() => {
     loadStats()
-    loadLimit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platform, type])
+
+  useEffect(() => {
+    const settings = settingsData?.settings
+    if (!Array.isArray(settings)) return
+    const expectedType = type === 'hackathons' ? 'HACKATHON' : 'INTERNSHIP'
+    // Primary: unified OTHER (preferred per PlatformSettings pattern like PlatformCard)
+    let setting = settings.find((s: any) => s.platform === LIMIT_PLATFORM && s.type === expectedType)
+    // Fallback: legacy split (OTHER_HACKATHON / OTHER_INTERNSHIP) for backward compat
+    if (!setting) {
+      setting = settings.find((s: any) => s.platform === platform && s.type === expectedType)
+    }
+    if (setting && typeof setting.fetchLimit === 'number') setLimit(setting.fetchLimit)
+  }, [settingsData, platform, type])
 
   const handleLimitChange = async (newLimit: number) => {
     setLimit(newLimit)
@@ -84,6 +91,7 @@ export default function OtherSourcesCard({ type, platform, onRefresh }: Props) {
         limit: newLimit,
         type: type === 'hackathons' ? 'HACKATHON' : 'INTERNSHIP',
       })
+      await queryClient.invalidateQueries({ queryKey: qk.fetchSettings() })
     } catch (e) {
       console.error('Failed to save limit', e)
     } finally {

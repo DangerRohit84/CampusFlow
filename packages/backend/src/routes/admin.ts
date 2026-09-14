@@ -604,6 +604,13 @@ router.get('/super/platform-kpis', async (req: AuthRequest, res: Response) => {
       }
       return all.slice(0, safetyCap)
     }
+    // PERF (prod burst fix): 8 parallel paginated scans (take:50 loops until
+    // exhausted, up to 50k/20k rows each) fired 176-757 queries per page view
+    // with identical-timestamp queueing. Now computed at most 1×/60s per
+    // tenant+range (shared via Redis when healthy, memory otherwise). Same
+    // series, same shape; TTL-only expiry like the super-dashboard cache.
+    const kpiCacheKey = `platform-kpis:${collegeId || 'global'}:${from.toISOString()}:${to.toISOString()}`
+    const cached = await getOrSet(kpiCacheKey, 60_000, async () => {
     const [regRows, loginRows, syncRows, profileRows, aiRows, contestRows, hackStageRows, internStageRows] = await Promise.all([
       fetchPaginated(
         (skip) => prisma.user.findMany({
@@ -736,6 +743,18 @@ router.get('/super/platform-kpis', async (req: AuthRequest, res: Response) => {
         return days.map((day) => ({ day, tokens: 0, requests: 0, costCents: 0 }))
       }
     })()
+
+    return { registrations, dau, wau, syncs, fetchSeries, fetchSources, aiByDay }
+    })
+    const { registrations, dau, wau, syncs, fetchSeries, fetchSources, aiByDay } = cached as {
+      registrations: Array<{ day: string; count: number }>
+      dau: Array<{ day: string; count: number }>
+      wau: Array<{ day: string; count: number }>
+      syncs: Array<{ day: string; count: number }>
+      fetchSeries: Array<{ day: string; count: number }>
+      fetchSources: { contests: number; hackathons: number; internships: number }
+      aiByDay: Array<{ day: string; tokens: number; requests: number; costCents: number }>
+    }
 
     res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
     res.json({

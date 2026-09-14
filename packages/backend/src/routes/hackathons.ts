@@ -20,6 +20,13 @@ import { resolveDecisionCollegeId, canDecideForCollege, canAccessDecisionCollege
 import { parseMineParam, applyMineFilter, unregisterRoleError, remindRoleError, validateRemindMessage, buildRemindNotification, registeredUserIds } from '../services/opportunities/registrations'
 import { stagingStore } from '../repositories/stagingRepository'
 import { buildFetchDetailsPrompt, validateFetchDetails, buildHackathonDeterministicFallback, toFetchDetailsEnvelope, isAiNotConfiguredResponse } from '../services/opportunities/fetchDetails'
+import { getOrSet } from '../lib/cache'
+
+// PERF (prod burst fix): staging counts cache — this endpoint ran an unbounded
+// full-table findMany scan per call, polled per viewer. Now computed at most
+// 1×/60s per scope (shared via Redis when healthy, memory otherwise — same seam
+// as super-dashboard). Exact same numbers; TTL-only expiry.
+const STAGING_COUNTS_CACHE_TTL_MS = 60_000
 
 // ─── Completed detection helper — handles null deadline via title year (e.g., Netscout Hackathon 2025 created 2026-09-06) ───
 function isTitlePastYear(title?: string | null): boolean {
@@ -741,51 +748,57 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true } }) // NARROW-READ half1
-    // No deadline filter — counts must include recently expired pending (Cognition) so admin sees 2 pending, not 1
-    let countsWhere: Record<string, unknown> = {}
-    if (user && user.role !== 'SUPER_ADMIN') {
-      countsWhere = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
-    }
-    // C-6: push past-year exclusion to DB so counts never scan stale rows.
-    {
-      const y = new Date().getFullYear()
-      const ors: Array<Record<string, unknown>> = []
-      for (let past = y - 6; past < y; past++) ors.push({ title: { contains: String(past) } })
-      const excl = { NOT: { OR: ors } }
-      countsWhere = Object.keys(countsWhere).length > 0 ? { AND: [countsWhere, excl] } : excl
-    }
-    const allRaw = await prisma.hackathonStaging.findMany({
-      select: { id: true, targetDepartments: true, status: true, deadline: true, title: true },
-      where: countsWhere as never,
-    })
-    // Safety net only (DB already excluded past-year).
-    const all = allRaw.filter(c => !isStagingEnded(c.deadline as Date | null, c.title))
-    // Per-college decisions (additive): pending = no decision by MY college.
-    // A approve/reject never changes B's counts. Super-admin keeps global view.
-    // Pre-migration (no table) → empty map → legacy global-status behavior.
-    let myDecisions = new Map<string, string>()
-    if (user && user.role !== 'SUPER_ADMIN' && user.collegeId) {
-      try {
-        myDecisions = await listDecisionsForCollege(prisma as any, 'hackathonStagingDecision', user.collegeId)
-      } catch {
-        myDecisions = new Map<string, string>()
+    // Per-college decisions make college scoping exact, so the 60s cache key
+    // is per scope (global for SUPER_ADMIN, per college otherwise).
+    const scope = !user || user.role === 'SUPER_ADMIN' ? 'global' : `college:${user.collegeId ?? 'none'}`
+    const counts = await getOrSet(`staging-counts:hack:${scope}`, STAGING_COUNTS_CACHE_TTL_MS, async () => {
+      // No deadline filter — counts must include recently expired pending (Cognition) so admin sees 2 pending, not 1
+      let countsWhere: Record<string, unknown> = {}
+      if (user && user.role !== 'SUPER_ADMIN') {
+        countsWhere = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
       }
-    }
-    let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
-    for (const item of all) {
-      // Order 3: targetDepartments is canonical Json (array); parse helper
-      // accepts Json array or legacy String during rollout, never throws.
-      const depts = parseJsonArraySafe((item as any).targetDepartments)
-      total++
-      if (depts.length > 0) enriched++
-      const mine = myDecisions.get((item as any).id)
-      if (mine === 'APPROVED') { approved++; continue }
-      if (mine === 'REJECTED') { rejected++; continue }
-      if ((item as any).status === 'APPROVED') approved++
-      else if ((item as any).status === 'REJECTED') rejected++
-      else if (depts.length > 0) pending++
-    }
-    res.json({ total, enriched, pending, approved, rejected })
+      // C-6: push past-year exclusion to DB so counts never scan stale rows.
+      {
+        const y = new Date().getFullYear()
+        const ors: Array<Record<string, unknown>> = []
+        for (let past = y - 6; past < y; past++) ors.push({ title: { contains: String(past) } })
+        const excl = { NOT: { OR: ors } }
+        countsWhere = Object.keys(countsWhere).length > 0 ? { AND: [countsWhere, excl] } : excl
+      }
+      const allRaw = await prisma.hackathonStaging.findMany({
+        select: { id: true, targetDepartments: true, status: true, deadline: true, title: true },
+        where: countsWhere as never,
+      })
+      // Safety net only (DB already excluded past-year).
+      const all = allRaw.filter(c => !isStagingEnded(c.deadline as Date | null, c.title))
+      // Per-college decisions (additive): pending = no decision by MY college.
+      // A approve/reject never changes B's counts. Super-admin keeps global view.
+      // Pre-migration (no table) → empty map → legacy global-status behavior.
+      let myDecisions = new Map<string, string>()
+      if (user && user.role !== 'SUPER_ADMIN' && user.collegeId) {
+        try {
+          myDecisions = await listDecisionsForCollege(prisma as any, 'hackathonStagingDecision', user.collegeId)
+        } catch {
+          myDecisions = new Map<string, string>()
+        }
+      }
+      let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
+      for (const item of all) {
+        // Order 3: targetDepartments is canonical Json (array); parse helper
+        // accepts Json array or legacy String during rollout, never throws.
+        const depts = parseJsonArraySafe((item as any).targetDepartments)
+        total++
+        if (depts.length > 0) enriched++
+        const mine = myDecisions.get((item as any).id)
+        if (mine === 'APPROVED') { approved++; continue }
+        if (mine === 'REJECTED') { rejected++; continue }
+        if ((item as any).status === 'APPROVED') approved++
+        else if ((item as any).status === 'REJECTED') rejected++
+        else if (depts.length > 0) pending++
+      }
+      return { total, enriched, pending, approved, rejected }
+    })
+    res.json(counts)
   } catch (error) {
     logger.error({ err: error }, 'Error fetching hackathon staging counts:')
     res.status(500).json({ error: 'Failed to fetch counts' })

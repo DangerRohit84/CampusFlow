@@ -8,10 +8,19 @@ import { config } from '../config'
 import { isAiRateLimitError, toAiIssueMessage } from '../ai/client'
 import { parseSearchDate } from '../utils/search'
 import { logger } from '../utils/logger'
-import { fetchStatsStore } from '../repositories/fetchRepository'
+import { buildFetchStats, fetchStatsStore } from '../repositories/fetchRepository'
 import { normalizeFetchLimits, capItemsByLimits } from '../services/fetch/limits'
 import { getAutoFetchState, setAutoFetchEnabled } from '../services/fetch/autoFetch'
 import { recordSourceRun, selectFailedPlatforms, sourceHealthStore } from '../services/fetch/health'
+import { getOrSet } from '../lib/cache'
+import { getCachedPlatformSettings, invalidatePlatformSettingsCache } from '../services/fetch/settingsCache'
+
+// PERF (prod burst fix): /fetch/stats counts payload cached 60s shared
+// (Redis when healthy, memory otherwise — same seam as super-dashboard).
+// Health stays OUTSIDE the cache (1 cheap indexed query, must stay fresh for
+// the Retry UX). Card Refresh buttons re-read stats; worst-case staleness 60s.
+const FETCH_STATS_CACHE_KEY = 'fetch:stats:counts'
+const FETCH_STATS_CACHE_TTL_MS = 60_000
 
 // #4 source health: canonical platform list for health (registry 10 + detached OTHER_*).
 function listHealthPlatforms(): string[] {
@@ -357,28 +366,21 @@ async function enrichAllPending(source?: string): Promise<{ hackEnriched: number
 }
 
 // GET /api/fetch/stats - Get analysis stats for all platforms
+// PERF: was 12 platforms × 4 count() = 48 concurrent round-trips
+// (identical-timestamp queueing, maxConcurrent 61 > pool 50). Now 4 batched
+// GROUP BY source queries (same where clauses, same numbers) + 60s shared
+// counts cache. Shape identical.
 router.get('/stats', async (req, res) => {
   try {
     // SSOT: registry owns the 10 fetch platforms; OTHER_* stay detached manual-only.
     const platforms = [...listFetchAllPlatforms(), 'OTHER_HACKATHON', 'OTHER_INTERNSHIP']
-    
-    const stats = await Promise.all(platforms.map(async (platform) => {
-      // DIP: counts via fetchStatsStore (Prisma in prod, fake in tests).
-      // HALF2: parallel 4 counts per platform (was 4 sequential awaits)
-      const [hackathonCount, hackathonEnriched, internshipCount, internshipEnriched] = await Promise.all([
-        fetchStatsStore.countHackathonStaging({ source: platform }),
-        fetchStatsStore.countHackathonStaging({ source: platform, description: { not: '' }, targetDepartments: { not: [] } }),
-        fetchStatsStore.countInternshipStaging({ source: platform }),
-        fetchStatsStore.countInternshipStaging({ source: platform, description: { not: '' }, targetDepartments: { not: [] } }),
-      ])
-      
-      return {
-        platform,
-        hackathons: { fetched: hackathonCount, enriched: hackathonEnriched, pending: hackathonCount - hackathonEnriched },
-        internships: { fetched: internshipCount, enriched: internshipEnriched, pending: internshipCount - internshipEnriched },
-      }
-    }))
-    
+
+    // DIP: batched counts via fetchStatsStore (Prisma groupBy in prod, fake in tests).
+    const stats = await getOrSet(FETCH_STATS_CACHE_KEY, FETCH_STATS_CACHE_TTL_MS, async () => {
+      const counts = await fetchStatsStore.countStagingBySource()
+      return buildFetchStats(platforms, counts)
+    })
+
     const totalFetched = stats.reduce((sum, s) => sum + s.hackathons.fetched + s.internships.fetched, 0)
     const totalEnriched = stats.reduce((sum, s) => sum + s.hackathons.enriched + s.internships.enriched, 0)
 
@@ -444,7 +446,8 @@ router.post('/all', fetchLimiter, async (req, res) => {
       limits as Record<string, unknown>,
       ALL_PLATFORMS,
       PLATFORM_TYPE,
-      () => prisma.platformSettings.findMany() as Promise<Array<{ platform: string; type: string; enabled?: boolean; fetchLimit?: number }>>,
+      // PERF: 60s shared cache (was uncached findMany per Fetch All + cron tick).
+      () => getCachedPlatformSettings() as Promise<Array<{ platform: string; type: string; enabled?: boolean; fetchLimit?: number }>>,
     )
     // Guard: if every tick off (empty map after DB fallback), return early with 0 (no external calls)
     if (Object.keys(normalizedLimits).length === 0) {
@@ -1578,6 +1581,8 @@ router.put('/:platform/limit', async (req, res) => {
       update: updateData,
       create: createData as any,
     })
+    // PERF: explicit write → drop the 60s settings cache (TTL is the backstop).
+    await invalidatePlatformSettingsCache()
 
     res.json({ success: true, settings })
   } catch (error) {
@@ -1624,6 +1629,8 @@ router.put('/settings', async (req, res) => {
       )
     )
     const results: unknown[] = settled
+    // PERF: explicit write → drop the 60s settings cache (TTL is the backstop).
+    await invalidatePlatformSettingsCache()
     res.json({ success: true, settings: results })
   } catch (error) {
     logger.error({ err: error }, 'Bulk update settings error:')
@@ -1632,9 +1639,10 @@ router.put('/settings', async (req, res) => {
 })
 
 // GET /api/fetch/settings/all - Get all platform settings
+// PERF: 60s shared cache — 10 PlatformCards mount-fetch this per FetchPage visit.
 router.get('/settings/all', async (req, res) => {
   try {
-    const settings = await prisma.platformSettings.findMany()
+    const settings = await getCachedPlatformSettings()
     res.json({ settings })
   } catch (error) {
     logger.error({ err: error }, 'Get settings error:')
@@ -1658,9 +1666,10 @@ async function readFetchConfigPlatforms(): Promise<FetchConfigPlatform[]> {
   // SSOT: registry owns platform keys + types (1-file adds). DB rows overlay.
   const ALL_PLATFORMS = listFetchAllPlatforms()
   const PLATFORM_TYPE: Record<string, string> = platformTypeMap() as Record<string, string>
+  // PERF: 60s shared cache (was uncached findMany per GET /config + PUT /config read-back).
   let dbSettings: Array<{ platform: string; type: string; enabled?: boolean; fetchLimit?: number }> = []
   try {
-    dbSettings = await prisma.platformSettings.findMany() as Array<{ platform: string; type: string; enabled?: boolean; fetchLimit?: number }>
+    dbSettings = await getCachedPlatformSettings() as Array<{ platform: string; type: string; enabled?: boolean; fetchLimit?: number }>
   } catch (e: unknown) {
     logger.warn({ err: (e as Error)?.message || e }, '[Fetch] config platform read failed, using defaults:')
   }
@@ -1768,6 +1777,9 @@ router.put('/config', async (req, res) => {
           }),
         ),
       )
+      // PERF: explicit write → drop the 60s settings cache BEFORE the read-back
+      // so the response (and the next GET /config) reflects the save.
+      await invalidatePlatformSettingsCache()
       platformRows = await readFetchConfigPlatforms()
     }
 

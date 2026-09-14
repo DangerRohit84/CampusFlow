@@ -80,6 +80,12 @@ export const qk = {
     (['admin-staging', status ?? 'all', hPage ?? 1, iPage ?? 1] as const),
   adminCounts: () => (['admin-counts'] as const),
   adminColleges: () => (['admin-colleges'] as const),
+  // PERF: shared fetch-settings key — 10 PlatformCards + OtherSourcesCards
+  // each mount-fetched GET /fetch/settings/all (per-card useEffect, no dedupe:
+  // 12 identical GETs per FetchPage visit, ×2 under StrictMode dev). One key
+  // with 60s staleTime (mirrors the backend 60s settings cache) so all cards
+  // share a single network trip. Limit PUTs invalidate it (see useFetchSettings).
+  fetchSettings: () => (['fetch-settings'] as const),
   // Admin SSOT (I-7 fix): single key factory for AdminPage + useAdminQueries +
   // entitySync invalidation. Shapes preserved verbatim so existing cache hits.
   // New code MUST use qk.admin* — `adminKeys` in useAdminQueries.ts re-exports

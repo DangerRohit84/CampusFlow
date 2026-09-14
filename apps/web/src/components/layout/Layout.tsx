@@ -189,6 +189,11 @@ export default function Layout() {
   // staleTime mirrors the pages (hack/forms/intern 3min, contests 60s live).
   // Socket singleton + bridge below untouched.
   const badgeCollegeScope = (user as any)?.collegeId || effectiveCollegeId || undefined
+  // PERF: skip urgency badges on the pure super-admin overview (sidebar there
+  // shows no badged items — /superadmin, /superadmin/colleges, /reports,
+  // /admin/fetch, /admin/ai-manager). Was 4 full-list GETs per superadmin
+  // load on top of the dashboard + KPI fan-out. Scoped tenant views keep them.
+  const badgesEnabled = !!user && (!isSuperAdmin || isSuperScoped)
   // WHY cookie-only: HttpOnly session may have user but null token. Gate badges
   // on user (not token-only) so cookie-only still fetches; token stays for socket auth.
   const { data: badgeHackathons } = useQuery({
@@ -199,7 +204,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!user,
+    enabled: badgesEnabled,
   })
   const { data: badgeForms } = useQuery({
     queryKey: qk.forms(badgeCollegeScope),
@@ -209,7 +214,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!user,
+    enabled: badgesEnabled,
   })
   const { data: badgeInternships } = useQuery({
     queryKey: qk.internships('', badgeCollegeScope),
@@ -219,7 +224,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!user,
+    enabled: badgesEnabled,
   })
   const { data: badgeContests } = useQuery({
     queryKey: qk.contests('ALL', badgeCollegeScope),
@@ -229,7 +234,7 @@ export default function Layout() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     retry: 1,
-    enabled: !!user,
+    enabled: badgesEnabled,
   })
   const nearDeadlineCount = useMemo(() => {
     // WHY shared helper: single resolveDate/isBadgeable/isNear per entity
@@ -451,6 +456,9 @@ export default function Layout() {
   useEffect(() => {
     // WHY cookie-only: gate on user (not token-only) so cookie session still loads urgency.
     if (!user) return
+    // PERF: pure super-admin overview shows no assignment badge — skip the
+    // getHubs urgency fetch there (scoped tenant views keep it).
+    if (isSuperAdmin && !isSuperScoped) return
     let cancelled = false
     let lastFetchAt = 0
     const FOCUS_MIN_GAP_MS = 60 * 1000
@@ -486,7 +494,9 @@ export default function Layout() {
       window.removeEventListener('focus', onFocus)
       window.clearInterval(interval)
     }
-  }, [token, user?.role, user?.id])
+    // isSuperScoped in deps: entering/leaving a tenant view must (re)start or
+    // stop the urgency fetch (early return above skips pure overview).
+  }, [token, user?.role, user?.id, isSuperAdmin, isSuperScoped])
 
   const getBadgeCount = (path:string) => {
     if (path === '/assignments') return assignmentUrgent.count

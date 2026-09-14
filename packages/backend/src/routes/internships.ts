@@ -1,7 +1,13 @@
 import { Router, Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import prisma, { withRetry } from '../config/db'
-import { cache, createCacheRateLimitStore } from '../lib/cache'
+import { cache, createCacheRateLimitStore, getOrSet } from '../lib/cache'
+
+// PERF (prod burst fix): staging counts cache — this endpoint ran an unbounded
+// full-table findMany scan per call, polled per viewer. Now computed at most
+// 1×/60s per scope (shared via Redis when healthy, memory otherwise — same seam
+// as super-dashboard). Exact same numbers; TTL-only expiry.
+const STAGING_COUNTS_CACHE_TTL_MS = 60_000
 import { coerceDeadline, normalizeDepartments, normalizeYears, parseJsonArraySafe, parseJsonNumberArraySafe, coerceStartAt } from '../lib/validators'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import ExcelJS from 'exceljs'
@@ -259,38 +265,44 @@ router.get('/staging', async (req: AuthRequest, res: Response) => {
 router.get('/staging/counts', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true } }) // NARROW-READ half1
-    // No deadline filter — counts must reflect all pending including expired
-    let countsWhere: any = {}
-    if (user && user.role !== 'SUPER_ADMIN') {
-      countsWhere = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
-    }
-    const all = await prisma.internshipStaging.findMany({
-      select: { id: true, targetDepartments: true, status: true },
-      where: countsWhere,
-    })
-    // Per-college decisions: pending = no decision by MY college.
-    let myDecisions = new Map<string, string>()
-    if (user && user.role !== 'SUPER_ADMIN' && user.collegeId) {
-      try {
-        myDecisions = await listDecisionsForCollege(prisma as any, 'internshipStagingDecision', user.collegeId)
-      } catch {
-        myDecisions = new Map<string, string>()
+    // Per-college decisions make college scoping exact, so the 60s cache key
+    // is per scope (global for SUPER_ADMIN, per college otherwise).
+    const scope = !user || user.role === 'SUPER_ADMIN' ? 'global' : `college:${user.collegeId ?? 'none'}`
+    const counts = await getOrSet(`staging-counts:int:${scope}`, STAGING_COUNTS_CACHE_TTL_MS, async () => {
+      // No deadline filter — counts must reflect all pending including expired
+      let countsWhere: any = {}
+      if (user && user.role !== 'SUPER_ADMIN') {
+        countsWhere = { OR: [{ collegeId: user.collegeId }, { collegeId: null }] }
       }
-    }
-    let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
-    for (const item of all) {
-      // Order 3: canonical Json (helper accepts Json or legacy String).
-      const depts = parseJsonArraySafe((item as any).targetDepartments)
-      total++
-      if (depts.length > 0) enriched++
-      const mine = myDecisions.get((item as any).id)
-      if (mine === 'APPROVED') { approved++; continue }
-      if (mine === 'REJECTED') { rejected++; continue }
-      if ((item as any).status === 'APPROVED') approved++
-      else if ((item as any).status === 'REJECTED') rejected++
-      else if (depts.length > 0) pending++
-    }
-    res.json({ total, enriched, pending, approved, rejected })
+      const all = await prisma.internshipStaging.findMany({
+        select: { id: true, targetDepartments: true, status: true },
+        where: countsWhere,
+      })
+      // Per-college decisions: pending = no decision by MY college.
+      let myDecisions = new Map<string, string>()
+      if (user && user.role !== 'SUPER_ADMIN' && user.collegeId) {
+        try {
+          myDecisions = await listDecisionsForCollege(prisma as any, 'internshipStagingDecision', user.collegeId)
+        } catch {
+          myDecisions = new Map<string, string>()
+        }
+      }
+      let total = 0, enriched = 0, pending = 0, approved = 0, rejected = 0
+      for (const item of all) {
+        // Order 3: canonical Json (helper accepts Json or legacy String).
+        const depts = parseJsonArraySafe((item as any).targetDepartments)
+        total++
+        if (depts.length > 0) enriched++
+        const mine = myDecisions.get((item as any).id)
+        if (mine === 'APPROVED') { approved++; continue }
+        if (mine === 'REJECTED') { rejected++; continue }
+        if ((item as any).status === 'APPROVED') approved++
+        else if ((item as any).status === 'REJECTED') rejected++
+        else if (depts.length > 0) pending++
+      }
+      return { total, enriched, pending, approved, rejected }
+    })
+    res.json(counts)
   } catch (error) {
     logger.error({ err: error }, 'Error fetching internship staging counts:')
     res.status(500).json({ error: 'Failed to fetch counts' })

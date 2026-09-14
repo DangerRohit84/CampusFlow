@@ -194,10 +194,18 @@ describe('half2 N+1 loops batched (same rows, fewer round-trips)', () => {
     expect(src).toContain('const [hackDeleted, intDeleted] = await Promise.all([')
   })
 
-  it('fetch stats: 4 sequential counts → Promise.all per platform', () => {
+  it('fetch stats: 48 per-platform counts → 4 batched GROUP BY + 60s cache', () => {
+    // PERF supersedes HALF2: 12 platforms × 4 counts in Promise.all still fired
+    // 48 concurrent round-trips (identical-timestamp queueing, maxConcurrent 61
+    // > pool 50). Now 4 GROUP BY source queries via the store + 60s shared
+    // counts cache. Same where clauses, same response shape.
     const src = readSrc('routes/fetch.ts')
-    expect(src).toContain('HALF2: parallel 4 counts per platform (was 4 sequential awaits)')
-    expect(src).toContain('const [hackathonCount, hackathonEnriched, internshipCount, internshipEnriched] = await Promise.all([')
+    expect(src).toContain('countStagingBySource')
+    expect(src).toContain('buildFetchStats')
+    expect(src).toContain('FETCH_STATS_CACHE_TTL_MS')
+    const repo = readSrc('repositories/fetchRepository.ts')
+    expect(repo).toContain("groupBy({ by: ['source']")
+    expect(repo).toContain('STAGING_ENRICHED_WHERE')
   })
 
   it('no N+1 create loops remain in half2 (createMany / Promise.all kept)', () => {
@@ -312,7 +320,9 @@ describe('half2 Promise.all parallelism (was sequential)', () => {
     expect(res).toContain('const [user, integ] = await Promise.all([')
     const fet = readSrc('routes/fetch.ts')
     expect(fet).toContain('const [hackDeleted, intDeleted] = await Promise.all([')
-    expect(fet).toContain('const [hackathonCount, hackathonEnriched, internshipCount, internshipEnriched] = await Promise.all([')
+    // PERF: stats batching lives in the store now (4 GROUP BY in one Promise.all).
+    const repo = readSrc('repositories/fetchRepository.ts')
+    expect(repo).toContain('const [hackTotal, hackEnriched, intTotal, intEnriched] = await Promise.all([')
   })
 })
 

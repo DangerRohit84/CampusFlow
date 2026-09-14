@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { qk } from '../lib/queryKeys'
+import { getSuperDashboardWindow } from '../lib/dashboardWindow'
 import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { adminAPI, superAdminAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -186,8 +187,9 @@ export default function SuperAdminDashboardPage() {
   const collegeId = searchParams.get('collegeId') || ''
   const rangeParam = (searchParams.get('range') as RangeKey) || '30d'
   const range: RangeKey = (['7d', '30d', '90d'].includes(rangeParam) ? rangeParam : '30d') as RangeKey
-  const from = getFromForRange(range)
-  const to = getToNow()
+  // PERF: stable window (was fresh `to` per render → new RQ key per render →
+  // refetch storm + backend 60s caches never hit). Memoized on range only.
+  const { from, to } = useMemo(() => getSuperDashboardWindow(range), [range])
 
   const [chartMetric, setChartMetric] = useState<'Assignments' | 'Rooms' | 'Forms' | 'Users'>('Assignments')
   const [tenantSearch, setTenantSearch] = useState('')

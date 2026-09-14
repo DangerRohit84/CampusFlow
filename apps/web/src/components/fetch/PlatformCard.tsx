@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Download, RefreshCw, Loader2, RotateCcw } from 'lucide-react'
 import api from '../../lib/api'
+import { qk } from '../../lib/queryKeys'
+import { useFetchSettings, findFetchSetting } from '../../hooks/useFetchSettings'
 import type { SourceHealth } from '../../pages/FetchPage'
 
 interface PlatformCardProps {
@@ -63,18 +66,15 @@ export default function PlatformCard({ platform, type, health, onRefresh }: Plat
   const healthStatus = health?.status ?? 'UNKNOWN'
   const isFailing = healthStatus === 'DOWN' || healthStatus === 'DEGRADED'
 
+  // PERF: shared settings query (was a per-card GET /fetch/settings/all on
+  // every mount — 10 identical GETs per FetchPage visit). All cards share one
+  // cached trip; local `limit` state keeps the UI instant.
+  const queryClient = useQueryClient()
+  const { data: settingsData } = useFetchSettings()
   useEffect(() => {
-    const loadLimit = async () => {
-      try {
-        const { data } = await api.get('/fetch/settings/all')
-        const setting = data.settings?.find(
-          (s: any) => s.platform === platform.platform && s.type === (type === 'hackathons' ? 'HACKATHON' : 'INTERNSHIP')
-        )
-        if (setting) setLimit(setting.fetchLimit)
-      } catch {}
-    }
-    loadLimit()
-  }, [platform.platform, type])
+    const setting = findFetchSetting(settingsData?.settings, platform.platform, type)
+    if (setting && typeof setting.fetchLimit === 'number') setLimit(setting.fetchLimit)
+  }, [settingsData, platform.platform, type])
 
   const handleLimitChange = async (newLimit: number) => {
     setLimit(newLimit)
@@ -84,6 +84,8 @@ export default function PlatformCard({ platform, type, health, onRefresh }: Plat
         limit: newLimit,
         type: type === 'hackathons' ? 'HACKATHON' : 'INTERNSHIP',
       })
+      // Keep the shared cache fresh for the other cards (1 background refetch).
+      await queryClient.invalidateQueries({ queryKey: qk.fetchSettings() })
     } catch (error) {
       console.error('Failed to save limit:', error)
     } finally {

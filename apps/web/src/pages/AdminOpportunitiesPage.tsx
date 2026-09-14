@@ -201,7 +201,10 @@ export default function AdminOpportunitiesPage() {
   const loading = stagingLoading
   const refreshing = stagingFetching && !stagingLoading
 
-  // Counts — separate light query, 30s live poll for enrichment progress.
+  // Counts — separate light query, 60s live poll for enrichment progress.
+  // PERF: was a 30s poll where each tick re-ran two full-table staging scans;
+  // backend now serves these from a 60s shared cache, so poll at the same
+  // cadence (HTTP-cheap + DB-free cache hits between recomputes).
   const { data: countsData } = useQuery({
     queryKey: qk.adminCounts(),
     queryFn: async ({ signal }) => {
@@ -209,9 +212,9 @@ export default function AdminOpportunitiesPage() {
       return { h, i }
     },
     enabled: isAdmin,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchInterval: 30 * 1000,
+    refetchInterval: 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     // 429 storm guard: 30s poll must not retry into the limiter.
