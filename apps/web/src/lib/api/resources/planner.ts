@@ -1,7 +1,7 @@
 // lib/api/resources/planner.ts - tasks/schedules/timetable/forms/announcements (SRP extract).
 // WHY: personal-planner + forms + announcements flows, one home.
 // Moved verbatim from lib/api.ts; AbortSignal threading preserved.
-import { api } from '../client'
+import { api, API_TIMEOUTS } from '../client'
 
 // Schedules
 export const scheduleAPI = {
@@ -31,6 +31,11 @@ export const taskAPI = {
 }
 
 // Timetable
+// WHY: upload/parse-text hit AI vision (backend 60s budget, 16k tokens) —
+// default 15s axios timeout aborted large (42-period) parses AFTER backend
+// logged "Direct parse OK", surfacing as "Failed to parse timetable".
+// fetch (60s) matches backend ai/client + ai-manager budgets and the
+// resume convertToLatex 90s precedent for vision calls.
 export const timetableAPI = {
   getAll: (opts?: { signal?: AbortSignal }) => api.get('/timetable', { signal: opts?.signal }).then((r) => r.data),
   getToday: (signal?: AbortSignal) => api.get('/timetable/today', { signal }).then((r) => r.data),
@@ -38,10 +43,10 @@ export const timetableAPI = {
     const formData = new FormData()
     formData.append('timetable', file)
     if (provider) formData.append('provider', JSON.stringify(provider))
-    return api.post('/timetable/upload', formData, { headers: { 'Content-Type': undefined } as any }).then((r) => r.data)
+    return api.post('/timetable/upload', formData, { headers: { 'Content-Type': undefined } as any, timeout: API_TIMEOUTS.fetch }).then((r) => r.data)
   },
-  parseText: (text: string) => api.post('/timetable/parse-text', { text }).then((r) => r.data),
-  save: (classes: any[], clearExisting?: boolean) => api.post('/timetable/save', { classes, clearExisting }).then((r) => r.data),
+  parseText: (text: string) => api.post('/timetable/parse-text', { text }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
+  save: (classes: any[], clearExisting?: boolean) => api.post('/timetable/save', { classes, clearExisting }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
   clear: () => api.delete('/timetable/clear').then((r) => r.data),
 }
 

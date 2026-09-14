@@ -43,6 +43,80 @@ const dayMap: Record<string, number> = {
   'm': 0, 't': 1, 'w': 2, 'th': 3, 'f': 4, 'sa': 5, 's': 6,
 }
 
+// Handoff normalizer (backend half of the 42-period fix).
+// WHY: vision LLMs drift keys (subject/name vs title, periods vs classes,
+// day names/"1"-"7" strings vs 0-6 ints, "9.30" vs "09:30"). Upload used to
+// return raw AI JSON, so one drifted key (e.g. subject) failed the
+// `classes[0].title` gate → [] → "Could not extract", and string days
+// passed review then 400'd on /save (fail-closed F14) with no review.
+// Normalize BEFORE res.json so review always shows 42 valid rows and
+// /save (0-6 contract) succeeds. Shape { classes, message } is stable —
+// frontend fix is tolerant reader, no version bump.
+function coerceDayOfWeek(v: unknown): number {
+  if (typeof v === 'number' && Number.isInteger(v)) {
+    if (v === 7) return 6 // common LLM 1-7 Sunday
+    return v
+  }
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase()
+    if (t in dayMap) return dayMap[t]
+    const n = Number(t)
+    if (Number.isInteger(n)) {
+      if (n === 7) return 6
+      return n
+    }
+    for (const [k, val] of Object.entries(dayMap)) {
+      if (k.length >= 3 && t.startsWith(k)) return val
+    }
+  }
+  return 0
+}
+
+function coerceTime(v: unknown, fallback: string): string {
+  const s = String(v ?? '').trim()
+  const m = s.match(/(\d{1,2})\s*[:.]\s*(\d{2})/)
+  if (m) {
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)))
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10)))
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+  }
+  const hOnly = s.match(/^(\d{1,2})$/)
+  if (hOnly) {
+    const h = Math.min(23, Math.max(0, parseInt(hOnly[1], 10)))
+    return `${String(h).padStart(2, '0')}:00`
+  }
+  return fallback
+}
+
+function coerceType(v: unknown): string {
+  const up = String(v ?? 'CLASS').trim().toUpperCase()
+  return up === 'LAB' ? 'LAB' : up === 'SEMINAR' ? 'SEMINAR' : up === 'OTHER' ? 'OTHER' : 'CLASS'
+}
+
+const TIMETABLE_KEYS = ['title', 'subject', 'name', 'course', 'code', 'location', 'room', 'venue', 'teacher', 'professor', 'faculty', 'instructor', 'dayofweek', 'day', 'weekday', 'starttime', 'start', 'from', 'endtime', 'end', 'to', 'type', 'kind'] as const
+
+function hasTimetableKeys(c: any): boolean {
+  if (!c || typeof c !== 'object') return false
+  const keys = new Set(Object.keys(c).map((k) => String(k).toLowerCase()))
+  return (TIMETABLE_KEYS as readonly string[]).some((k) => keys.has(k))
+}
+
+export function normalizeParsedClasses(input: unknown): any[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter(hasTimetableKeys)
+    .map((c: any) => ({
+      title: String(c.title ?? c.subject ?? c.name ?? c.course ?? 'Untitled').trim() || 'Untitled',
+      course: String(c.course ?? c.code ?? '').trim(),
+      location: String(c.location ?? c.room ?? c.venue ?? '').trim(),
+      teacher: c.teacher ?? c.professor ?? c.faculty ?? c.instructor ?? null,
+      dayOfWeek: coerceDayOfWeek(c.dayOfWeek ?? c.day ?? c.weekday),
+      startTime: coerceTime(c.startTime ?? c.start ?? c.from, '09:00'),
+      endTime: coerceTime(c.endTime ?? c.end ?? c.to, '10:00'),
+      type: coerceType(c.type ?? c.kind),
+    }))
+}
+
 function parseLocalTimetable(text: string): any[] {
   const classes: any[] = []
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -183,9 +257,18 @@ Return ONLY the JSON array:`
 
         // Try direct parse first
         try {
-          classes = JSON.parse(src)
-          if (Array.isArray(classes) && classes.length > 0 && classes[0].title) {
+          const raw = JSON.parse(src)
+          const norm = normalizeParsedClasses(raw)
+          if (norm.length > 0 && (raw as any[])[0]?.title !== undefined) {
+            classes = norm
             logger.info({ err: classes.length }, '[Timetable Upload] Direct parse OK, count:')
+            break
+          }
+          // Accept drifted keys (subject/name) via normalizer even when
+          // `title` gate misses — review must still show 42.
+          if (norm.length > 0) {
+            classes = norm
+            logger.info({ err: classes.length }, '[Timetable Upload] Direct parse OK (drifted keys), count:')
             break
           }
           classes = []
@@ -200,14 +283,21 @@ Return ONLY the JSON array:`
         if (firstBracket !== -1 && lastBracket > firstBracket) {
           const jsonStr = src.substring(firstBracket, lastBracket + 1)
           try {
-            classes = JSON.parse(jsonStr)
-            if (Array.isArray(classes) && classes.length > 0 && classes[0].title) break
+            const raw = JSON.parse(jsonStr)
+            const norm = normalizeParsedClasses(raw)
+            if (norm.length > 0) {
+              classes = norm
+              break
+            }
             classes = []
           } catch (extractErr: any) {
             logger.info({ err: extractErr.message?.substring(0, 100) }, '[Timetable Upload] Extract parse failed:')
           }
         }
       }
+      // Defense-in-depth: coerce any surviving raw shape (defensive, keeps
+      // { classes, message } stable for the frontend tolerant reader).
+      classes = normalizeParsedClasses(classes)
       logger.info({ err: classes.length }, '[Timetable Upload] Final parsed', 'classes')
     } catch (e: any) {
       logger.error({ err: e.message }, '[Timetable Upload] Outer error:')
@@ -235,7 +325,7 @@ router.post('/parse-text', async (req: AuthRequest, res: Response) => {
     }
 
     // Try local parser first (always works, no API key needed)
-    let classes = parseLocalTimetable(text)
+    let classes = normalizeParsedClasses(parseLocalTimetable(text))
 
       // If local parser found nothing, try AI Manager routing
       if (classes.length === 0) {
@@ -256,7 +346,7 @@ Return ONLY the JSON array:`
         const response = await parseWithAI(prompt)
       try {
         const jsonMatch = response.match(/\[[\s\S]*\]/)
-        if (jsonMatch) classes = JSON.parse(jsonMatch[0])
+        if (jsonMatch) classes = normalizeParsedClasses(JSON.parse(jsonMatch[0]))
       } catch {}
     }
 

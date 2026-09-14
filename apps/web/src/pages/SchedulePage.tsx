@@ -31,6 +31,21 @@ const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const hours = Array.from({ length: 14 }, (_, i) => i + 7)
 
+// Timetable handoff normalizer (SSOT for parse/upload review).
+// WHY: backend contracts { classes, message } but vision/legacy payloads
+// drift (periods/schedules/data keys, bare array). The review list must
+// render 42 classes even when the key drifts — a shape mismatch must never
+// surface as "Failed to parse timetable" (that toast is reserved for true
+// transport/AI failures). Pure + unit-tested in
+// src/lib/__tests__/timetableHandoff.test.ts.
+export function normalizeTimetableResult(result: unknown): any[] {
+  if (Array.isArray(result)) return result
+  if (!result || typeof result !== 'object') return []
+  const r = result as Record<string, unknown>
+  const list = r.classes ?? r.periods ?? r.schedules ?? r.data ?? []
+  return Array.isArray(list) ? list : []
+}
+
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
@@ -126,10 +141,17 @@ export default function SchedulePage() {
       } else {
         result = await timetableAPI.parseText(timetableText)
       }
-      setParsedClasses(result.classes || [])
-      if (result.classes?.length === 0) toast.error(result.message || 'No classes found. Try a different format.')
-    } catch { toast.error('Failed to parse timetable') }
-    setParsing(false)
+      const list = normalizeTimetableResult(result)
+      setParsedClasses(list)
+      if (list.length === 0) toast.error((result as any)?.message || 'No classes found. Try a different format.')
+    } catch (e: any) {
+      const backendMsg = e?.response?.data?.error || e?.response?.data?.message
+      const msg = String(e?.message || '')
+      const isTimeout = e?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+      toast.error(backendMsg || (isTimeout ? 'Parse timed out — vision takes up to 60s for large timetables, please retry' : 'Failed to parse timetable'))
+    } finally {
+      setParsing(false)
+    }
   }
 
   // Save parsed classes
