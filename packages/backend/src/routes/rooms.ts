@@ -166,6 +166,15 @@ const upload = multer({
       'image/jpeg',
       'image/png',
       'image/gif',
+      // Upload-audit-all: magic allowlist (ROOM_ALLOWED_EXTS) already accepts
+      // webp/bmp/tiff/heic/heif/avif — the multer filter must not reject them
+      // first (phone screenshots/clips arrive as webp/heic).
+      'image/webp',
+      'image/bmp',
+      'image/tiff',
+      'image/heic',
+      'image/heif',
+      'image/avif',
       'text/plain',
       'application/zip',
       'application/x-rar-compressed'
@@ -2034,7 +2043,10 @@ async function authorizeResourceUpload(req: AuthRequest, res: Response, next: Ne
 }
 
 // 9. POST /:id/resources — Upload resource (Teacher only)
-router.post('/:id/resources', authorizeResourceUpload, upload.single('file'), async (req: AuthRequest, res: Response) => {
+// Upload-audit-all: handleUploadError added (was missing — multer size/filter
+// rejections fell through to the generic 500 instead of honest 400 JSON,
+// unlike the chat-messages route which already had it).
+router.post('/:id/resources', authorizeResourceUpload, upload.single('file'), handleUploadError, async (req: AuthRequest, res: Response) => {
   try {
     const id = String(req.params.id)
     const user = res.locals.uploadUser

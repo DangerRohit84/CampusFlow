@@ -24,7 +24,17 @@ export default function SubmissionPanel({ hub, submission, onSubmitted, onClose 
       notifyEntityMutated('assignment', { hubId: hub.id, action: 'submitted' })
       if (onClose) onClose()
       if (onSubmitted) onSubmitted()
-    } catch(e:any){ toast.error(e.response?.data?.error||'Submit failed')} finally{ setSubmitting(false)}
+    } catch(e:any){
+      // Upload-audit-all: honest errors — backend reason first (scan/size/type),
+      // timeout hint for aborted multipart (60s budget), generic last.
+      const backendMsg = e?.response?.data?.error
+      if (backendMsg) toast.error(String(backendMsg))
+      else {
+        const msg = String(e?.message || '')
+        const isTimeout = e?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+        toast.error(isTimeout ? 'Submit timed out — large files take up to 60s, please retry' : 'Submit failed')
+      }
+    } finally{ setSubmitting(false)}
   }
   const visibleGrade = hub.showGrades ? submission?.grade : null
   const visiblePoints = hub.showGrades ? submission?.points : null

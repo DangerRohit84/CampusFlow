@@ -259,10 +259,12 @@ export const resumeAPI = {
     api.post('/resume/ats-score', payload, { headers: { ...groqHeader() } as any }).then((r) => r.data),
 
   // Parse uploaded resume — PDF/DOCX/TXT → ResumeData — heuristic works without API, AI structuring needs per-user key
+  // Upload-audit-all: AI structuring (2500 tokens) can exceed the 15s
+  // default — fetch (60s), matching the convertToLatex 90s precedent.
   parseResume: async (file: File) => {
     const fd = new FormData()
     fd.append('resume', file)
-    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any })
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any, timeout: API_TIMEOUTS.fetch })
     return res.data as { data: any; rawText: string; heuristic: boolean; usedAI: boolean; hasGroq?: boolean; placeholder?: string }
   },
   parseText: (rawText: string) =>
@@ -281,7 +283,7 @@ export const resumeAPI = {
   parseUpload: async (file: File) => {
     const fd = new FormData()
     fd.append('resume', file)
-    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any })
+    const res = await api.post('/resume/parse', fd, { headers: { 'Content-Type': undefined, ...groqHeader() } as any, timeout: API_TIMEOUTS.fetch })
     return res.data
   },
   // Convert PDF/Image/DOCX/TXT → LaTeX code — vision & AI text->LaTeX need per-user Groq key + global model

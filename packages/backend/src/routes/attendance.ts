@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { visionCompletion } from '../ai/client'
+import { validateUploadMagicBytes } from '../utils/uploadScan'
 import prisma from '../config/db'
 import { broadcastAttendanceMutation } from '../services/socket'
 import { logger } from '../utils/logger'
@@ -202,6 +203,38 @@ router.delete('/data', authenticate, async (req: AuthRequest, res: Response) => 
   }
 })
 
+// Upload-audit-all normalizer (backend half, mirrors timetable's
+// normalizeParsedClasses). WHY: vision LLMs drift keys (subject/course vs
+// name, total/classes vs held, present vs attended, numeric strings vs ints).
+// The old gate returned raw AI JSON, so one drifted key surfaced as 422
+// "AI response is not an array" or silently saved NaN counts. Normalize
+// BEFORE res.json so the review list always carries numeric held/attended.
+// Shape { subjects } is stable — frontend fix is the tolerant reader.
+const ATTENDANCE_KEYS = ['name', 'subject', 'course', 'title', 'held', 'total', 'classes', 'attended', 'present', 'attend'] as const
+
+function hasAttendanceKeys(s: any): boolean {
+  if (!s || typeof s !== 'object') return false
+  const keys = new Set(Object.keys(s).map((k) => String(k).toLowerCase()))
+  return (ATTENDANCE_KEYS as readonly string[]).some((k) => keys.has(k))
+}
+
+function coerceCount(v: unknown): number {
+  const n = typeof v === 'number' ? v : parseInt(String(v ?? '').trim(), 10)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
+}
+
+export function normalizeAttendanceSubjects(input: unknown): Array<{ name: string; held: number; attended: number }> {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter(hasAttendanceKeys)
+    .map((s: any) => ({
+      name: String(s.name ?? s.subject ?? s.course ?? s.title ?? '').trim(),
+      held: coerceCount(s.held ?? s.total ?? s.classes),
+      attended: coerceCount(s.attended ?? s.present ?? s.attend),
+    }))
+    .filter((s) => s.name.length > 0)
+}
+
 // POST /api/attendance/parse — AI parse image
 router.post('/parse', authenticate, async (req: AuthRequest, res: Response) => {
   try {
@@ -213,6 +246,33 @@ router.post('/parse', authenticate, async (req: AuthRequest, res: Response) => {
 
     const mimeType = image.match(/^data:([^;]+)/)?.[1] || 'image/png'
     const base64 = image.includes(',') ? image.split(',')[1] : image
+
+    // Upload-audit-all: JSON-base64 images previously skipped the shared
+    // magic-byte gate (spoofed data-URLs reached AI vision + storage).
+    // Decode + verify via 'rooms' surface (image magics) before vision.
+    let imageBuffer: Buffer | null = null
+    try {
+      imageBuffer = Buffer.from(base64, 'base64')
+    } catch {
+      imageBuffer = null
+    }
+    if (!imageBuffer || imageBuffer.length === 0) {
+      res.status(400).json({ error: 'Invalid image data' })
+      return
+    }
+    try {
+      const extHint = mimeType === 'image/jpeg' ? 'photo.jpg' : mimeType === 'image/webp' ? 'photo.webp' : mimeType === 'image/gif' ? 'photo.gif' : 'photo.png'
+      const magicErr = await validateUploadMagicBytes(imageBuffer, extHint, mimeType, 'rooms')
+      if (magicErr) {
+        logger.warn({ requestId: (req as any).requestId, reason: magicErr }, '[Attendance Parse] upload blocked (magic-byte)')
+        res.status(400).json({ error: 'Invalid image file' })
+        return
+      }
+    } catch (e: any) {
+      logger.warn({ requestId: (req as any).requestId, err: String(e?.message || e).slice(0, 200) }, '[Attendance Parse] validation error')
+      res.status(400).json({ error: 'Invalid image file' })
+      return
+    }
 
     const prompt = `Look at this attendance table image. Extract every row from the table.
 
@@ -253,14 +313,23 @@ Return ONLY the JSON array:`
 
     let subjects
     try {
-      subjects = JSON.parse(clean)
+      // Drift-tolerant: direct array OR embedded [...] substring (thinking
+      // models wrap JSON in prose), then coerce drifted keys to numbers.
+      let raw: unknown = null
+      try {
+        raw = JSON.parse(clean)
+      } catch {
+        const m = clean.match(/\[[\s\S]*\]/)
+        if (m) raw = JSON.parse(m[0])
+        else throw new Error('no-json')
+      }
+      subjects = normalizeAttendanceSubjects(raw)
+      if (subjects.length === 0) {
+        res.status(422).json({ error: 'Could not parse attendance from image', raw: response })
+        return
+      }
     } catch {
       res.status(422).json({ error: 'Could not parse AI response', raw: response })
-      return
-    }
-
-    if (!Array.isArray(subjects)) {
-      res.status(422).json({ error: 'AI response is not an array', raw: subjects })
       return
     }
 

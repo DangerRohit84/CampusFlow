@@ -73,15 +73,38 @@ export default function ChatPage() {
       const provider = getActiveProvider()
       if (sessionId) {
         const res = await chatAPI.sendMessage(sessionId, query, provider)
-        const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: res.assistantMessage.content, timestamp: new Date() }
+        // Upload-audit-all: tolerant reader — provider/model drift changes
+        // the assistant envelope (assistantMessage/message/response/text).
+        // Never blank-crash on a shape change; fall back through known keys.
+        const text = (res as any)?.assistantMessage?.content
+          ?? (res as any)?.message?.content
+          ?? (res as any)?.response
+          ?? (res as any)?.text
+          ?? ''
+        const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: text || "I got an empty reply — please retry.", timestamp: new Date() }
         setMessages((prev) => [...prev, assistantMsg])
       } else {
         const res = await chatAPI.ask(query, provider)
-        const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: res.response, timestamp: new Date() }
+        const text = (res as any)?.response
+          ?? (res as any)?.assistantMessage?.content
+          ?? (res as any)?.message?.content
+          ?? (res as any)?.text
+          ?? ''
+        const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: text || "I got an empty reply — please retry.", timestamp: new Date() }
         setMessages((prev) => [...prev, assistantMsg])
       }
-    } catch {
-      const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: "Sorry, I couldn't process that. Please try again.", timestamp: new Date() }
+    } catch (e: any) {
+      // Honest in-chat error: timeout (60s AI budget) reads differently from
+      // a true failure — say which so the user retries instead of rephrasing.
+      const msg = String((e as any)?.message || '')
+      const backendMsg = (e as any)?.response?.data?.error
+      const isTimeout = (e as any)?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+      const content = backendMsg
+        ? String(backendMsg)
+        : isTimeout
+          ? 'That took longer than 60s — please retry (long answers stream slowly on small models).'
+          : "Sorry, I couldn't process that. Please try again."
+      const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content, timestamp: new Date() }
       setMessages((prev) => [...prev, assistantMsg])
     }
     setIsTyping(false)

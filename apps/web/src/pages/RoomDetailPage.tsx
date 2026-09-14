@@ -175,8 +175,16 @@ export default function RoomDetailPage() {
       setUploadCategory('lecture')
       setUploadFile(null)
       loadResources()
-    } catch (err) {
-      toast.error('Failed to upload resource')
+    } catch (err: any) {
+      // Upload-audit-all: honest errors (timetable precedent) — surface the
+      // backend reason (scan rejection, size limit, type block) + timeout hint.
+      const backendMsg = err?.response?.data?.error
+      if (backendMsg) toast.error(String(backendMsg))
+      else {
+        const msg = String(err?.message || '')
+        const isTimeout = err?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+        toast.error(isTimeout ? 'Upload timed out — large files take up to 60s, please retry' : 'Failed to upload resource')
+      }
     } finally {
       setUploading(false)
     }

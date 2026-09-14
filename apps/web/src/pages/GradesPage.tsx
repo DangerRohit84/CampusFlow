@@ -9,7 +9,18 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { gradesAPI } from '../lib/api'
+import { normalizeGradeSubjects } from '../lib/api/resources/assignments'
 import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
+
+// Upload-audit-all: honest parse errors (timetable precedent) — surface the
+// backend message; map client aborts to the 60s-vision timeout hint.
+export function gradesParseErrorMessage(err: any): string {
+  const backendMsg = err?.response?.data?.error
+  if (backendMsg) return String(backendMsg)
+  const msg = String(err?.message || '')
+  const isTimeout = err?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+  return isTimeout ? 'Parse timed out — vision takes up to 60s for large transcripts, please retry' : 'Failed to parse image'
+}
 
 interface Course {
   id: string
@@ -187,13 +198,16 @@ export default function GradesPage() {
       try {
         setParsing(true)
         const parsed = await gradesAPI.parse(base64)
-        if (parsed?.subjects?.length) {
-          setParsedResults(parsed.subjects)
+        // Tolerant reader: drifted/cached shapes (bare array, data/courses
+        // keys) must still review — never throw here.
+        const list = normalizeGradeSubjects(parsed)
+        if (list.length) {
+          setParsedResults(list)
         } else {
-          toast.error('Could not parse grades from image')
+          toast.error((parsed as any)?.message || 'Could not parse grades from image')
         }
       } catch (err: any) {
-        toast.error(err?.response?.data?.error || 'Failed to parse image')
+        toast.error(gradesParseErrorMessage(err))
       } finally {
         setParsing(false)
       }

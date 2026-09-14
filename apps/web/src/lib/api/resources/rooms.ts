@@ -3,7 +3,7 @@
 // (api layer depended on transport + realtime — M-4 layering smell). Socket
 // helpers now live in `lib/socketChannels.ts`; pages import `lib/socket`
 // directly. This file is HTTP-only. AbortSignal threading preserved.
-import { api } from '../client'
+import { api, API_TIMEOUTS } from '../client'
 import { MAX_LIST_LIMIT } from './opportunities'
 
 // Deprecated compat: import from '../socket' / '../socketChannels' instead.
@@ -22,16 +22,19 @@ export const notificationAPI = {
 }
 
 // Chat
+// Upload-audit-all: AI text calls (ask/summarize/sendMessage) share the
+// backend AI budget — fetch (60s), not the 15s default that aborted vision/
+// long generations mid-flight (timetable precedent).
 export const chatAPI = {
   getSessions: () => api.get('/chat/sessions').then((r) => r.data),
   createSession: () => api.post('/chat/sessions').then((r) => r.data),
   getMessages: (sessionId: string) => api.get(`/chat/sessions/${sessionId}/messages`).then((r) => r.data),
   sendMessage: (sessionId: string, content: string, provider?: { baseUrl?: string; apiKey?: string; model?: string }) =>
-    api.post(`/chat/sessions/${sessionId}/messages`, { content, provider }).then((r) => r.data),
+    api.post(`/chat/sessions/${sessionId}/messages`, { content, provider }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
   ask: (content: string, provider?: { baseUrl?: string; apiKey?: string; model?: string }) =>
-    api.post('/chat/ask', { content, provider }).then((r) => r.data),
+    api.post('/chat/ask', { content, provider }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
   summarize: (content: string, provider?: { baseUrl?: string; apiKey?: string; model?: string }) =>
-    api.post('/chat/summarize', { content, provider }).then((r) => r.data),
+    api.post('/chat/summarize', { content, provider }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
 }
 
 // Rooms
@@ -83,7 +86,8 @@ export const roomAPI = {
 
   // Chat
   getMessages: (roomId: string) => api.get(`/rooms/${roomId}/messages`).then((r) => r.data),
-  // Multipart: at least one of content / file is required by the backend
+  // Multipart: at least one of content / file is required by the backend.
+  // Upload-audit-all: ≤10MB Cloudinary persist needs fetch (60s), not 15s.
   sendMessage: (roomId: string, payload: { content?: string; file?: File; replyToId?: string }) => {
     const formData = new FormData()
     if (payload.content) formData.append('content', payload.content)
@@ -91,6 +95,7 @@ export const roomAPI = {
     if (payload.replyToId) formData.append('replyToId', payload.replyToId)
     return api.post(`/rooms/${roomId}/messages`, formData, {
       headers: { 'Content-Type': undefined } as any,
+      timeout: API_TIMEOUTS.fetch,
     }).then((r) => r.data)
   },
   // scope=me hides the message for the current user only;
@@ -129,9 +134,11 @@ export const roomAPI = {
     api.put(`/rooms/${roomId}/settings`, data).then((r) => r.data),
 
   // Resources
+  // Upload-audit-all: ≤10MB persist needs fetch (60s), not the 15s default.
   uploadResource: (roomId: string, formData: FormData) =>
     api.post(`/rooms/${roomId}/resources`, formData, {
       headers: { 'Content-Type': undefined } as any,
+      timeout: API_TIMEOUTS.fetch,
     }).then((r) => r.data),
   getResources: (roomId: string) => api.get(`/rooms/${roomId}/resources`).then((r) => r.data),
   deleteResource: (roomId: string, resourceId: string) =>

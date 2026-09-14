@@ -1236,6 +1236,15 @@ router.post('/upload', parseLimiter, authenticate, (req: Request, res: Response,
     let rawText = ''
     if ((req as any).file?.buffer) {
       const file = (req as any).file
+      // Upload-audit-all: /upload alias previously skipped the shared
+      // magic-byte gate that /parse enforces (spoofed HTML-as-PDF reached
+      // extractTextFromBuffer). Unified on validateUploadMagicBytes
+      // ('resume' surface) so both entry points share one scanner.
+      const magicErr = await validateUploadMagicBytes(file.buffer, file.originalname, file.mimetype, 'resume')
+      if (magicErr) {
+        res.status(400).json({ error: magicErr })
+        return
+      }
       rawText = await extractTextFromBuffer(file.buffer, file.originalname, file.mimetype)
     } else {
       res.status(400).json({ error: 'No file provided under field "resume"' })
@@ -1335,6 +1344,21 @@ router.post('/convert-to-latex', convertLimiter, (req: Request, res: Response, n
     if (!buffer || buffer.length === 0) {
       res.status(400).json({ error: 'Empty file' })
       return
+    }
+
+    // Upload-audit-all: /convert-to-latex previously persisted no scan —
+    // image/PDF bytes went straight to vision/text pipelines. Unified on the
+    // shared scanner (image/* via 'rooms' surface which allowlists image
+    // magics incl. webp/heic; docs via 'resume'). JSON { rawText } path skips
+    // (no binary to sniff — express.json 1mb cap + downstream LaTeX escaping
+    // is the authority there).
+    if (file?.buffer) {
+      const surface = String(mimeType || '').startsWith('image/') ? 'rooms' : 'resume'
+      const magicErr = await validateUploadMagicBytes(buffer, fileName, mimeType, surface as 'rooms' | 'resume')
+      if (magicErr) {
+        res.status(400).json({ error: magicErr })
+        return
+      }
     }
 
     // Per spec: per-user Groq API key + superadmin's global model (AI Manager)

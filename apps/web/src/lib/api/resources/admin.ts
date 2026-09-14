@@ -7,7 +7,7 @@
 // pages keep working through lib/api.ts compat re-exports. Behavior identical.
 
 import axios from 'axios'
-import { api, API_URL } from '../client'
+import { api, API_TIMEOUTS, API_URL } from '../client'
 
 export interface AdminUserQuery {
   collegeId?: string
@@ -129,6 +129,8 @@ export const departmentAPI = {
 }
 
 // #11 bulk CSV dry-run + audit log + platform KPIs + AI metering.
+// Upload-audit-all: bulk writes (≤50 rows × user-create + audit) can exceed
+// the 15s default — fetch (60s) on all six import entry points below.
 export interface BulkDryRunRow {
   index: number
   email: string
@@ -148,19 +150,19 @@ export interface BulkDryRunReport {
 
 export const bulkImportAPI = {
   dryRunTeachers: (rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/teachers/bulk', { teachers: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }).then((r) => r.data as BulkDryRunReport),
+    api.post('/admin/users/teachers/bulk', { teachers: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
   dryRunStudents: (rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/students/bulk', { students: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }).then((r) => r.data as BulkDryRunReport),
+    api.post('/admin/users/students/bulk', { students: rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport),
   // #11a unified import: one path for both roles ({role} + {rows} or {csv}).
   // Dry-run (?dryRun=true) returns the per-row report with zero writes.
   dryRunImport: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}), dryRun: true }).then((r) => r.data as BulkDryRunReport & { role: string }),
+    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
   dryRunImportCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string) =>
-    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}), dryRun: true }).then((r) => r.data as BulkDryRunReport & { role: string }),
+    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}), dryRun: true }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as BulkDryRunReport & { role: string }),
   importRows: (role: 'STUDENT' | 'TEACHER', rows: unknown[], collegeId?: string) =>
-    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
+    api.post('/admin/users/import', { role, rows, ...(collegeId ? { collegeId } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
   importCsv: (role: 'STUDENT' | 'TEACHER', csv: string, collegeId?: string) =>
-    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}) }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
+    api.post('/admin/users/import', { role, csv, ...(collegeId ? { collegeId } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data as { role: string; success: number; failed: number; errors: string[] }),
 }
 
 export interface AuditLogItem {

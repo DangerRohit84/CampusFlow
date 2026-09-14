@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import prisma from '../config/db'
 import { visionCompletion } from '../ai/client'
+import { validateUploadMagicBytes } from '../utils/uploadScan'
 import { broadcastGradeMutation } from '../services/socket'
 import { logger } from '../utils/logger'
 import {
@@ -135,6 +136,37 @@ router.delete('/data', authenticate, async (req: AuthRequest, res: Response) => 
   }
 })
 
+// Upload-audit-all normalizer (backend half, mirrors timetable's
+// normalizeParsedClasses). WHY: vision LLMs drift keys (title/course vs
+// name, courseCode vs code, credit vs credits, score vs grade, numeric
+// grades vs letters). The old gate returned raw AI JSON, so drift surfaced
+// as 422 "Could not parse grades" after vision already succeeded.
+// Normalize BEFORE res.json; shape { subjects } stays stable.
+const GRADE_KEYS = ['name', 'title', 'course', 'subject', 'code', 'coursecode', 'credits', 'credit', 'grade', 'score', 'mark'] as const
+
+function hasGradeKeys(s: any): boolean {
+  if (!s || typeof s !== 'object') return false
+  const keys = new Set(Object.keys(s).map((k) => String(k).toLowerCase()))
+  return (GRADE_KEYS as readonly string[]).some((k) => keys.has(k))
+}
+
+export function normalizeGradeSubjects(input: unknown): Array<{ name: string; code: string; credits: number; grade: string }> {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter(hasGradeKeys)
+    .map((s: any) => {
+      const creditsRaw = s.credits ?? s.credit
+      const creditsNum = typeof creditsRaw === 'number' ? creditsRaw : parseInt(String(creditsRaw ?? '').trim(), 10)
+      return {
+        name: String(s.name ?? s.title ?? s.course ?? s.subject ?? '').trim(),
+        code: String(s.code ?? s.courseCode ?? '').trim(),
+        credits: Number.isFinite(creditsNum) && creditsNum >= 0 ? Math.floor(creditsNum) : 0,
+        grade: String(s.grade ?? s.score ?? s.mark ?? '').trim(),
+      }
+    })
+    .filter((s) => s.name.length > 0)
+}
+
 // Parse grade image with AI vision
 router.post('/parse', authenticate, async (req: AuthRequest, res: Response) => {
   try {
@@ -146,6 +178,33 @@ router.post('/parse', authenticate, async (req: AuthRequest, res: Response) => {
 
     const mimeType = image.match(/^data:([^;]+)/)?.[1] || 'image/png'
     const base64 = image.includes(',') ? image.split(',')[1] : image
+
+    // Upload-audit-all: JSON-base64 images previously skipped the shared
+    // magic-byte gate (spoofed data-URLs reached AI vision). Decode +
+    // verify via 'rooms' surface (image magics) before vision.
+    let imageBuffer: Buffer | null = null
+    try {
+      imageBuffer = Buffer.from(base64, 'base64')
+    } catch {
+      imageBuffer = null
+    }
+    if (!imageBuffer || imageBuffer.length === 0) {
+      res.status(400).json({ error: 'Invalid image data' })
+      return
+    }
+    try {
+      const extHint = mimeType === 'image/jpeg' ? 'photo.jpg' : mimeType === 'image/webp' ? 'photo.webp' : mimeType === 'image/gif' ? 'photo.gif' : 'photo.png'
+      const magicErr = await validateUploadMagicBytes(imageBuffer, extHint, mimeType, 'rooms')
+      if (magicErr) {
+        logger.warn({ requestId: (req as any).requestId, reason: magicErr }, '[Grades Parse] upload blocked (magic-byte)')
+        res.status(400).json({ error: 'Invalid image file' })
+        return
+      }
+    } catch (e: any) {
+      logger.warn({ requestId: (req as any).requestId, err: String(e?.message || e).slice(0, 200) }, '[Grades Parse] validation error')
+      res.status(400).json({ error: 'Invalid image file' })
+      return
+    }
 
     const prompt = `This is a grade report or transcript image. Extract ALL courses visible in the image.
 
@@ -194,14 +253,24 @@ Return ONLY the JSON array:`
 
     let subjects
     try {
-      subjects = JSON.parse(jsonMatch[0])
+      // Drift-tolerant: direct array OR embedded [...] substring, then
+      // coerce drifted keys (title/courseCode/score) to the stable shape.
+      let raw: unknown = null
+      try {
+        raw = JSON.parse(clean)
+      } catch {
+        const m2 = clean.match(/\[[\s\S]*\]/)
+        if (m2) raw = JSON.parse(m2[0])
+        else throw new Error('no-json')
+      }
+      subjects = normalizeGradeSubjects(raw)
+      if (subjects.length === 0) {
+        logger.error({ err: response?.substring(0, 500) }, '[Grades Parse] No grade rows after normalize. Raw response:')
+        res.status(422).json({ error: 'Could not parse grades from image', raw: response })
+        return
+      }
     } catch {
       res.status(422).json({ error: 'Could not parse AI response', raw: response })
-      return
-    }
-
-    if (!Array.isArray(subjects)) {
-      res.status(422).json({ error: 'AI response is not an array', raw: subjects })
       return
     }
 

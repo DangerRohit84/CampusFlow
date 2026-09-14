@@ -854,7 +854,7 @@ export default function RoomChatPanel({ roomId, canChat, chatMode, currentUserId
     e.target.value = '' // allow re-picking the same file after removal
     if (!file) return
     if (file.size > MAX_FILE_SIZE) {
-      toast.error('File too large (max 50MB)')
+      toast.error('File too large (max 10MB)')
       return
     }
     const dotIdx = file.name.lastIndexOf('.')
@@ -939,7 +939,15 @@ export default function RoomChatPanel({ roomId, canChat, chatMode, currentUserId
       if (replySnapshot) {
         setReplyTo(messages.find((m) => m.id === replySnapshot.id) ?? null)
       }
-      toast.error(err.response?.data?.error || 'Failed to send message')
+      // Upload-audit-all: honest errors — backend reason (scan/size/type)
+      // first, timeout hint for aborted multipart (60s budget), generic last.
+      const backendMsg = err?.response?.data?.error
+      if (backendMsg) toast.error(String(backendMsg))
+      else {
+        const msg = String(err?.message || '')
+        const isTimeout = err?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('exceeded')
+        toast.error(isTimeout ? 'Send timed out — large files take up to 60s, please retry' : 'Failed to send message')
+      }
     } finally {
       setSending(false)
     }

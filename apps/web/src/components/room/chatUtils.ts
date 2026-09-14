@@ -6,8 +6,8 @@
 
 export const FILE_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-/** 50MB — mirrors the backend upload limit. */
-export const MAX_FILE_SIZE = 50 * 1024 * 1024;
+/** 10MB — mirrors the backend multer limit (rooms chat + resources). */
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /** Mirrors the resource-upload endpoint's blocked extensions (server re-validates). */
 export const BLOCKED_EXTENSIONS = ['.html', '.htm', '.xhtml', '.svg', '.xml', '.js', '.mjs', '.css'];
@@ -24,6 +24,14 @@ export const ACCEPT_ATTR = [
   'image/jpeg',
   'image/png',
   'image/gif',
+  // Upload-audit-all: backend magic + filter also accept these (phone
+  // screenshots/clips arrive as webp/heic) — picker must not hide them.
+  'image/webp',
+  'image/bmp',
+  'image/tiff',
+  'image/heic',
+  'image/heif',
+  'image/avif',
   'text/plain',
   'application/zip',
   'application/x-rar-compressed',

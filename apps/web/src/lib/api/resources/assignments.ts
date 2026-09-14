@@ -1,7 +1,7 @@
 // lib/api/resources/assignments.ts - assignments/grades/attendance (SRP extract).
 // WHY: assignment-hub + grades + attendance flows, one home.
 // Moved verbatim from lib/api.ts; AbortSignal threading preserved.
-import { api } from '../client'
+import { api, API_TIMEOUTS } from '../client'
 
 // Assignments
 export const assignmentAPI = {
@@ -25,12 +25,15 @@ export const assignmentHubAPI = {
   create: (data: any) => {
     const hasFile = data instanceof FormData
     // Do NOT force Content-Type - let browser/axios set boundary. Override default application/json.
-    return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': undefined } as any } : {}).then(r => r.data)
+    // Upload-audit-all: multipart (≤5×10MB) needs fetch (60s), not the 15s
+    // default — same abort-after-success class of bug as timetable vision.
+    return api.post('/assignments/hub', data, hasFile ? { headers: { 'Content-Type': undefined } as any, timeout: API_TIMEOUTS.fetch } : {}).then(r => r.data)
   },
   update: (id: string, data: any) => {
     const hasFile = data instanceof FormData
     // QA compat: return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': 'multipart/form-data' } }
-    return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': undefined } as any } : {}).then(r => r.data)
+    // Upload-audit-all: multipart needs fetch (60s) — see create above.
+    return api.put(`/assignments/hub/${id}`, data, hasFile ? { headers: { 'Content-Type': undefined } as any, timeout: API_TIMEOUTS.fetch } : {}).then(r => r.data)
   },
   delete: (id: string) => api.delete(`/assignments/hub/${id}`).then(r => r.data),
   submit: (hubId: string, payload: { content?: string; file?: File; files?: File[] }) => {
@@ -43,7 +46,9 @@ export const assignmentHubAPI = {
     const uniq = Array.from(new Set(allFiles))
     uniq.slice(0, 5).forEach(f => fd.append('files', f))
     // Fallback keep single file field for legacy if needed (already appended as files)
-    return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': undefined } as any }).then(r => r.data)
+    // Upload-audit-all: multipart submission (≤5 files, 10MB each, Cloudinary
+    // persist) needs fetch (60s), not the 15s default.
+    return api.post(`/assignments/hub/${hubId}/submissions`, fd, { headers: { 'Content-Type': undefined } as any, timeout: API_TIMEOUTS.fetch }).then(r => r.data)
   },
   listSubmissions: (hubId: string, params?: { page?: number; limit?: number }) =>
     api.get(`/assignments/hub/${hubId}/submissions`, { params }).then(r => r.data),
@@ -59,14 +64,59 @@ export const assignmentHubAPI = {
 }
 
 // Grades
+// Upload-audit-all: vision parse hits AI (backend 4k-token budget) — fetch
+// (60s), not the 15s default (same abort-after-success bug as timetable).
+// normalizeGradeSubjects is the tolerant reader (SSOT with GradesPage):
+// backend already normalizes, but legacy/cached payloads drift
+// (title/courseCode/score keys, bare array) — never throw, [] on unknown.
+export function normalizeGradeSubjects(result: unknown): any[] {
+  const arr = Array.isArray(result)
+    ? result
+    : result && typeof result === 'object'
+      ? ((result as Record<string, unknown>).subjects ?? (result as Record<string, unknown>).data ?? (result as Record<string, unknown>).courses ?? [])
+      : []
+  if (!Array.isArray(arr)) return []
+  return arr
+    .filter((s) => s && typeof s === 'object')
+    .map((s: any) => ({
+      name: String(s.name ?? s.title ?? s.course ?? s.subject ?? '').trim(),
+      code: String(s.code ?? s.courseCode ?? '').trim(),
+      credits: Number.isFinite(Number(s.credits ?? s.credit)) ? Math.floor(Number(s.credits ?? s.credit)) : 0,
+      grade: String(s.grade ?? s.score ?? s.mark ?? '').trim(),
+    }))
+    .filter((s) => s.name.length > 0)
+}
+
 export const gradesAPI = {
   getData: () => api.get('/grades/data').then((r) => r.data),
   saveData: (subjects: any[], scale: string) => api.post('/grades/data', { subjects, scale }).then((r) => r.data),
   deleteData: () => api.delete('/grades/data').then((r) => r.data),
-  parse: (imageBase64: string) => api.post('/grades/parse', { image: imageBase64 }).then((r) => r.data),
+  parse: (imageBase64: string) => api.post('/grades/parse', { image: imageBase64 }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
 }
 
 // Attendance
+// Upload-audit-all: same vision-timeout + tolerant-reader treatment as grades.
+export function normalizeAttendanceSubjects(result: unknown): any[] {
+  const arr = Array.isArray(result)
+    ? result
+    : result && typeof result === 'object'
+      ? ((result as Record<string, unknown>).subjects ?? (result as Record<string, unknown>).data ?? [])
+      : []
+  if (!Array.isArray(arr)) return []
+  const toCount = (v: unknown): number => {
+    const n = typeof v === 'number' ? v : parseInt(String(v ?? '').trim(), 10)
+    return Number.isFinite(n) && (n as number) >= 0 ? Math.floor(n as number) : 0
+  }
+  return arr
+    .filter((s) => s && typeof s === 'object')
+    .map((s: any) => ({
+      name: String(s.name ?? s.subject ?? s.course ?? s.title ?? '').trim(),
+      held: toCount(s.held ?? s.total ?? s.classes),
+      attended: toCount(s.attended ?? s.present ?? s.attend),
+    }))
+    .filter((s) => s.name.length > 0)
+}
+
 export const attendanceAPI = {
   getData: () =>
     api.get('/attendance/data').then((r) => r.data),
@@ -75,5 +125,5 @@ export const attendanceAPI = {
   deleteData: () =>
     api.delete('/attendance/data').then((r) => r.data),
   parse: (image: string) =>
-    api.post('/attendance/parse', { image }).then((r) => r.data),
+    api.post('/attendance/parse', { image }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
 }
