@@ -298,6 +298,12 @@ model User {
   // pick-one for new tables; existing cuid() PKs stay — no PK rewrite).
   studentProfile StudentProfile?
   staffProfile   StaffProfile?
+  // Alumni module (additive 20260929): 1–1 profile + request ledger.
+  // Profile dies with User (Cascade, same as CodingProfile); requests Cascade
+  // both sides (no orphan ledger). See AlumniProfile/MentorshipRequest below.
+  alumniProfile             AlumniProfile?
+  mentorshipRequestsSent     MentorshipRequest[] @relation("MentorshipRequester")
+  mentorshipRequestsReceived MentorshipRequest[] @relation("MentorshipAlumni")
 
   @@index([collegeId, role])
   // Order 12 tail (P8): redundant @@index([collegeId]) DROPPED — leftmost-covered
@@ -789,6 +795,11 @@ model College {
   aiRoutings         AiRouting[]
   aiProviders        AiProvider[]
   aiQuota            AiQuota?
+  // Alumni module (additive 20260929): per-college directory + request ledger.
+  // SetNull on college delete (directory survives as global, requests keep
+  // history) — mirrors Hackathon college SetNull, NOT Internship Restrict.
+  alumniProfiles     AlumniProfile[]
+  mentorshipRequests MentorshipRequest[]
 
   @@index([status])
 }
@@ -2060,4 +2071,111 @@ model AiQuota {
   college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
 
   @@map("AiQuota")
+}
+
+// ─── Alumni module (additive 20260929, PROD-SAFE) ────────────────────────
+// WHY: max-output alumni directory + mentorship ledger without touching any
+// existing table. Both tables are CREATE-only (no ALTER/DROP/ENUM rewrite).
+// status stays String (open domain PENDING/ACCEPTED/DECLINED/EXPIRED/CANCELLED)
+// with zod as SSOT — mirrors Notification.type/Task.category open-String
+// pattern (schema header). A native PG enum is a LATER order (needs CREATE
+// TYPE + backfill + USING rewrite; not worth it for 5 values today).
+// collegeId scoping: every read/write filters by caller's collegeId (see
+// routes/alumni.ts); cross-college requests 403 (same-tenant rule as
+// hackathon decisions). Contact masking: contactEmail/contactPhone are
+// SELECT-masked until MentorshipRequest ACCEPTED (see maskAlumniProfile()).
+// Verification queue: isVerified=false + createdAt>24h = overdue (see
+// services/alumniService.ts isVerificationOverdue + listVerificationQueue).
+// SLA 3d (slaDueAt) + auto-expire 14d (expiresAt): dual-write at POST time via
+// slaDatesForNewRequest(); cron hooks runAlumniSlaJob/runAlumniExpireJob are
+// DISABLED BY DEFAULT (ALUMNI_CRON_ENABLED!=true → no-op, see alumniService).
+// Response rate: totalRequests/acceptedRequests/respondedRequests +
+// avgResponseHours counters on the profile (bumped on request/respond, never
+// decremented); responseRate derived via calcResponseRate() (no stored % to
+// drift). Deploy: `prisma migrate deploy` (DIRECT_URL); pre-migration runtime
+// stays green via (prisma as any).alumniProfile? guards in routes.
+// New tables use uuid() PK (P10 tail: pick-one for new tables).
+model AlumniProfile {
+  id        String  @id @default(uuid())
+  userId    String  @unique
+  collegeId String?
+
+  // Directory facts (all optional — progressive completion).
+  graduationYear Int?
+  degree         String? @db.VarChar(120)
+  department     String? @db.VarChar(120)
+  company        String? @db.VarChar(200)
+  roleTitle      String? @db.VarChar(200)
+  location       String? @db.VarChar(200)
+  bio            String? @db.Text
+  // Canonical Json array of skill strings (Order 3 pattern: native array, not
+  // JSON-string; readers accept Json|String via parseJsonArraySafe).
+  skills       Json     @default("[]")
+  linkedinUrl  String?  @db.VarChar(500)
+  githubUrl    String?  @db.VarChar(500)
+  portfolioUrl String?  @db.VarChar(500)
+
+  // Masked contact (ONLY revealed after an ACCEPTED request — see masking).
+  contactEmail String? @db.VarChar(320)
+  contactPhone String? @db.VarChar(40)
+
+  // Verification queue (<24h SLA for admins).
+  isVerified Boolean   @default(false)
+  verifiedBy String?
+  verifiedAt DateTime?
+
+  // Mentorship availability + response-rate ledger (derived %, never stored).
+  isAvailableForMentorship Boolean @default(true)
+  totalRequests      Int   @default(0)
+  acceptedRequests   Int   @default(0)
+  respondedRequests  Int   @default(0)
+  avgResponseHours   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId, isVerified])
+  @@index([collegeId, isAvailableForMentorship])
+  @@index([collegeId, graduationYear])
+  @@index([userId])
+  @@index([collegeId, updatedAt])
+  @@map("AlumniProfile")
+}
+
+model MentorshipRequest {
+  id             String  @id @default(uuid())
+  requesterId    String
+  alumniUserId   String
+  alumniProfileId String?
+  collegeId      String?
+
+  // Open-String status (zod SSOT): PENDING | ACCEPTED | DECLINED | EXPIRED | CANCELLED.
+  status  String @default("PENDING")
+  message String? @db.Text
+  topic   String? @db.VarChar(200)
+
+  // SLA 3d + auto-expire 14d (set at POST, see slaDatesForNewRequest).
+  slaDueAt    DateTime?
+  expiresAt   DateTime?
+  respondedAt DateTime?
+  // Accept side-effect: ChatSession id owned by the requester (see route).
+  chatSessionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requester User @relation("MentorshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  alumni    User @relation("MentorshipAlumni", fields: [alumniUserId], references: [id], onDelete: Cascade)
+  college   College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId, status])
+  @@index([alumniUserId, status])
+  @@index([requesterId, createdAt])
+  @@index([status, slaDueAt])
+  @@index([status, expiresAt])
+  @@index([alumniProfileId])
+  @@map("MentorshipRequest")
 }

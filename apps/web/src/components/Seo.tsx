@@ -194,6 +194,7 @@ const ROUTE_META: RouteMeta[] = [
   { match: starts('/portfolio-studio'), title: 'Portfolio Studio', description: 'Design and publish your portfolio site in minutes.' },
   { match: starts('/forms'), title: 'Forms', description: 'Campus forms — fill, track responses and export.' },
   { match: starts('/rooms'), title: 'Rooms', description: 'Study rooms with hallway chat, unread and presence.' },
+  { match: starts('/alumni'), title: 'Alumni Network', description: 'Verified alumni mentors from your college — request mentorship, track responses, unlock contact after acceptance.' },
   { match: starts('/reports'), title: 'Reports', description: 'Issue reports — college and website scope, tracked to resolution.' },
   { match: starts('/announcements'), title: 'Announcements', description: 'Campus announcements — pinned, filtered and real-time.' },
   { match: starts('/admin/fetch'), title: 'Fetch Data', description: 'Super admin — fetch and stage external opportunities.' },
