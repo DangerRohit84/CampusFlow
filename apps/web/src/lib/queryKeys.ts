@@ -74,6 +74,18 @@ export const qk = {
 
   notifications: (collegeId?: CollegeScope) => (['notifications', normScope(collegeId)] as const),
 
+  // Alumni Phase 2 (additive): directory + detail + inboxes + verify queue.
+  // Keys are hierarchical on college scope so SUPER_ADMIN college switches
+  // bust caches (same tenant-isolation rule as hackathons/internships).
+  alumni: (search?: string, collegeId?: CollegeScope, filters?: string) =>
+    (['alumni', normScope(collegeId), (search ?? '').trim().toLowerCase(), filters ?? 'all'] as const),
+  alumniDetail: (userId?: string, collegeId?: CollegeScope) =>
+    (['alumni-detail', normScope(collegeId), userId ?? ''] as const),
+  alumniMine: (box?: string, page?: number, collegeId?: CollegeScope) =>
+    (['alumni-mine', normScope(collegeId), box ?? 'all', page ?? 1] as const),
+  alumniPending: (page?: number, collegeId?: CollegeScope) =>
+    (['alumni-pending', normScope(collegeId), page ?? 1] as const),
+
   search: (q: string) => (['search', q.trim().toLowerCase()] as const),
 
   adminStaging: (status?: string, hPage?: number, iPage?: number) =>

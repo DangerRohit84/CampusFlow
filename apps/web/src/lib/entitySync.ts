@@ -40,6 +40,7 @@ export type EntityKind =
   | 'college'
   | 'user'
   | 'department'
+  | 'alumni'
 
 /** Canonical window event per entity. Always `<entity>:mutated`. */
 export function entityWindowEvent(entity: EntityKind): string {
@@ -73,6 +74,9 @@ const SOCKET_EVENTS: Record<EntityKind, string[]> = {
   college: ['college:mutated', 'announcement:mutated', 'user:mutated'],
   user: ['user:mutated', 'college:mutated'],
   department: ['department:mutated'],
+  // Alumni Phase 2 (additive): backend emits notifications for mentorship
+  // transitions; these window/socket keys keep directory + inboxes fresh.
+  alumni: ['alumni:mutated', 'mentorship:mutated', 'mentorship:updated'],
 }
 
 /** Related RQ prefixes to invalidate per entity (entity + dashboard/counts/search fan-out). */
@@ -107,6 +111,8 @@ const RELATED_PREFIXES: Record<EntityKind, string[][]> = {
   college: [['admin'], ['admin-users'], ['admin-role-counts'], ['admin-colleges'], ['super-dashboard'], ['announcements'], ['dashboard']],
   user: [['admin'], ['admin-users'], ['admin-role-counts'], ['admin-colleges'], ['super-dashboard'], ['dashboard'], ['search']],
   department: [['admin'], ['departments'], ['dashboard']],
+  // Alumni Phase 2 (additive): directory + detail + inboxes + verify queue.
+  alumni: [['alumni'], ['alumni-detail'], ['alumni-mine'], ['alumni-pending'], ['dashboard'], ['search']],
 }
 
 function invalidatePrefixes(prefixes: string[][]) {
@@ -279,6 +285,8 @@ const SOCKET_TO_ENTITY: Array<{ prefix: string; entity: EntityKind }> = [
   { prefix: 'college:', entity: 'college' },
   { prefix: 'user:', entity: 'user' },
   { prefix: 'department:', entity: 'department' },
+  { prefix: 'alumni:', entity: 'alumni' },
+  { prefix: 'mentorship:', entity: 'alumni' },
 ]
 
 export function entityForSocketEvent(socketEvent: string): EntityKind | null {

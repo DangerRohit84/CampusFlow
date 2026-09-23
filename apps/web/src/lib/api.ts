@@ -31,6 +31,7 @@ export * from './api/resources/rooms'
 export * from './api/resources/assignments'
 export * from './api/resources/planner'
 export * from './api/resources/profile'
+export * from './api/resources/alumni'
 
 // Default-import compat: `import api from '../lib/api'` (legacy) resolves to
 // the single client.ts instance (no forked axios).

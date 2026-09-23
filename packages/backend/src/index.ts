@@ -46,6 +46,7 @@ import assignmentSubmissionsRouter from './routes/assignmentSubmissions'
 import resumeRoutes from './routes/resume'
 import publicProfileRoutes from './routes/publicProfile'
 import reportRoutes from './routes/reports'
+import alumniRoutes from './routes/alumni'
 import internalCronRoutes from './routes/internalCron'
 import streamRoutes from './routes/stream'
 
@@ -228,6 +229,10 @@ app.use('/api/grades', generalLimiter, gradesRoutes)
 app.use('/api/announcements', generalLimiter, announcementsRoutes)
 app.use('/api/resume', generalLimiter, resumeRoutes)
 app.use('/api/reports', generalLimiter, reportRoutes)
+// Alumni directory + mentorship (additive 20260929): same generalLimiter budget
+// as reports; strict 60/h scrape limiter lives inside future public directory
+// reads if exposed. Pre-migration safe (routes return 503 until migrate deploy).
+app.use('/api/alumni', generalLimiter, alumniRoutes)
 // P1 SSE fallback (one-way status when the socket is dead): authenticated
 // EventSource streams for profile-sync / staging-counts / notifications.
 // Socket alive = 0 SSE traffic (client only subscribes when disconnected).

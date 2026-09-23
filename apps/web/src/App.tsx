@@ -77,6 +77,8 @@ const AdminOpportunitiesPage = lazy(() => import(/* viteChunkName: "admin-opps" 
 const FetchPage = lazy(() => import(/* viteChunkName: "fetch-console" */ './pages/FetchPage'))
 const AiManagerPage = lazy(() => import(/* viteChunkName: "ai-manager" */ './pages/AiManagerPage'))
 const SuperAdminDashboardPage = lazy(() => import(/* viteChunkName: "superadmin" */ './pages/SuperAdminDashboardPage'))
+const AlumniPage = lazy(() => import(/* viteChunkName: "alumni" */ './pages/AlumniPage'))
+const AlumniDetailPage = lazy(() => import(/* viteChunkName: "alumni-detail" */ './pages/AlumniDetailPage'))
 const SuperAdminCollegesPage = lazy(() => import(/* viteChunkName: "superadmin-colleges" */ './pages/SuperAdminCollegesPage'))
 const SuperAdminCollegeView = lazy(() => import(/* viteChunkName: "superadmin-college" */ './pages/SuperAdminCollegeView'))
 const SuperAdminReportsPage = lazy(() => import(/* viteChunkName: "superadmin-reports" */ './pages/SuperAdminReportsPage'))
@@ -292,6 +294,8 @@ export default function App() {
             <Route path="forms/:id" element={<LazyRoute label="Loading form..."><FormDetailPage /></LazyRoute>} />
             <Route path="rooms" element={<LazyRoute label="Loading rooms..."><RoomsRoute /></LazyRoute>} />
             <Route path="rooms/:id" element={<LazyRoute label="Loading room..."><RoomDetailRoute /></LazyRoute>} />
+            <Route path="alumni" element={<LazyRoute label="Loading alumni..."><AlumniPage /></LazyRoute>} />
+            <Route path="alumni/:id" element={<LazyRoute label="Loading alumni profile..."><AlumniDetailPage /></LazyRoute>} />
             <Route path="reports" element={<CollegeAdminGuard><LazyRoute label="Loading reports..."><ReportsPage /></LazyRoute></CollegeAdminGuard>} />
             <Route path="admin" element={<StaffGuard><LazyRoute label="Loading admin..."><AdminPage /></LazyRoute></StaffGuard>} />
             <Route path="admin/opportunities" element={<CollegeAdminGuard><LazyRoute label="Loading opportunities..."><AdminOpportunitiesPage /></LazyRoute></CollegeAdminGuard>} />

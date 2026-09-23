@@ -133,7 +133,7 @@ api.interceptors.request.use((config) => {
           ;(config.headers as Record<string, string>)['x-college-id'] = overrideId
         } catch { /* ignore */ }
       }
-      const allowList = ['/user/dashboard', '/rooms', '/assignments/hub', '/forms', '/hackathons', '/internships', '/contests', '/timetable', '/tasks', '/announcements', '/departments', '/admin/analytics', '/admin/users', '/admin/hackathons', '/admin/forms', '/schedules', '/grades', '/attendance', '/coding-profile', '/reports']
+      const allowList = ['/user/dashboard', '/rooms', '/alumni', '/assignments/hub', '/forms', '/hackathons', '/internships', '/contests', '/timetable', '/tasks', '/announcements', '/departments', '/admin/analytics', '/admin/users', '/admin/hackathons', '/admin/forms', '/schedules', '/grades', '/attendance', '/coding-profile', '/reports']
       const isAllowed = allowList.some((p) => url.includes(p))
       if (!isExcluded && isAllowed) {
         const params: Record<string, unknown> = ((config.params as Record<string, unknown>) = (config.params as Record<string, unknown>) || {})

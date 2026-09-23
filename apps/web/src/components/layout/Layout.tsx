@@ -4,7 +4,7 @@ import { useAppStore } from '../../store/appStore'
 import {
   LayoutDashboard, Bell, Settings, LogOut, Menu, X,
   Sparkles, Search, Award, Target, Clock, Trophy,
-  ClipboardList, Shield, DoorOpen, Briefcase,
+  ClipboardList, Shield, DoorOpen, Briefcase, GraduationCap,
   Users, BarChart2, FolderOpen, Download, Brain, ListTodo, CalendarDays,
   Medal, UserCheck, Code2, FileText, Globe, Building2, ArrowLeft, Flag, AlertTriangle, CircleHelp
 } from 'lucide-react'
@@ -57,6 +57,7 @@ const navByRole: Record<string, NavSection[]> = {
     { label: 'CAMPUS', items: [
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+      { path: '/alumni', label: 'Alumni', icon: GraduationCap },
       { path: '/calendar', label: 'Calendar', icon: CalendarDays },
     ]},
     { label: 'CAREER', items: [
@@ -78,6 +79,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/internships', label: 'Internships', icon: Briefcase },
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+      { path: '/alumni', label: 'Alumni', icon: GraduationCap },
       { path: '/teacher/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
     ]},
@@ -101,6 +103,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/internships', label: 'Internships', icon: Briefcase },
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+      { path: '/alumni', label: 'Alumni', icon: GraduationCap },
       { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
     ]},
@@ -135,6 +138,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/internships', label: 'Internships', icon: Briefcase },
       { path: '/forms', label: 'Forms', icon: ClipboardList },
       { path: '/rooms', label: 'Rooms', icon: DoorOpen },
+      { path: '/alumni', label: 'Alumni', icon: GraduationCap },
       { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
     ]},
@@ -166,7 +170,7 @@ export default function Layout() {
   const effectiveCollegeId = urlScopedId || selectedCollegeId || searchCollegeId
   const effectiveCollegeName = selectedCollegeName || (urlScopedId ? urlScopedId : null)
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
-  const tenantRoutePrefixes = ['/dashboard','/assignments','/tasks','/schedule','/calendar','/hackathons','/internships','/contests','/forms','/rooms','/admin','/resume-studio','/portfolio-studio','/announcements','/notifications','/settings','/search','/chat','/superadmin/colleges/','/reports','/superadmin/reports']
+  const tenantRoutePrefixes = ['/dashboard','/assignments','/tasks','/schedule','/calendar','/hackathons','/internships','/contests','/forms','/rooms','/alumni','/admin','/resume-studio','/portfolio-studio','/announcements','/notifications','/settings','/search','/chat','/superadmin/colleges/','/reports','/superadmin/reports']
   const isOnTenantRoute = tenantRoutePrefixes.some(p => location.pathname === p || location.pathname.startsWith(p + '/'))
   const isSuperScoped = isSuperAdmin && ( !!urlScopedId || (!!effectiveCollegeId && isOnTenantRoute && !['/superadmin','/superadmin/colleges','/superadmin/reports','/admin/fetch','/admin/ai-manager'].includes(location.pathname)) )
   // Keep legacy localStorage keys in sync for api interceptor when scoped via URL or query
