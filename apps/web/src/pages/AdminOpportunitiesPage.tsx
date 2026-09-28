@@ -129,10 +129,14 @@ export default function AdminOpportunitiesPage() {
   const [editType, setEditType] = useState<'HACKATHON' | 'INTERNSHIP'>('HACKATHON')
 
   // Extract max prize amount from prizePool text for compact card display
+  // Preserves original currency ($ vs ₹) — was hardcoded ₹ so "$400" showed as "₹400".
   const extractPrizeDisplay = (text: string): string => {
     if (!text) return ''
     const matches = text.match(/[₹$]\s*[\d,]+(?:\.\d+)?(?:\s*(?:lakh|lac|k|L|K|cr|Cr))?/gi) || []
     if (matches.length === 0) return text.length > 40 ? text.slice(0, 40) + '⬦' : text
+    const first = matches[0] ?? ''
+    const symbol = (first.match(/[₹$]/)?.[0] as '₹' | '$') ?? '₹'
+    const locale = symbol === '$' ? 'en-US' : 'en-IN'
     const amounts = matches.map(m => {
       let num = parseFloat(m.replace(/[₹$,]/g, '').trim())
       if (/lakh|lac/i.test(m)) num *= 100000
@@ -143,8 +147,8 @@ export default function AdminOpportunitiesPage() {
     if (amounts.length === 0) return text.length > 40 ? text.slice(0, 40) + '⬦' : text
     const max = Math.max(...amounts)
     const total = amounts.length > 1 ? amounts.reduce((a, b) => a + b, 0) : null
-    if (total && total !== max) return `₹${max.toLocaleString('en-IN')} / ₹${total.toLocaleString('en-IN')}`
-    return `₹${max.toLocaleString('en-IN')}`
+    if (total && total !== max) return `${symbol}${max.toLocaleString(locale)} / ${symbol}${total.toLocaleString(locale)}`
+    return `${symbol}${max.toLocaleString(locale)}`
   }
 
   // Pagination state
