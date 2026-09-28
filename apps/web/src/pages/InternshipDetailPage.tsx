@@ -286,13 +286,15 @@ export default function InternshipDetailPage() {
     const deadline = internship.deadline ? new Date(internship.deadline) : null
     if (internship.status === 'ENDED') return { label: 'Ended', color: 'bg-zinc-700' }
 
+    // Past deadline → Ended (was Active — deadline bug: expired stayed visible as active)
+    if (deadline && now > deadline) return { label: 'Ended', color: 'bg-zinc-700' }
     if (startDate) {
       if (now < startDate) return { label: 'Upcoming', color: 'bg-primary-600' }
       return { label: 'Active', color: 'bg-emerald-600' }
     }
     if (deadline) {
       if (now < deadline) return { label: 'Upcoming', color: 'bg-primary-600' }
-      return { label: 'Active', color: 'bg-emerald-600' }
+      return { label: 'Ended', color: 'bg-zinc-700' }
     }
     return { label: 'Upcoming', color: 'bg-primary-600' }
   }

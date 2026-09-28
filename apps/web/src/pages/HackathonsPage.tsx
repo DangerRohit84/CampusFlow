@@ -123,9 +123,9 @@ export default function HackathonsPage() {
     const endDate = h.endDate ? new Date(h.endDate) : null
     const deadline = h.deadline ? new Date(h.deadline) : null
 
-    if (h.status === 'ENDED') return 'completed'
+    if (h.status === 'COMPLETED' || h.status === 'CANCELLED' || h.status === 'ENDED') return 'completed'
 
-    // Has event dates → use them
+    // Past event end → completed (was missing: endDate passed stayed ongoing)
     if (startDate && endDate) {
       if (now < startDate) return 'upcoming'
       if (now > endDate) return 'completed'
@@ -133,15 +133,15 @@ export default function HackathonsPage() {
     }
 
     // Has only startDate → use it for start, no auto-complete
-    if (startDate) {
+    if (startDate && !deadline) {
       if (now < startDate) return 'upcoming'
       return 'ongoing'
     }
 
-    // No event dates → fallback to registration deadline
+    // Registration deadline passed → completed (was "ongoing" — deadline bug)
     if (deadline) {
-      if (now < deadline) return 'upcoming'
-      return 'ongoing'
+      if (now < deadline) return startDate && now < startDate ? 'upcoming' : 'upcoming'
+      return 'completed'
     }
 
     return 'upcoming'

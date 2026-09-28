@@ -296,7 +296,15 @@ export default function HackathonDetailPage() {
   const parsedHighlights = safeParse(hackathon.highlights)
   const selectedCount = hackathon.registrations.filter((r: any) => r.status === 'SELECTED').length
 
-  // Parse prize amounts from prizePool string
+  // Parse prize amounts from prizePool string — preserves original currency
+  // (was: stripped ₹/$ then hardcoded ₹, so "$400" rendered as "₹400").
+  const detectPrizeCurrency = (text: string): '₹' | '$' => {
+    if (!text) return '₹'
+    const m = text.match(/[₹$]/)
+    return (m?.[0] as '₹' | '$') ?? '₹'
+  }
+  const prizeCurrency = detectPrizeCurrency(hackathon.prizePool || '')
+  const prizeLocale = prizeCurrency === '$' ? 'en-US' : 'en-IN'
   const extractAmounts = (text: string): number[] => {
     if (!text) return []
     const matches = text.match(/[₹$]\s*[\d,]+(?:\.\d+)?(?:\s*(?:lakh|lac|k|L|K|cr|Cr))?/gi) || []
@@ -353,7 +361,7 @@ export default function HackathonDetailPage() {
     const endDate = hackathon.endDate ? new Date(hackathon.endDate) : null
     const deadline = hackathon.deadline ? new Date(hackathon.deadline) : null
 
-    if (hackathon.status === 'ENDED') return { label: 'Ended', color: 'bg-zinc-700 dark:bg-zinc-700' }
+    if (hackathon.status === 'COMPLETED' || hackathon.status === 'CANCELLED' || hackathon.status === 'ENDED') return { label: 'Ended', color: 'bg-zinc-700 dark:bg-zinc-700' }
     if (startDate && endDate) {
       if (now < startDate) return { label: 'Upcoming', color: 'bg-primary-600 dark:bg-primary-600' }
       if (now > endDate) return { label: 'Ended', color: 'bg-zinc-700 dark:bg-zinc-700' }
@@ -365,7 +373,7 @@ export default function HackathonDetailPage() {
     }
     if (deadline) {
       if (now < deadline) return { label: 'Upcoming', color: 'bg-primary-600 dark:bg-primary-600' }
-      return { label: 'Ongoing', color: 'bg-warning-600 dark:bg-warning-600' }
+      return { label: 'Ended', color: 'bg-zinc-700 dark:bg-zinc-700' }
     }
     return { label: 'Upcoming', color: 'bg-primary-600 dark:bg-primary-600' }
   }
@@ -458,7 +466,7 @@ export default function HackathonDetailPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60 leading-none">Prize Pool</p>
                   <p className="text-[12px] font-black text-zinc-900 dark:text-white truncate mt-1">{hackathon.prizePool}</p>
-                  {maxPrize && <p className="text-[10px] font-mono tabular-nums font-black text-primary-600 dark:text-primary-400">₹{maxPrize.toLocaleString('en-IN')} top</p>}
+                  {maxPrize && <p className="text-[10px] font-mono tabular-nums font-black text-primary-600 dark:text-primary-400">{prizeCurrency}{maxPrize.toLocaleString(prizeLocale)} top</p>}
                 </div>
               </div>
             )}
@@ -640,13 +648,13 @@ export default function HackathonDetailPage() {
                           {maxPrize && (
                             <div className="flex-1 rounded-xl bg-white/80 dark:bg-white/[0.06] backdrop-blur border border-amber-200/40 dark:border-white/10 p-3">
                               <p className="text-[10px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60">Max Prize</p>
-                              <p className="font-display text-[18px] font-[800] leading-none text-amber-700 dark:text-amber-300 mt-1">₹{maxPrize.toLocaleString('en-IN')}</p>
+                              <p className="font-display text-[18px] font-[800] leading-none text-amber-700 dark:text-amber-300 mt-1">{prizeCurrency}{maxPrize.toLocaleString(prizeLocale)}</p>
                             </div>
                           )}
                           {totalPrize && totalPrize !== maxPrize && (
                             <div className="flex-1 rounded-xl bg-white/80 dark:bg-white/[0.06] backdrop-blur border border-amber-200/40 dark:border-white/10 p-3">
                               <p className="text-[10px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60">Combined Worth</p>
-                              <p className="font-display text-[18px] font-[800] leading-none text-amber-700 dark:text-amber-300 mt-1">₹{totalPrize.toLocaleString('en-IN')}</p>
+                              <p className="font-display text-[18px] font-[800] leading-none text-amber-700 dark:text-amber-300 mt-1">{prizeCurrency}{totalPrize.toLocaleString(prizeLocale)}</p>
                             </div>
                           )}
                         </div>
@@ -670,7 +678,7 @@ export default function HackathonDetailPage() {
                                 <div className="min-w-0">
                                   <p className="text-sm font-[700] text-surface-900 dark:text-white leading-snug">{tier}</p>
                                   {tierAmounts.length > 0 && (
-                                    <p className="text-xs font-black text-amber-700 dark:text-amber-300 mt-1">₹{tierAmounts[0].toLocaleString('en-IN')}</p>
+                                    <p className="text-xs font-black text-amber-700 dark:text-amber-300 mt-1">{detectPrizeCurrency(tier)}{tierAmounts[0].toLocaleString(detectPrizeCurrency(tier) === '$' ? 'en-US' : 'en-IN')}</p>
                                   )}
                                 </div>
                             </BentoCard>
@@ -1265,8 +1273,8 @@ export default function HackathonDetailPage() {
                     {hackathon.prizePool ? (
                       <>
                         <p className="font-display text-[16px] font-[800] leading-tight text-surface-900 dark:text-white line-clamp-2">{hackathon.prizePool}</p>
-                        {maxPrize && <p className="mt-1 text-xs font-mono font-black text-primary-600 dark:text-primary-400">₹{maxPrize.toLocaleString('en-IN')} top prize</p>}
-                        {totalPrize && totalPrize!==maxPrize && <p className="text-[11px] font-bold text-surface-500 dark:text-night-400">₹{totalPrize.toLocaleString('en-IN')} combined</p>}
+                        {maxPrize && <p className="mt-1 text-xs font-mono font-black text-primary-600 dark:text-primary-400">{prizeCurrency}{maxPrize.toLocaleString(prizeLocale)} top prize</p>}
+                        {totalPrize && totalPrize!==maxPrize && <p className="text-[11px] font-bold text-surface-500 dark:text-night-400">{prizeCurrency}{totalPrize.toLocaleString(prizeLocale)} combined</p>}
                       </>
                     ) : (
                       <><p className="font-display text-[16px] font-[800] text-surface-500 dark:text-night-400">—</p><p className="text-[11px] font-medium text-surface-400 dark:text-night-400 mt-1">No prize listed</p></>

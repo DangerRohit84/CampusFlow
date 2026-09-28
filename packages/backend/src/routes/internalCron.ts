@@ -23,6 +23,7 @@ import {
   isFullFetchRun,
 } from '../services/opportunities/fetchState'
 import { processEnrichBatch, ENRICH_BATCH_SIZE } from '../services/aiCache'
+import { sweepExpiredOpportunities } from '../services/opportunities/expiry'
 
 const ENRICH_DELAY_MS = 12000
 
@@ -478,6 +479,16 @@ export async function runOpportunitiesJob(opts?: {
   const hackathonsEnriched = await enrichSequentially(hackathonIdsToEnrich, enrichHackathonStaging, 'hackathons')
   const internshipsEnriched = await enrichSequentially(internshipIdsToEnrich, enrichInternshipStaging, 'internships')
 
+  // Deadline sweep: PUBLISHED→COMPLETED / ACTIVE→ENDED for rows whose
+  // deadline passed since the last run (12h cadence). Staging untouched
+  // (admin reviews recently-expired pending as visual badge only).
+  try {
+    const swept = await sweepExpiredOpportunities(prisma as any, new Date())
+    if (swept.hackathons + swept.internships > 0) {
+      logger.info(`[Cron] Deadline sweep: ${swept.hackathons} hackathons → COMPLETED, ${swept.internships} internships → ENDED`)
+    }
+  } catch {}
+
   return {
     hackathonsFetched: hackathonFetched,
     hackathonsSkipped: hackathonSkipped,
@@ -540,6 +551,15 @@ export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; inte
   if (expired.count > 0) {
     logger.info(`[Cron] Expired ${expired.count} stale SELECTED registrations → REGISTERED`)
   }
+
+  // Deadline sweep backstop (weekly): same PUBLISHED→COMPLETED / ACTIVE→ENDED
+  // as the 12h opportunities run — catches drifts when auto-fetch is paused.
+  try {
+    const swept = await sweepExpiredOpportunities(prisma as any, new Date())
+    if (swept.hackathons + swept.internships > 0) {
+      logger.info(`[Cron] Cleanup deadline sweep: ${swept.hackathons} hackathons → COMPLETED, ${swept.internships} internships → ENDED`)
+    }
+  } catch {}
 
   // 90-day TTL for notifications (both legacy + room tables) — prevents unbounded growth.
   const ttlCutoff = new Date()
