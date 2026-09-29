@@ -1,8 +1,9 @@
 /**
- * RED: Expired tab + no-moderation for expired (AdminOpportunitiesPage).
- * TDD RED step — these MUST fail before prod implementation.
- * Spec: expired stays visible in original status tab AND in expired tab;
- * expired rows show only View Details (no Approve/Reject); Hide checkbox removed.
+ * Expired tab + no-moderation for expired (AdminOpportunitiesPage).
+ * Spec (fix: expired still showing in pending): pending/all/approved EXCLUDE
+ * expired (expired only in Expired tab); rejected KEEPS expired (appears in
+ * both rejected and expired); expired rows show only View Details
+ * (no Approve/Reject); Hide checkbox removed.
  */
 import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
@@ -10,6 +11,7 @@ import * as path from 'node:path'
 import {
   isStagingExpired,
   filterStagingExpiredOnly,
+  filterStagingFreshOnly,
   canModerateStagingItem,
 } from '../stagingExpiry'
 
@@ -57,6 +59,68 @@ describe('expired tab filtering keeps expired in both status + expired', () => {
       'devhack',
       'hackophobia',
     ])
+  })
+})
+
+describe('pending/all/approved exclude expired, rejected keeps expired (fix: expired still showing in pending)', () => {
+  it('pending excludes expired (fresh only)', () => {
+    const items = [
+      { id: 'pending-expired', status: 'PENDING', deadline: '2026-09-17', _isExpired: true },
+      { id: 'pending-fresh', status: 'PENDING', deadline: '2026-10-05', _isExpired: false },
+    ]
+    expect(filterStagingFreshOnly(items, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'pending-fresh',
+    ])
+  })
+
+  it('all/approved exclude expired via fresh-only filter', () => {
+    const items = [
+      { id: 'old', deadline: '2026-09-17', _isExpired: true },
+      { id: 'fresh-a', deadline: '2026-10-05', _isExpired: false },
+      { id: 'fresh-b', deadline: '2026-10-06', _isExpired: false },
+    ]
+    expect(filterStagingFreshOnly(items, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'fresh-a',
+      'fresh-b',
+    ])
+  })
+
+  it('fresh-only recomputes from deadline when _isExpired stamp missing', () => {
+    const items = [
+      { id: 'hackophobia', status: 'PENDING', deadline: '2026-09-17' },
+      { id: 'fresh-future', status: 'PENDING', deadline: '2026-10-05' },
+    ]
+    expect(filterStagingFreshOnly(items, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'fresh-future',
+    ])
+  })
+
+  it('null deadline is fresh (fail-open, never blank queue)', () => {
+    const items = [{ id: 'no-deadline', deadline: null } as any]
+    expect(filterStagingFreshOnly(items, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'no-deadline',
+    ])
+  })
+
+  it('expired tab still shows ONLY expired (regression guard)', () => {
+    const items = [
+      { id: 'pending-expired', status: 'PENDING', deadline: '2026-09-17', _isExpired: true },
+      { id: 'pending-fresh', status: 'PENDING', deadline: '2026-10-05', _isExpired: false },
+    ]
+    expect(filterStagingExpiredOnly(items, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'pending-expired',
+    ])
+  })
+
+  it('AdminOpportunitiesPage pending/all/approved filter out expired, rejected keeps expired', () => {
+    const pagePath = path.resolve(__dirname, '../../pages/AdminOpportunitiesPage.tsx')
+    const src = fs.readFileSync(pagePath, 'utf8')
+    // Pending/all/approved must exclude expired (fresh-only filter).
+    expect(src).toContain('filterStagingFreshOnly')
+    // Rejected tab keeps expired (still sorted bottom, not filtered).
+    expect(src).toContain('sortStagingWithExpiredBottom')
+    // Expired tab still only expired.
+    expect(src).toContain('filterStagingExpiredOnly')
   })
 })
 

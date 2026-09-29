@@ -30,6 +30,7 @@ import {
   formatExpiredLabel,
   sortStagingWithExpiredBottom,
   filterStagingExpiredOnly,
+  filterStagingFreshOnly,
   buildApproveExpiredMessage,
 } from '../lib/stagingExpiry'
 import {
@@ -325,7 +326,7 @@ export default function AdminOpportunitiesPage() {
     return () => { cancelled = true }
   }, [isSuperAdmin])
 
-  // ===== Merge & filter (expired stays visible in status tab + expired tab) =====
+  // ===== Merge & filter (pending/all/approved exclude expired; rejected keeps expired) =====
   const allItems = useMemo(() => {
     const now = Date.now()
     const items = [
@@ -355,13 +356,17 @@ export default function AdminOpportunitiesPage() {
       )
     }
 
-    // Expired tab: only expired (newest first). Other tabs: fresh first,
-    // expired bottom (deadline desc). No hiding — expired stays in pending/
-    // rejected AND appears in expired. Counts stay from API aggregates.
+    // Expired tab: only expired (newest first). Rejected: fresh first, expired
+    // bottom (reject keep in reject filter). Pending/all/approved: exclude
+    // expired (expired has own tab). Counts stay from API aggregates except
+    // expired which is client-side (see tabCounts below).
     if (activeTab === 'expired') {
       return filterStagingExpiredOnly(filtered, now)
     }
-    return sortStagingWithExpiredBottom(filtered, now)
+    if (activeTab === 'rejected') {
+      return sortStagingWithExpiredBottom(filtered, now)
+    }
+    return filterStagingFreshOnly(filtered, now)
   }, [hackathons, internships, typeFilter, searchQuery, activeTab])
 
   // ===== Stats (from DB counts, not paginated data) =====
@@ -380,14 +385,38 @@ export default function AdminOpportunitiesPage() {
 
   // Tab counts for badges  —  all from API counts (not paginated data),
   // except expired which is client-side (no backend aggregate).
+  // NOTE: API pending/all/approved counts INCLUDE expired rows (server has no
+  // expiry aggregate); the lists below EXCLUDE expired (own Expired tab), so
+  // badges may read slightly higher than visible rows on the current page.
+  // Expired badge counts expired in the current page's base set (type+search
+  // filtered, before tab-specific expired filtering) — paginated, not global.
   const tabCounts = useMemo(() => {
     const all = counts.hackEnriched + counts.intEnriched
     const pending = counts.hackPending + counts.intPending
     const approved = counts.hackApproved + counts.intApproved
     const rejected = counts.hackRejected + counts.intRejected
-    const expired = allItems.filter((i: any) => i._isExpired === true).length
+    const now = Date.now()
+    // Type scope comes from source arrays (allItems stamps _type later).
+    let base: any[] =
+      typeFilter === 'HACKATHON'
+        ? [...hackathons]
+        : typeFilter === 'INTERNSHIP'
+          ? [...internships]
+          : [...hackathons, ...internships]
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      base = base.filter(
+        (i: any) =>
+          i.title?.toLowerCase().includes(q) ||
+          i.description?.toLowerCase().includes(q) ||
+          i.company?.toLowerCase().includes(q) ||
+          i.organizer?.toLowerCase().includes(q) ||
+          i.name?.toLowerCase().includes(q),
+      )
+    }
+    const expired = base.filter((i: any) => isStagingExpired(i?.deadline, now)).length
     return { all, pending, approved, rejected, expired }
-  }, [counts, allItems])
+  }, [counts, hackathons, internships, typeFilter, searchQuery])
 
   // ===== Handlers =====
   const handleFetchNow = async () => {

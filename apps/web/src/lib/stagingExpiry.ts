@@ -83,9 +83,35 @@ export function sortStagingWithExpiredBottom<
   return [...fresh, ...expired.map((e) => e.item)]
 }
 
+// Fresh tabs (pending/all/approved): exclude expired rows.
+// WHY: expired has its own Expired tab; pending must NOT show expired.
+// Rejected keeps expired (reject keep in reject filter) + expired tab.
+// Fast path uses precomputed _isExpired stamp; recompute from deadline when
+// stamp is missing/stale (pagination keepPreviousData, mapping gaps).
+// Fail-open: null/invalid deadline = fresh (never blank queue).
+export function filterStagingFreshOnly<
+  T extends { _isExpired?: boolean; deadline?: unknown },
+>(items: T[], nowMs: number = Date.now()): T[] {
+  return items.filter((item) => {
+    if (item._isExpired === true) return false
+    if (item._isExpired === false) return true
+    if (item.deadline === undefined || item.deadline === null) return true
+    try {
+      return !isStagingExpired(
+        item.deadline as Date | string | null | undefined,
+        nowMs,
+      )
+    } catch {
+      // Fail-open: treat as fresh on helper throw (never blank queue).
+      return true
+    }
+  })
+}
+
 // Expired tab: only expired rows, newest expired first (deadline desc).
-// WHY: expired stays visible in its original status tab (pending/rejected) AND
-// in expired tab. Rejected expired appears in both rejected and expired.
+// WHY: pending/all/approved exclude expired; rejected keeps expired AND
+// expired tab shows only expired. Rejected expired appears in both rejected
+// and expired.
 // Fast path uses precomputed _isExpired stamp; recompute from deadline when
 // stamp is missing/stale (pagination keepPreviousData, mapping gaps).
 export function filterStagingExpiredOnly<
