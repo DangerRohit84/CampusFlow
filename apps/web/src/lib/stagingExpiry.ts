@@ -85,18 +85,42 @@ export function sortStagingWithExpiredBottom<
   return [...fresh, ...expired.map((e) => e.item)]
 }
 
-export function filterStagingByHideExpired<T extends { _isExpired?: boolean }>(
-  items: T[],
-  hideExpired: boolean,
-): T[] {
+export function filterStagingByHideExpired<
+  T extends { _isExpired?: boolean; deadline?: unknown },
+>(items: T[], hideExpired: boolean, nowMs: number = Date.now()): T[] {
   if (!hideExpired) return items
-  return items.filter((i) => !i._isExpired)
+  return items.filter((i) => {
+    // Fast path: precomputed stamp from AdminOpportunitiesPage allItems.
+    if (i._isExpired === true) return false
+    // Defense-in-depth: recompute from deadline in case stamp is missing or
+    // stale (pagination keepPreviousData, new items, mapping gaps). Without
+    // this, deadline-only rows (no _isExpired) leak through when hide is ON.
+    if (i.deadline !== undefined) {
+      try {
+        if (
+          isStagingExpired(
+            i.deadline as Date | string | null | undefined,
+            nowMs,
+          )
+        )
+          return false
+      } catch {
+        // Fail-open: keep row on helper throw (never blank queue).
+      }
+    }
+    return !i._isExpired
+  })
 }
 
-// WHY role default split: TEACHER sees a cleaner queue (hide ON); COLLEGE_ADMIN /
-// SUPER_ADMIN need see-all for oversight (hide OFF). Unknown roles fail-open OFF.
-export function getHideExpiredDefault(role: string | undefined | null): boolean {
-  return role === 'TEACHER'
+// WHY default ON for all roles: user report (master dbcf528) — Hide expired
+// checked still showed expired (counts global by design, some rows leaked via
+// missing _isExpired stamp) and COLLEGE_ADMIN/SUPER_ADMIN default OFF left
+// expired visible by default. Default ON hides expired for every role; toggle
+// OFF still preserves college-admin see-all oversight. Explicit localStorage
+// 'false' is still respected (loadHideExpired) — only the fallback default
+// changed. Unknown roles also ON (avoids OFF flash while auth loads).
+export function getHideExpiredDefault(_role: string | undefined | null): boolean {
+  return true
 }
 
 export function loadHideExpired(role: string | undefined | null): boolean {

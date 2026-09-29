@@ -136,8 +136,9 @@ export default function AdminOpportunitiesPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('pending')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   // Approach B: Hide-expired toggle, client-side only (counts unchanged).
-  // WHY role default split: TEACHER gets a cleaner queue (ON), COLLEGE_ADMIN /
-  // SUPER_ADMIN need see-all oversight (OFF). Persisted in localStorage.
+  // WHY default ON for all roles: expired visible by default confused review
+  // (master dbcf528). Toggle OFF still preserves college-admin see-all.
+  // Persisted in localStorage; explicit 'false' wins over default.
   const [hideExpired, setHideExpired] = useState<boolean>(() => loadHideExpired(user?.role))
   const [teachers, setTeachers] = useState<any[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
@@ -297,8 +298,10 @@ export default function AdminOpportunitiesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusParam])
 
-  // Apply role-based Hide-expired default once role is known, unless the user
-  // already stored an explicit preference (localStorage wins over default).
+  // Apply Hide-expired default ON for all roles once role is known, unless
+  // the user already stored an explicit preference (localStorage wins).
+  // Explicit 'false' (toggled OFF for see-all) is respected; null falls back
+  // to getHideExpiredDefault (now true for every role).
   useEffect(() => {
     try {
       if (typeof localStorage === 'undefined') return
@@ -374,8 +377,10 @@ export default function AdminOpportunitiesPage() {
 
     // Expired bottom (deadline desc, fresh order preserved), then hide-expired.
     // Counts above stay from API aggregates — filtering here never changes them.
+    // Pass now so deadline-aware filter hides rows whose _isExpired stamp is
+    // missing/stale (pagination keepPreviousData, mapping gaps).
     const sorted = sortStagingWithExpiredBottom(filtered, now)
-    return filterStagingByHideExpired(sorted, hideExpired)
+    return filterStagingByHideExpired(sorted, hideExpired, now)
   }, [hackathons, internships, typeFilter, searchQuery, activeTab, hideExpired])
 
   // ===== Stats (from DB counts, not paginated data) =====

@@ -108,6 +108,39 @@ describe('filterStagingByHideExpired', () => {
     ]
     expect(filterStagingByHideExpired(items, false).map((i) => i.id)).toEqual(['fresh', 'old'])
   })
+
+  it('hides deadline-only expired rows with no _isExpired stamp (leak fix)', () => {
+    // WHY: AdminOpportunitiesPage stamps _isExpired, but pagination stale or
+    // mapping gaps can leave deadline-only rows. Filter must recompute.
+    const items = [
+      { id: 'hackophobia', deadline: '2026-09-17' },
+      { id: 'fresh-future', deadline: '2026-10-05' },
+    ]
+    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'fresh-future',
+    ])
+  })
+
+  it('hides expired ISO and Date deadlines without stamp (DEVHACK edge)', () => {
+    const items = [
+      { id: 'devhack-iso', deadline: '2026-09-18T00:00:00.000Z' },
+      { id: 'devhack-date', deadline: new Date('2026-09-18T00:00:00.000Z') },
+      { id: 'fresh', deadline: '2026-10-05' },
+    ]
+    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual(['fresh'])
+  })
+
+  it('keeps fresh deadline-only rows when hide ON', () => {
+    const items = [{ id: 'fresh', deadline: '2026-10-05' }]
+    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual(['fresh'])
+  })
+
+  it('keeps null-deadline rows when hide ON (fail-open)', () => {
+    const items = [{ id: 'no-deadline', deadline: null }]
+    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual([
+      'no-deadline',
+    ])
+  })
 })
 
 describe('getHideExpiredDefault', () => {
@@ -115,13 +148,14 @@ describe('getHideExpiredDefault', () => {
     expect(getHideExpiredDefault('TEACHER')).toBe(true)
   })
 
-  it('defaults OFF for COLLEGE_ADMIN/SUPER_ADMIN (see-all)', () => {
-    expect(getHideExpiredDefault('COLLEGE_ADMIN')).toBe(false)
-    expect(getHideExpiredDefault('SUPER_ADMIN')).toBe(false)
+  it('defaults ON for COLLEGE_ADMIN/SUPER_ADMIN (hide expired by default, toggle OFF for see-all)', () => {
+    expect(getHideExpiredDefault('COLLEGE_ADMIN')).toBe(true)
+    expect(getHideExpiredDefault('SUPER_ADMIN')).toBe(true)
   })
 
-  it('defaults OFF for unknown roles (fail-open see-all)', () => {
-    expect(getHideExpiredDefault(undefined)).toBe(false)
+  it('defaults ON for unknown roles (avoids OFF flash while auth loads)', () => {
+    expect(getHideExpiredDefault(undefined)).toBe(true)
+    expect(getHideExpiredDefault(null)).toBe(true)
   })
 })
 
