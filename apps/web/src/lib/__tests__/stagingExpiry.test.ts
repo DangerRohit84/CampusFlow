@@ -1,7 +1,7 @@
 /**
- * Approach B RED: expired staging visibility (AdminOpportunitiesPage).
- * Tests isExpired mirror + sort/filter + badge/approve helpers BEFORE impl.
+ * Expired staging visibility (AdminOpportunitiesPage).
  * See packages/backend/src/services/opportunities/expiry.ts (SSOT).
+ * Expired tab: expired stays in status tab + expired tab, view-only.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -9,8 +9,6 @@ import {
   getExpiredDaysAgo,
   formatExpiredLabel,
   sortStagingWithExpiredBottom,
-  filterStagingByHideExpired,
-  getHideExpiredDefault,
   buildApproveExpiredMessage,
 } from '../stagingExpiry'
 
@@ -89,73 +87,6 @@ describe('sortStagingWithExpiredBottom', () => {
       { id: 'b', deadline: '2026-10-06' },
     ]
     expect(sortStagingWithExpiredBottom(items, NOW_28_SEPT).map((i) => i.id)).toEqual(['a', 'b'])
-  })
-})
-
-describe('filterStagingByHideExpired', () => {
-  it('hides expired rows when toggle ON', () => {
-    const items = [
-      { id: 'fresh', _isExpired: false },
-      { id: 'old', _isExpired: true },
-    ]
-    expect(filterStagingByHideExpired(items, true).map((i) => i.id)).toEqual(['fresh'])
-  })
-
-  it('keeps all rows when toggle OFF (college admin see-all)', () => {
-    const items = [
-      { id: 'fresh', _isExpired: false },
-      { id: 'old', _isExpired: true },
-    ]
-    expect(filterStagingByHideExpired(items, false).map((i) => i.id)).toEqual(['fresh', 'old'])
-  })
-
-  it('hides deadline-only expired rows with no _isExpired stamp (leak fix)', () => {
-    // WHY: AdminOpportunitiesPage stamps _isExpired, but pagination stale or
-    // mapping gaps can leave deadline-only rows. Filter must recompute.
-    const items = [
-      { id: 'hackophobia', deadline: '2026-09-17' },
-      { id: 'fresh-future', deadline: '2026-10-05' },
-    ]
-    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual([
-      'fresh-future',
-    ])
-  })
-
-  it('hides expired ISO and Date deadlines without stamp (DEVHACK edge)', () => {
-    const items = [
-      { id: 'devhack-iso', deadline: '2026-09-18T00:00:00.000Z' },
-      { id: 'devhack-date', deadline: new Date('2026-09-18T00:00:00.000Z') },
-      { id: 'fresh', deadline: '2026-10-05' },
-    ]
-    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual(['fresh'])
-  })
-
-  it('keeps fresh deadline-only rows when hide ON', () => {
-    const items = [{ id: 'fresh', deadline: '2026-10-05' }]
-    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual(['fresh'])
-  })
-
-  it('keeps null-deadline rows when hide ON (fail-open)', () => {
-    const items = [{ id: 'no-deadline', deadline: null }]
-    expect(filterStagingByHideExpired(items, true, NOW_28_SEPT).map((i) => i.id)).toEqual([
-      'no-deadline',
-    ])
-  })
-})
-
-describe('getHideExpiredDefault', () => {
-  it('defaults ON for TEACHER (cleaner queue)', () => {
-    expect(getHideExpiredDefault('TEACHER')).toBe(true)
-  })
-
-  it('defaults ON for COLLEGE_ADMIN/SUPER_ADMIN (hide expired by default, toggle OFF for see-all)', () => {
-    expect(getHideExpiredDefault('COLLEGE_ADMIN')).toBe(true)
-    expect(getHideExpiredDefault('SUPER_ADMIN')).toBe(true)
-  })
-
-  it('defaults ON for unknown roles (avoids OFF flash while auth loads)', () => {
-    expect(getHideExpiredDefault(undefined)).toBe(true)
-    expect(getHideExpiredDefault(null)).toBe(true)
   })
 })
 

@@ -29,12 +29,8 @@ import {
   isStagingExpired,
   formatExpiredLabel,
   sortStagingWithExpiredBottom,
-  filterStagingByHideExpired,
-  loadHideExpired,
-  saveHideExpired,
-  getHideExpiredDefault,
+  filterStagingExpiredOnly,
   buildApproveExpiredMessage,
-  STAGING_HIDE_EXPIRED_KEY,
 } from '../lib/stagingExpiry'
 import {
   STALE_LIST_MS,
@@ -117,7 +113,7 @@ function getPlatformColors(platform: string) {
 }
 
 // ===== Types =====
-type TabKey = 'all' | 'pending' | 'approved' | 'rejected'
+type TabKey = 'all' | 'pending' | 'approved' | 'rejected' | 'expired'
 type TypeFilter = 'all' | 'HACKATHON' | 'INTERNSHIP'
 
 // ===== Component =====
@@ -135,11 +131,6 @@ export default function AdminOpportunitiesPage() {
   const [failingSources, setFailingSources] = useState<Array<{ platform: string; status: string }>>([])
   const [activeTab, setActiveTab] = useState<TabKey>('pending')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
-  // Approach B: Hide-expired toggle, client-side only (counts unchanged).
-  // WHY default ON for all roles: expired visible by default confused review
-  // (master dbcf528). Toggle OFF still preserves college-admin see-all.
-  // Persisted in localStorage; explicit 'false' wins over default.
-  const [hideExpired, setHideExpired] = useState<boolean>(() => loadHideExpired(user?.role))
   const [teachers, setTeachers] = useState<any[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
   const [editType, setEditType] = useState<'HACKATHON' | 'INTERNSHIP'>('HACKATHON')
@@ -182,7 +173,8 @@ export default function AdminOpportunitiesPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
 
   // ===== Data loading — single cancellable query (Notion/GitHub pattern) =====
-  // Derive status param from active tab for server-side filtering
+  // Derive status param from active tab for server-side filtering.
+  // Expired is client-side only (isStagingExpired): fetch all, filter to expired.
   const statusParam = activeTab === 'pending' ? 'PENDING' : activeTab === 'approved' ? 'APPROVED' : activeTab === 'rejected' ? 'REJECTED' : undefined
   const PAGE_SIZE_INNER = 20
 
@@ -289,28 +281,15 @@ export default function AdminOpportunitiesPage() {
   const loadHackathons = (_page?: number) => notifyEntityMutated('hackathon')
   const loadInternships = (_page?: number) => notifyEntityMutated('internship')
 
-  // Reset pages to 1 when tab changes
+  // Reset pages to 1 when tab changes (activeTab, not just statusParam:
+  // all + expired share undefined but need fresh first page on switch).
   useEffect(() => {
     if (isAdmin) {
       setHackPage(1)
       setIntPage(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusParam])
-
-  // Apply Hide-expired default ON for all roles once role is known, unless
-  // the user already stored an explicit preference (localStorage wins).
-  // Explicit 'false' (toggled OFF for see-all) is respected; null falls back
-  // to getHideExpiredDefault (now true for every role).
-  useEffect(() => {
-    try {
-      if (typeof localStorage === 'undefined') return
-      if (localStorage.getItem(STAGING_HIDE_EXPIRED_KEY) !== null) return
-      setHideExpired(getHideExpiredDefault(user?.role))
-    } catch {
-      // Fail-open: keep initializer value.
-    }
-  }, [user?.role])
+  }, [activeTab])
 
   // Sync both page params to URL in a single effect
   useEffect(() => {
@@ -346,7 +325,7 @@ export default function AdminOpportunitiesPage() {
     return () => { cancelled = true }
   }, [isSuperAdmin])
 
-  // ===== Merge & filter (Approach B: expired visibility, client-side only) =====
+  // ===== Merge & filter (expired stays visible in status tab + expired tab) =====
   const allItems = useMemo(() => {
     const now = Date.now()
     const items = [
@@ -355,6 +334,7 @@ export default function AdminOpportunitiesPage() {
     ]
 
     // Backend already filters by status  —  no client-side status filter needed
+    // (expired tab fetches all server-side, filters client-side below).
 
     // Type filter
     let filtered = items
@@ -375,13 +355,14 @@ export default function AdminOpportunitiesPage() {
       )
     }
 
-    // Expired bottom (deadline desc, fresh order preserved), then hide-expired.
-    // Counts above stay from API aggregates — filtering here never changes them.
-    // Pass now so deadline-aware filter hides rows whose _isExpired stamp is
-    // missing/stale (pagination keepPreviousData, mapping gaps).
-    const sorted = sortStagingWithExpiredBottom(filtered, now)
-    return filterStagingByHideExpired(sorted, hideExpired, now)
-  }, [hackathons, internships, typeFilter, searchQuery, activeTab, hideExpired])
+    // Expired tab: only expired (newest first). Other tabs: fresh first,
+    // expired bottom (deadline desc). No hiding — expired stays in pending/
+    // rejected AND appears in expired. Counts stay from API aggregates.
+    if (activeTab === 'expired') {
+      return filterStagingExpiredOnly(filtered, now)
+    }
+    return sortStagingWithExpiredBottom(filtered, now)
+  }, [hackathons, internships, typeFilter, searchQuery, activeTab])
 
   // ===== Stats (from DB counts, not paginated data) =====
   const stats = useMemo(() => {
@@ -397,14 +378,16 @@ export default function AdminOpportunitiesPage() {
     }
   }, [counts])
 
-  // Tab counts for badges  —  all from API counts (not paginated data)
+  // Tab counts for badges  —  all from API counts (not paginated data),
+  // except expired which is client-side (no backend aggregate).
   const tabCounts = useMemo(() => {
     const all = counts.hackEnriched + counts.intEnriched
     const pending = counts.hackPending + counts.intPending
     const approved = counts.hackApproved + counts.intApproved
     const rejected = counts.hackRejected + counts.intRejected
-    return { all, pending, approved, rejected }
-  }, [counts])
+    const expired = allItems.filter((i: any) => i._isExpired === true).length
+    return { all, pending, approved, rejected, expired }
+  }, [counts, allItems])
 
   // ===== Handlers =====
   const handleFetchNow = async () => {
@@ -620,6 +603,7 @@ export default function AdminOpportunitiesPage() {
     { key: 'pending' as TabKey, label: 'Pending', count: tabCounts.pending },
     { key: 'approved' as TabKey, label: 'Approved', count: tabCounts.approved },
     { key: 'rejected' as TabKey, label: 'Rejected', count: tabCounts.rejected },
+    { key: 'expired' as TabKey, label: 'Expired', count: tabCounts.expired },
   ]
 
   return (
@@ -735,18 +719,6 @@ export default function AdminOpportunitiesPage() {
                 >
                   <Users size={16} /> Assign Reviewer
                 </button>
-                <label
-                  className="flex items-center gap-2 px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-600 dark:text-night-300 cursor-pointer select-none"
-                  title="Expired rows stay visible to college admins when OFF; filtering is client-side only and never changes counts."
-                >
-                  <input
-                    type="checkbox"
-                    checked={hideExpired}
-                    onChange={(e) => { setHideExpired(e.target.checked); saveHideExpired(e.target.checked) }}
-                    className="w-4 h-4 accent-primary-500"
-                  />
-                  Hide expired
-                </label>
                 {/* Fetch Now - Super Admin only */}
                 {isSuperAdmin && (
                   <button
@@ -974,7 +946,7 @@ export default function AdminOpportunitiesPage() {
                               )}
                             </div>
 
-                            {/* Bottom: Actions */}
+                            {/* Bottom: Actions — expired rows are view-only (no Approve/Reject) in every tab */}
                             <div className="flex items-center justify-end pt-3 border-t border-surface-100 dark:border-night-600">
                               <div className="flex items-center gap-2">
                                 <button
@@ -983,19 +955,23 @@ export default function AdminOpportunitiesPage() {
                                 >
                                   View Details
                                 </button>
-                                <button
-                                  onClick={() => handleReject(item.id, item._type)}
-                                  className="px-4 py-2 text-sm font-medium text-danger-600 border border-danger-200 hover:bg-danger-50 rounded-xl transition-colors"
-                                >
-                                  Reject
-                                </button>
-                                <button
-                                  onClick={() => handleApprove(item.id, item._type)}
-                                  title={isExpired ? buildApproveExpiredMessage(item.deadline) : undefined}
-                                  className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors"
-                                >
-                                  Approve
-                                </button>
+                                {!isExpired && (
+                                  <>
+                                    <button
+                                      onClick={() => handleReject(item.id, item._type)}
+                                      className="px-4 py-2 text-sm font-medium text-danger-600 border border-danger-200 hover:bg-danger-50 rounded-xl transition-colors"
+                                    >
+                                      Reject
+                                    </button>
+                                    <button
+                                      onClick={() => handleApprove(item.id, item._type)}
+                                      title={isExpired ? buildApproveExpiredMessage(item.deadline) : undefined}
+                                      className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors"
+                                    >
+                                      Approve
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>

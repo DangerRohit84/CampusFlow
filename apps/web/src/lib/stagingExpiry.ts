@@ -5,8 +5,6 @@
 // date-only YYYY-MM-DD = 23:59 IST end-of-day, null/invalid = not expired (fail-open).
 // Pure helpers only — easily unit-testable, no DB/network.
 
-export const STAGING_HIDE_EXPIRED_KEY = 'campusflow-admin-hide-expired'
-
 function toIstDeadlineMs(dateStr: string): number | null {
   const s = dateStr.trim()
   if (!s) return null
@@ -85,63 +83,57 @@ export function sortStagingWithExpiredBottom<
   return [...fresh, ...expired.map((e) => e.item)]
 }
 
-export function filterStagingByHideExpired<
+// Expired tab: only expired rows, newest expired first (deadline desc).
+// WHY: expired stays visible in its original status tab (pending/rejected) AND
+// in expired tab. Rejected expired appears in both rejected and expired.
+// Fast path uses precomputed _isExpired stamp; recompute from deadline when
+// stamp is missing/stale (pagination keepPreviousData, mapping gaps).
+export function filterStagingExpiredOnly<
   T extends { _isExpired?: boolean; deadline?: unknown },
->(items: T[], hideExpired: boolean, nowMs: number = Date.now()): T[] {
-  if (!hideExpired) return items
-  return items.filter((i) => {
-    // Fast path: precomputed stamp from AdminOpportunitiesPage allItems.
-    if (i._isExpired === true) return false
-    // Defense-in-depth: recompute from deadline in case stamp is missing or
-    // stale (pagination keepPreviousData, new items, mapping gaps). Without
-    // this, deadline-only rows (no _isExpired) leak through when hide is ON.
-    if (i.deadline !== undefined) {
+>(items: T[], nowMs: number = Date.now()): T[] {
+  const expired: Array<{ item: T; expiry: number; index: number }> = []
+  items.forEach((item, index) => {
+    let isExpired = item._isExpired === true
+    if (!isExpired && item.deadline !== undefined) {
       try {
-        if (
-          isStagingExpired(
-            i.deadline as Date | string | null | undefined,
-            nowMs,
-          )
+        isExpired = isStagingExpired(
+          item.deadline as Date | string | null | undefined,
+          nowMs,
         )
-          return false
       } catch {
-        // Fail-open: keep row on helper throw (never blank queue).
+        // Fail-open: treat as fresh on helper throw (never blank queue).
+        isExpired = false
       }
     }
-    return !i._isExpired
+    if (isExpired) {
+      expired.push({ item, expiry: toExpiryMs(item.deadline) ?? 0, index })
+    }
   })
+  expired.sort((a, b) => b.expiry - a.expiry || a.index - b.index)
+  return expired.map((e) => e.item)
 }
 
-// WHY default ON for all roles: user report (master dbcf528) — Hide expired
-// checked still showed expired (counts global by design, some rows leaked via
-// missing _isExpired stamp) and COLLEGE_ADMIN/SUPER_ADMIN default OFF left
-// expired visible by default. Default ON hides expired for every role; toggle
-// OFF still preserves college-admin see-all oversight. Explicit localStorage
-// 'false' is still respected (loadHideExpired) — only the fallback default
-// changed. Unknown roles also ON (avoids OFF flash while auth loads).
-export function getHideExpiredDefault(_role: string | undefined | null): boolean {
+// Expired rows show only View Details (no Approve/Reject) in every tab.
+// WHY: cross-deadline rows are view-only; admin can still see details + badge.
+export function canModerateStagingItem(
+  item: { _isExpired?: boolean; deadline?: unknown },
+  nowMs: number = Date.now(),
+): boolean {
+  if (item._isExpired === true) return false
+  if (item.deadline !== undefined) {
+    try {
+      if (
+        isStagingExpired(
+          item.deadline as Date | string | null | undefined,
+          nowMs,
+        )
+      )
+        return false
+    } catch {
+      // Fail-open: allow moderation on helper throw.
+    }
+  }
   return true
-}
-
-export function loadHideExpired(role: string | undefined | null): boolean {
-  try {
-    if (typeof localStorage === 'undefined') return getHideExpiredDefault(role)
-    const raw = localStorage.getItem(STAGING_HIDE_EXPIRED_KEY)
-    if (raw === 'true') return true
-    if (raw === 'false') return false
-  } catch {
-    // Fail-open to role default (never break queue on storage errors).
-  }
-  return getHideExpiredDefault(role)
-}
-
-export function saveHideExpired(value: boolean): void {
-  try {
-    if (typeof localStorage === 'undefined') return
-    localStorage.setItem(STAGING_HIDE_EXPIRED_KEY, value ? 'true' : 'false')
-  } catch {
-    // Best-effort persist only.
-  }
 }
 
 function formatDeadlineShort(deadline: unknown): string {
