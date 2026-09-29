@@ -26,6 +26,17 @@ import { useConfirm } from '../components/ui/ConfirmModal'
 import { retryUnlessRateLimited } from '../lib/queryClient'
 import { useAdminCountsPush } from '../hooks/useAdminCountsPush'
 import {
+  isStagingExpired,
+  formatExpiredLabel,
+  sortStagingWithExpiredBottom,
+  filterStagingByHideExpired,
+  loadHideExpired,
+  saveHideExpired,
+  getHideExpiredDefault,
+  buildApproveExpiredMessage,
+  STAGING_HIDE_EXPIRED_KEY,
+} from '../lib/stagingExpiry'
+import {
   STALE_LIST_MS,
   STALE_SLOW_LIST_MS,
   GC_LIST_MS,
@@ -124,6 +135,10 @@ export default function AdminOpportunitiesPage() {
   const [failingSources, setFailingSources] = useState<Array<{ platform: string; status: string }>>([])
   const [activeTab, setActiveTab] = useState<TabKey>('pending')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  // Approach B: Hide-expired toggle, client-side only (counts unchanged).
+  // WHY role default split: TEACHER gets a cleaner queue (ON), COLLEGE_ADMIN /
+  // SUPER_ADMIN need see-all oversight (OFF). Persisted in localStorage.
+  const [hideExpired, setHideExpired] = useState<boolean>(() => loadHideExpired(user?.role))
   const [teachers, setTeachers] = useState<any[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
   const [editType, setEditType] = useState<'HACKATHON' | 'INTERNSHIP'>('HACKATHON')
@@ -282,6 +297,18 @@ export default function AdminOpportunitiesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusParam])
 
+  // Apply role-based Hide-expired default once role is known, unless the user
+  // already stored an explicit preference (localStorage wins over default).
+  useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') return
+      if (localStorage.getItem(STAGING_HIDE_EXPIRED_KEY) !== null) return
+      setHideExpired(getHideExpiredDefault(user?.role))
+    } catch {
+      // Fail-open: keep initializer value.
+    }
+  }, [user?.role])
+
   // Sync both page params to URL in a single effect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -316,11 +343,12 @@ export default function AdminOpportunitiesPage() {
     return () => { cancelled = true }
   }, [isSuperAdmin])
 
-  // ===== Merge & filter =====
+  // ===== Merge & filter (Approach B: expired visibility, client-side only) =====
   const allItems = useMemo(() => {
+    const now = Date.now()
     const items = [
-      ...hackathons.map((h) => ({ ...h, _type: 'HACKATHON' as const })),
-      ...internships.map((i) => ({ ...i, _type: 'INTERNSHIP' as const })),
+      ...hackathons.map((h) => ({ ...h, _type: 'HACKATHON' as const, _isExpired: isStagingExpired((h as any)?.deadline, now) })),
+      ...internships.map((i) => ({ ...i, _type: 'INTERNSHIP' as const, _isExpired: isStagingExpired((i as any)?.deadline, now) })),
     ]
 
     // Backend already filters by status  —  no client-side status filter needed
@@ -344,8 +372,11 @@ export default function AdminOpportunitiesPage() {
       )
     }
 
-    return filtered
-  }, [hackathons, internships, typeFilter, searchQuery, activeTab])
+    // Expired bottom (deadline desc, fresh order preserved), then hide-expired.
+    // Counts above stay from API aggregates — filtering here never changes them.
+    const sorted = sortStagingWithExpiredBottom(filtered, now)
+    return filterStagingByHideExpired(sorted, hideExpired)
+  }, [hackathons, internships, typeFilter, searchQuery, activeTab, hideExpired])
 
   // ===== Stats (from DB counts, not paginated data) =====
   const stats = useMemo(() => {
@@ -419,7 +450,18 @@ export default function AdminOpportunitiesPage() {
   }
 
   const handleApprove = async (id: string, type: 'HACKATHON' | 'INTERNSHIP') => {
-    const ok = await confirmDialog({ title: 'Approve opportunity?', message: 'Approve this opportunity? It becomes visible to eligible students.', confirmLabel: 'Approve', danger: false })
+    // Approach B: approving an expired row needs explicit acknowledgement.
+    // Reject/Edit unchanged. Lookup keeps college scoping (server-enforced).
+    const target = [...hackathons, ...internships].find((r: any) => r?.id === id) as any
+    const expired = target ? isStagingExpired(target?.deadline) : false
+    const ok = await confirmDialog({
+      title: expired ? 'Approve expired opportunity?' : 'Approve opportunity?',
+      message: expired
+        ? `${buildApproveExpiredMessage(target?.deadline)} It becomes visible to eligible students.`
+        : 'Approve this opportunity? It becomes visible to eligible students.',
+      confirmLabel: 'Approve',
+      danger: false,
+    })
     if (!ok) return
     try {
       if (type === 'HACKATHON') {
@@ -688,6 +730,18 @@ export default function AdminOpportunitiesPage() {
                 >
                   <Users size={16} /> Assign Reviewer
                 </button>
+                <label
+                  className="flex items-center gap-2 px-3 py-2 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-600 dark:text-night-300 cursor-pointer select-none"
+                  title="Expired rows stay visible to college admins when OFF; filtering is client-side only and never changes counts."
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideExpired}
+                    onChange={(e) => { setHideExpired(e.target.checked); saveHideExpired(e.target.checked) }}
+                    className="w-4 h-4 accent-primary-500"
+                  />
+                  Hide expired
+                </label>
                 {/* Fetch Now - Super Admin only */}
                 {isSuperAdmin && (
                   <button
@@ -756,6 +810,7 @@ export default function AdminOpportunitiesPage() {
                     const platform = getSourcePlatform(item.source)
                     const mode = item.mode?.toLowerCase() || 'offline'
                     const pc = getPlatformColors(platform)
+                    const isExpired = (item as any)._isExpired === true
 
                     return (
                       <motion.div
@@ -764,7 +819,10 @@ export default function AdminOpportunitiesPage() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ delay: idx * 0.03 }}
-                        className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 overflow-hidden hover:shadow-lg transition-all group"
+                        className={clsx(
+                          'bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 overflow-hidden hover:shadow-lg transition-all group',
+                          isExpired && 'opacity-75'
+                        )}
                       >
                         <div className="flex">
                           {/* Left accent bar */}
@@ -786,6 +844,7 @@ export default function AdminOpportunitiesPage() {
                                 <div className="flex items-center gap-2 mb-2">
                                   <Badge variant={pc.badge as any}>{item._type}</Badge>
                                   <Badge variant={pc.badge as any}>{platform}</Badge>
+                                  {isExpired && <Badge variant="danger">Expired</Badge>}
                                   <Badge variant={mode === 'online' ? 'success' : 'danger'} dot>
                                     {mode === 'online' ? 'Online' : mode === 'hybrid' ? 'Hybrid' : 'Offline'}
                                   </Badge>
@@ -891,8 +950,12 @@ export default function AdminOpportunitiesPage() {
                                   )}
                                   {item.deadline && (
                                     <div>
-                                      <p className="text-xs text-surface-400 dark:text-night-300">
+                                      <p className={clsx(
+                                        'text-xs dark:text-night-300',
+                                        isExpired ? 'text-danger-600 font-semibold' : 'text-surface-400'
+                                      )}>
                                         Deadline: {new Date(item.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                        {isExpired && ` (${formatExpiredLabel(item.deadline)})`}
                                       </p>
                                     </div>
                                   )}
@@ -923,6 +986,7 @@ export default function AdminOpportunitiesPage() {
                                 </button>
                                 <button
                                   onClick={() => handleApprove(item.id, item._type)}
+                                  title={isExpired ? buildApproveExpiredMessage(item.deadline) : undefined}
                                   className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors"
                                 >
                                   Approve
