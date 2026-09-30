@@ -506,7 +506,7 @@ export async function runOpportunitiesJob(opts?: {
   }
 }
 
-export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number; skipped?: boolean; skipReason?: string }> {
+export async function runContestRemindersJobCron(): Promise<{ checked: number; notified: number; failed: number; skipped?: boolean; skipReason?: string; broadcast?: { checked: number; sent: number; skipped: number; failed: number } }> {
   // P0-D pre-flight: reminders tick 288×/day — skip the indexed query when down.
   try {
     const runnable = await shouldRunCronJob('contest-reminders')
@@ -517,7 +517,20 @@ export async function runContestRemindersJobCron(): Promise<{ checked: number; n
   logger.info('[Cron] Running contest-reminder fan-out...')
   const result = await runContestRemindersJob()
   logger.info(`[Cron] Contest reminders: checked=${result.checked} notified=${result.notified} failed=${result.failed}`)
-  return result
+  // Contest broadcast Light+Both: SAME tick (5m prod / 60s dev), flag-gated.
+  // Kill-switch CONTEST_BROADCAST_ENABLED (default OFF) — fail-open: broadcast
+  // errors never fail the reminders result (no spam, no poison loop).
+  let broadcast: { checked: number; sent: number; skipped: number; failed: number } | undefined;
+  try {
+    const { isBroadcastEnabled, runContestBroadcastsJob } = await import('../services/contestBroadcastService');
+    if (isBroadcastEnabled(process.env)) {
+      broadcast = await runContestBroadcastsJob();
+      logger.info(`[Cron] Contest broadcast: checked=${broadcast.checked} sent=${broadcast.sent} skipped=${broadcast.skipped} failed=${broadcast.failed}`);
+    }
+  } catch (err) {
+    logger.debug({ err }, '[Cron] Contest broadcast failed (fail-open, reminders unaffected)');
+  }
+  return { ...result, ...(broadcast ? { broadcast } : {}) }
 }
 
 export async function runCleanupJob(): Promise<{ hackathonsDeleted: number; internshipsDeleted: number; registrationsExpired: number; notificationsDeleted: number; roomNotificationsDeleted: number; skipped?: boolean; skipReason?: string }> {

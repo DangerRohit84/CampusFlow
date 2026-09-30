@@ -336,6 +336,56 @@ router.put('/profile', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Contest broadcast opt-out Both (global half): GET + PUT /contest-prefs.
+// Server-persisted User.preferences JSON { broadcastsOff } (default ON).
+// Per-contest half lives at PUT /api/contests/:id/mute. Replaces the
+// local-only cf-contest-alarms toggle (frontend header now binds here).
+router.get('/contest-prefs', async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await prisma.user.findUnique({ where: { id: req.userId }, select: { preferences: true } })
+    if (!row) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    const { parseContestPrefs } = await import('../services/contestBroadcastService')
+    const parsed = parseContestPrefs((row as { preferences?: unknown }).preferences)
+    res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+    res.json({ broadcastsOff: parsed.broadcastsOff, mutedContests: parsed.mutedContests })
+  } catch (error) {
+    logger.error({ err: error }, 'Get contest prefs error:')
+    res.status(500).json({ error: 'Failed to fetch contest prefs' })
+  }
+})
+
+router.put('/contest-prefs', async (req: AuthRequest, res: Response) => {
+  try {
+    const { broadcastsOff } = req.body as { broadcastsOff?: unknown }
+    if (typeof broadcastsOff !== 'boolean') {
+      res.status(400).json({ error: 'broadcastsOff must be a boolean' })
+      return
+    }
+    const row = await prisma.user.findUnique({ where: { id: req.userId }, select: { preferences: true } })
+    if (!row) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    const { setBroadcastsOff, parseContestPrefs } = await import('../services/contestBroadcastService')
+    const nextJson = setBroadcastsOff((row as { preferences?: unknown }).preferences, broadcastsOff)
+    let next: Record<string, unknown>
+    try {
+      next = JSON.parse(nextJson)
+    } catch {
+      next = { broadcastsOff }
+    }
+    await prisma.user.update({ where: { id: req.userId! }, data: { preferences: next as never } })
+    const parsed = parseContestPrefs(next)
+    res.json({ broadcastsOff: parsed.broadcastsOff, mutedContests: parsed.mutedContests })
+  } catch (error) {
+    logger.error({ err: error }, 'Update contest prefs error:')
+    res.status(500).json({ error: 'Failed to update contest prefs' })
+  }
+})
+
 // Get integrations
 router.get('/integrations', async (req: AuthRequest, res: Response) => {
   try {

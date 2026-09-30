@@ -656,6 +656,47 @@ router.delete('/reminders/:reminderId', async (req: AuthRequest, res: Response) 
   }
 })
 
+// Contest broadcast opt-out Both: per-contest OFF (this endpoint) + global
+// OFF (PUT /api/user/contest-prefs). Server-persisted in User.preferences JSON
+// { mutedContests, broadcastsOff } (room-mute pattern, no migration).
+// Default ON for all (absent = ON); user turns OFF. 404 when contest invisible
+// (college-scope, not enumerable). Replaces local-only Alarms toggle.
+router.put('/:id/mute', async (req: AuthRequest, res: Response) => {
+  try {
+    const { muted } = req.body as { muted?: unknown }
+    if (typeof muted !== 'boolean') {
+      res.status(400).json({ error: 'muted must be a boolean' })
+      return
+    }
+    const [userRow, contest] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, preferences: true } }),
+      prisma.codingContest.findUnique({ where: { id: req.params.id as string } }),
+    ])
+    if (!userRow) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    if (!contest || !canUserSeeContest(userRow as never, contest as never)) {
+      res.status(404).json({ error: 'Contest not found' })
+      return
+    }
+    const { setContestMuted, parseContestPrefs } = await import('../services/contestBroadcastService')
+    const nextJson = setContestMuted((userRow as { preferences?: unknown }).preferences, contest.id, muted)
+    let next: Record<string, unknown>
+    try {
+      next = JSON.parse(nextJson)
+    } catch {
+      next = { mutedContests: muted ? [contest.id] : [] }
+    }
+    await prisma.user.update({ where: { id: req.userId! }, data: { preferences: next as never } })
+    const parsed = parseContestPrefs(next)
+    res.json({ contestId: contest.id, muted, mutedContests: parsed.mutedContests })
+  } catch (error) {
+    logger.error({ err: error }, 'Contest mute error:')
+    res.status(500).json({ error: 'Failed to update contest mute' })
+  }
+})
+
 // Get single coding contest
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {

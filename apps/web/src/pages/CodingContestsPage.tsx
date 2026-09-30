@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { codingContestAPI, codingProfileAPI } from '../lib/api'
+import { codingContestAPI, codingProfileAPI, contestPrefsAPI } from '../lib/api'
 import { buildGoogleCalendarUrl } from '../lib/gcal'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { qk } from '../lib/queryKeys'
@@ -192,14 +192,26 @@ export default function CodingContestsPage() {
   const [leadByContest, setLeadByContest] = useState<Record<string, number>>({})
   const [savingRemindId, setSavingRemindId] = useState<string | null>(null)
 
-  // #6 open-tab alarm: opt-in, permission gated (ask once), aria-live announced.
+  // Contest broadcast Light+Both: server-persisted opt-out (replaces local-only
+  // cf-contest-alarms toggle). Default ON for all; user turns OFF globally
+  // (header) or per-contest (card). In-app DB + socket only, no push.
   const shouldReduce = useReducedMotion()
-  const [alarmsEnabled, setAlarmsEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem('cf-contest-alarms') === '1' } catch { return false }
+  const { data: contestPrefsData } = useQuery({
+    queryKey: ['contests', 'prefs'] as const,
+    queryFn: () => contestPrefsAPI.get().catch(() => ({ broadcastsOff: false, mutedContests: [] })),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   })
-  const [notifPerm, setNotifPerm] = useState<string>(() =>
-    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
-  )
+  const broadcastsOff = !!(contestPrefsData as any)?.broadcastsOff
+  const mutedContests: string[] = Array.isArray((contestPrefsData as any)?.mutedContests)
+    ? (contestPrefsData as any).mutedContests
+    : []
+  const mutedSet = useMemo(() => new Set(mutedContests), [contestPrefsData])
+  const [mutingId, setMutingId] = useState<string | null>(null)
+  const [togglingGlobal, setTogglingGlobal] = useState(false)
+  // In-tab highlight state (no browser push — broadcast is in-app DB + socket only).
   const [alarmIds, setAlarmIds] = useState<Set<string>>(new Set())
   const [liveMsg, setLiveMsg] = useState('')
   const seenAlarmRef = useRef<Set<string>>(new Set())
@@ -254,30 +266,41 @@ export default function CodingContestsPage() {
     }
   }, [queryClient])
 
-  // #6 alarm toggle: permission is requested ONCE on enable (never on mount),
-  // persisted in localStorage; disabling keeps `seen` sets (no re-fire).
-  const toggleAlarms = useCallback(async () => {
-    if (alarmsEnabled) {
-      setAlarmsEnabled(false)
-      try { localStorage.setItem('cf-contest-alarms', '0') } catch { /* ignore */ }
-      setAlarmIds(new Set())
-      setLiveMsg('Contest start alarms off')
-      return
+  // Contest broadcast global toggle: server-persisted broadcastsOff (default ON).
+  // No browser push (in-app DB + socket only). Fail-open toast on error.
+  const toggleBroadcasts = useCallback(async () => {
+    setTogglingGlobal(true)
+    try {
+      await contestPrefsAPI.setBroadcastsOff(!broadcastsOff)
+      await queryClient.invalidateQueries({ queryKey: ['contests', 'prefs'] })
+      setLiveMsg(!broadcastsOff ? 'Contest alerts off' : 'Contest alerts on')
+      toast.success(!broadcastsOff ? 'Contest alerts off' : 'Contest alerts on')
+    } catch {
+      toast.error('Failed to update contest alerts')
+    } finally {
+      setTogglingGlobal(false)
     }
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      try { await Notification.requestPermission() } catch { /* ignore */ }
-      setNotifPerm(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported')
-    }
-    setAlarmsEnabled(true)
-    try { localStorage.setItem('cf-contest-alarms', '1') } catch { /* ignore */ }
-    setLiveMsg('Contest start alarms on — you will be notified when a contest starts within a minute')
-  }, [alarmsEnabled])
+  }, [broadcastsOff, queryClient])
 
-  // #6 open-tab alarm + reminder-due browser ping. 15s tick (cheap,
-  // in-memory scan of the cached list — zero network). Fires once per
-  // contest/reminder per tab-load via refs; highlight stays until unmount.
+  // Per-contest opt-out: server-persisted mutedContests (Both).
+  const toggleContestMute = useCallback(async (contestId: string, muted: boolean) => {
+    setMutingId(contestId)
+    try {
+      await codingContestAPI.muteContest(contestId, muted)
+      await queryClient.invalidateQueries({ queryKey: ['contests', 'prefs'] })
+      toast.success(muted ? 'Alerts off for this contest' : 'Alerts on for this contest')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to update contest alert')
+    } finally {
+      setMutingId(null)
+    }
+  }, [queryClient])
+
+  // In-tab highlight tick (no browser push — broadcast is in-app DB + socket).
+  // Gated on server broadcastsOff (global OFF suppresses highlight too).
+  // 15s tick (cheap, in-memory scan of the cached list — zero network).
   useEffect(() => {
-    if (!alarmsEnabled) return
+    if (broadcastsOff) return
     const tick = () => {
       const now = Date.now()
       for (const c of contests) {
@@ -318,7 +341,7 @@ export default function CodingContestsPage() {
     tick()
     const t = setInterval(tick, 15_000)
     return () => clearInterval(t)
-  }, [alarmsEnabled, contests, myReminders])
+  }, [broadcastsOff, contests, myReminders])
 
   // Calendar is now derived from filteredContests  —  no separate API call needed
 
@@ -686,27 +709,28 @@ export default function CodingContestsPage() {
             </button>
           )
         })}
-        {/* #6 open-tab alarm toggle — permission asked once on enable, never on mount */}
+        {/* Contest broadcast global toggle — server-persisted (default ON). In-app DB + socket only, no push. */}
         <button
-          onClick={toggleAlarms}
-          aria-pressed={alarmsEnabled}
-          title={alarmsEnabled ? 'Turn off start alarms' : 'Turn on start alarms (asks notification permission once)'}
+          onClick={toggleBroadcasts}
+          disabled={togglingGlobal}
+          aria-pressed={!broadcastsOff}
+          title={!broadcastsOff ? 'Turn off contest alerts (all contests)' : 'Turn on contest alerts'}
           className={clsx(
-            'ml-auto flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all border',
-            alarmsEnabled
+            'ml-auto flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all border disabled:opacity-50',
+            !broadcastsOff
               ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30'
               : 'bg-white dark:bg-night-700 text-surface-600 dark:text-night-200 border-surface-200 dark:border-night-600 hover:bg-surface-50 dark:hover:bg-night-600',
           )}
         >
-          {alarmsEnabled ? <Bell size={14} /> : <BellOff size={14} />}
-          {alarmsEnabled ? 'Alarms on' : 'Alarms off'}
+          {!broadcastsOff ? <Bell size={14} /> : <BellOff size={14} />}
+          {!broadcastsOff ? 'Alerts on' : 'Alerts off'}
         </button>
       </div>
-      {/* #6 aria-live announcements for alarms/reminders (AT parity with toasts) */}
+      {/* aria-live announcements for broadcasts/reminders (AT parity with toasts) */}
       <div aria-live="polite" role="status" className="sr-only">{liveMsg}</div>
-      {alarmsEnabled && notifPerm === 'denied' && (
-        <p className="text-xs text-amber-700 dark:text-amber-300" role="note">
-          Browser notifications are blocked — alarms will still highlight contests here. Enable notifications in your browser settings for pop-ups.
+      {broadcastsOff && (
+        <p className="text-xs text-surface-500 dark:text-night-300" role="note">
+          Contest alerts are off — turn them on to receive start reminders here.
         </p>
       )}
 
@@ -893,6 +917,18 @@ export default function CodingContestsPage() {
                             >
                               <CalendarPlus size={12} /> Add to GCal
                             </a>
+                            {/* Broadcast per-contest opt-out (server-persisted, Both). */}
+                            <button
+                              onClick={() => toggleContestMute(c.id, !mutedSet.has(c.id))}
+                              disabled={mutingId === c.id}
+                              title={mutedSet.has(c.id) ? `Turn on alerts for ${c.title}` : `Turn off alerts for ${c.title}`}
+                              aria-pressed={!mutedSet.has(c.id)}
+                              aria-label={mutedSet.has(c.id) ? `Turn on alerts for ${c.title}` : `Turn off alerts for ${c.title}`}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-surface-600 hover:text-primary-600 dark:text-night-300 dark:hover:text-success-300 border border-surface-200 dark:border-night-600 rounded-lg hover:bg-surface-50 dark:hover:bg-night-600 disabled:opacity-50"
+                            >
+                              {mutedSet.has(c.id) ? <BellOff size={12} /> : <Bell size={12} />}
+                              {mutingId === c.id ? 'Saving…' : mutedSet.has(c.id) ? 'Turn on' : 'Turn off'}
+                            </button>
                           </div>
                         )}
 

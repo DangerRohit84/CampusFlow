@@ -172,4 +172,13 @@ export const codingContestAPI = {
   getReminders: () => api.get('/contests/reminders/mine').then((r) => r.data),
   deleteReminder: (reminderId: string) =>
     api.delete(`/contests/reminders/${reminderId}`).then((r) => r.data),
+  // Contest broadcast Light+Both (server-persisted opt-out, replaces local-only alarms).
+  muteContest: (id: string, muted: boolean) =>
+    api.put(`/contests/${id}/mute`, { muted }).then((r) => r.data),
+}
+
+export const contestPrefsAPI = {
+  get: () => api.get('/user/contest-prefs').then((r) => r.data),
+  setBroadcastsOff: (broadcastsOff: boolean) =>
+    api.put('/user/contest-prefs', { broadcastsOff }).then((r) => r.data),
 }
