@@ -13,6 +13,7 @@ import {
   filterStagingExpiredOnly,
   filterStagingFreshOnly,
   canModerateStagingItem,
+  computeAdjustedStagingTabCounts,
 } from '../stagingExpiry'
 
 // Fixed clock: 28 Sept 2026 00:00 UTC.
@@ -121,6 +122,82 @@ describe('pending/all/approved exclude expired, rejected keeps expired (fix: exp
     expect(src).toContain('sortStagingWithExpiredBottom')
     // Expired tab still only expired.
     expect(src).toContain('filterStagingExpiredOnly')
+  })
+
+  it('AdminOpportunitiesPage badges exclude expired for fresh tabs (counts mismatch fix)', () => {
+    const pagePath = path.resolve(__dirname, '../../pages/AdminOpportunitiesPage.tsx')
+    const src = fs.readFileSync(pagePath, 'utf8')
+    // Badges must not use raw API aggregates for fresh tabs — they must
+    // adjust for expired (client-side) so Pending/All match fresh lists.
+    expect(src).toContain('computeAdjustedStagingTabCounts')
+  })
+})
+
+describe('tab counts exclude expired for fresh tabs (fix: All2/Pending2 vs Expired2 mismatch)', () => {
+  it('2 expired pending -> pending 0, expired 2, all 0 (rejected untouched)', () => {
+    const base = [
+      { id: 'hackophobia', status: 'PENDING', deadline: '2026-09-17', _isExpired: true },
+      { id: 'devhack', status: 'PENDING', deadline: '2026-09-18', _isExpired: true },
+    ]
+    const counts = computeAdjustedStagingTabCounts(
+      base,
+      { all: 2, pending: 2, approved: 0, rejected: 19 },
+      NOW_28_SEPT,
+    )
+    expect(counts.pending).toBe(0)
+    expect(counts.expired).toBe(2)
+    expect(counts.all).toBe(0)
+    expect(counts.rejected).toBe(19)
+    expect(counts.approved).toBe(0)
+  })
+
+  it('fresh pending untouched, rejected keeps expired', () => {
+    const base = [
+      { id: 'fresh-a', status: 'PENDING', deadline: '2026-10-05', _isExpired: false },
+      { id: 'rejected-expired', status: 'REJECTED', deadline: '2026-09-18', _isExpired: true },
+    ]
+    const counts = computeAdjustedStagingTabCounts(
+      base,
+      { all: 5, pending: 3, approved: 1, rejected: 19 },
+      NOW_28_SEPT,
+    )
+    // 1 expired total (rejected) -> all 5-1=4, pending 3-0=3 (no pending expired),
+    // approved 1-0=1, rejected stays 19, expired 1.
+    expect(counts.all).toBe(4)
+    expect(counts.pending).toBe(3)
+    expect(counts.approved).toBe(1)
+    expect(counts.rejected).toBe(19)
+    expect(counts.expired).toBe(1)
+  })
+
+  it('never goes negative (clamps at 0)', () => {
+    const base = [
+      { id: 'stale-page', status: 'PENDING', deadline: '2026-09-17', _isExpired: true },
+    ]
+    const counts = computeAdjustedStagingTabCounts(
+      base,
+      { all: 0, pending: 0, approved: 0, rejected: 0 },
+      NOW_28_SEPT,
+    )
+    expect(counts.pending).toBe(0)
+    expect(counts.all).toBe(0)
+    expect(counts.approved).toBe(0)
+    expect(counts.expired).toBe(1)
+  })
+
+  it('recomputes expired from deadline when _isExpired stamp missing', () => {
+    const base = [
+      { id: 'hackophobia', status: 'PENDING', deadline: '2026-09-17' },
+      { id: 'fresh-future', status: 'PENDING', deadline: '2026-10-05' },
+    ]
+    const counts = computeAdjustedStagingTabCounts(
+      base,
+      { all: 2, pending: 2, approved: 0, rejected: 0 },
+      NOW_28_SEPT,
+    )
+    expect(counts.expired).toBe(1)
+    expect(counts.pending).toBe(1)
+    expect(counts.all).toBe(1)
   })
 })
 

@@ -185,3 +185,97 @@ function formatDeadlineShort(deadline: unknown): string {
 export function buildApproveExpiredMessage(deadline: unknown): string {
   return `Deadline passed (${formatDeadlineShort(deadline)}). Approve anyway?`
 }
+
+// Tab-count mismatch fix (All2/Pending2 vs Expired2).
+// WHY: pending/all/approved lists exclude expired via filterStagingFreshOnly,
+// but API aggregates INCLUDE expired (server has no expiry aggregate), so
+// badges read higher than visible rows (Pending 2 includes 2 expired, list
+// shows 0 fresh). Expired badge is client page-scoped (type+search filtered,
+// before tab filter), others global — inconsistent.
+// Fix: adjust fresh badges client-side from the SAME base set used for lists
+// (type+search filtered, before tab filter), partitioned by status+expired:
+// pendingFresh = apiPending - expiredPending, approvedFresh = apiApproved -
+// expiredApproved, allFresh = apiAll - expiredTotal, rejectedAll = apiRejected
+// (rejected keeps expired per spec), expiredAll = expiredTotal (page-scoped).
+// Clamp at 0 (never negative on stale pages). Uses _isExpired fast path,
+// recomputes from deadline when stamp missing, fail-open on null/invalid.
+// Pagination note: base is 20+20 page-scoped, API totals global — subtraction
+// is exact when queue fits in one page (typical: 2 pending, 19 rejected),
+// approximate when paginated beyond one page (still consistent direction).
+export type StagingTabCountItem = {
+  status?: string;
+  deadline?: unknown;
+  _isExpired?: boolean;
+}
+
+export type StagingApiCounts = {
+  all: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+}
+
+export type StagingTabCounts = {
+  all: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+}
+
+function isExpiredItem(
+  item: StagingTabCountItem,
+  nowMs: number,
+): boolean {
+  if ((item as any)?._isExpired === true) return true
+  if ((item as any)?._isExpired === false) return false
+  const deadline = (item as any)?.deadline
+  if (deadline === undefined || deadline === null) return false
+  try {
+    return isStagingExpired(
+      deadline as Date | string | null | undefined,
+      nowMs,
+    )
+  } catch {
+    return false
+  }
+}
+
+function statusOf(item: StagingTabCountItem): string {
+  const raw = (item as any)?.status
+  if (typeof raw !== 'string') return ''
+  return raw.trim().toUpperCase()
+}
+
+export function computeAdjustedStagingTabCounts(
+  baseItems: StagingTabCountItem[],
+  apiCounts: StagingApiCounts,
+  nowMs: number = Date.now(),
+): StagingTabCounts {
+  let expiredTotal = 0
+  let expiredPending = 0
+  let expiredApproved = 0
+  for (const item of baseItems ?? []) {
+    if (!isExpiredItem(item, nowMs)) continue
+    expiredTotal++
+    const s = statusOf(item)
+    if (s === 'APPROVED') {
+      expiredApproved++
+    } else if (s === 'REJECTED') {
+      // Rejected keeps expired — counted in expiredTotal/all, not subtracted
+      // from rejected badge (rejectedAll = apiRejected per spec).
+    } else {
+      // PENDING, DRAFT, missing/unknown → pending bucket (fail-safe: pending
+      // tab server-filters to pending, so unknown on pending page is pending).
+      expiredPending++
+    }
+  }
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0)
+  return {
+    all: clamp((apiCounts?.all ?? 0) - expiredTotal),
+    pending: clamp((apiCounts?.pending ?? 0) - expiredPending),
+    approved: clamp((apiCounts?.approved ?? 0) - expiredApproved),
+    rejected: clamp(apiCounts?.rejected ?? 0),
+    expired: clamp(expiredTotal),
+  }
+}

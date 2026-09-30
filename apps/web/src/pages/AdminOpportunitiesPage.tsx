@@ -32,6 +32,7 @@ import {
   filterStagingExpiredOnly,
   filterStagingFreshOnly,
   buildApproveExpiredMessage,
+  computeAdjustedStagingTabCounts,
 } from '../lib/stagingExpiry'
 import {
   STALE_LIST_MS,
@@ -383,18 +384,24 @@ export default function AdminOpportunitiesPage() {
     }
   }, [counts])
 
-  // Tab counts for badges  —  all from API counts (not paginated data),
-  // except expired which is client-side (no backend aggregate).
-  // NOTE: API pending/all/approved counts INCLUDE expired rows (server has no
-  // expiry aggregate); the lists below EXCLUDE expired (own Expired tab), so
-  // badges may read slightly higher than visible rows on the current page.
-  // Expired badge counts expired in the current page's base set (type+search
-  // filtered, before tab-specific expired filtering) — paginated, not global.
+  // Tab counts for badges — fresh tabs exclude expired (match lists),
+  // rejected keeps expired, expired is client page-scoped.
+  // WHY (fix: All2/Pending2 vs Expired2 mismatch): API pending/all/approved
+  // aggregates INCLUDE expired rows (server has no expiry aggregate) while
+  // pending/all/approved lists EXCLUDE expired via filterStagingFreshOnly, so
+  // raw badges read higher than visible rows (Pending 2 includes 2 expired,
+  // list shows 0 fresh). Adjust fresh badges client-side from the SAME base
+  // set used for lists (type+search filtered, before tab filter), partitioned
+  // by status+expired: pendingFresh, approvedFresh, rejectedAll, expiredAll,
+  // allFresh (see computeAdjustedStagingTabCounts). Server aggregates kept
+  // only as the global base; rejected unchanged (keeps expired per spec).
+  // Pagination note: base is 20+20 page-scoped, API totals global — exact
+  // when queue fits one page (typical), approximate beyond (same direction).
   const tabCounts = useMemo(() => {
-    const all = counts.hackEnriched + counts.intEnriched
-    const pending = counts.hackPending + counts.intPending
-    const approved = counts.hackApproved + counts.intApproved
-    const rejected = counts.hackRejected + counts.intRejected
+    const apiAll = counts.hackEnriched + counts.intEnriched
+    const apiPending = counts.hackPending + counts.intPending
+    const apiApproved = counts.hackApproved + counts.intApproved
+    const apiRejected = counts.hackRejected + counts.intRejected
     const now = Date.now()
     // Type scope comes from source arrays (allItems stamps _type later).
     let base: any[] =
@@ -414,8 +421,11 @@ export default function AdminOpportunitiesPage() {
           i.name?.toLowerCase().includes(q),
       )
     }
-    const expired = base.filter((i: any) => isStagingExpired(i?.deadline, now)).length
-    return { all, pending, approved, rejected, expired }
+    return computeAdjustedStagingTabCounts(
+      base,
+      { all: apiAll, pending: apiPending, approved: apiApproved, rejected: apiRejected },
+      now,
+    )
   }, [counts, hackathons, internships, typeFilter, searchQuery])
 
   // ===== Handlers =====
