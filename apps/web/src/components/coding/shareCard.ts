@@ -21,6 +21,9 @@ export interface ShareCardData {
   handles: ShareCardHandle[];
   problemsSolved: number;
   contests: number;
+  /** Average rating (preferred). */
+  rating?: number | null;
+  /** @deprecated kept for API compat — use `rating`. */
   bestRating: number | null;
   currentStreak: number;
   longestStreak: number;
@@ -109,7 +112,7 @@ export function drawShareCard(canvas: HTMLCanvasElement, data: ShareCardData): v
   // Stat boxes.
   const stats = [
     { label: 'PROBLEMS SOLVED', value: data.problemsSolved.toLocaleString('en-US') },
-    { label: 'BEST RATING', value: data.bestRating != null ? String(data.bestRating) : '—' },
+    { label: 'RATING', value: (data.rating ?? data.bestRating) != null ? String(data.rating ?? data.bestRating) : '—' },
     { label: 'CONTESTS', value: String(data.contests) },
     { label: 'DAY STREAK', value: String(data.currentStreak) },
   ];

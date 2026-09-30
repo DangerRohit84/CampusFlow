@@ -62,8 +62,10 @@ export default function ContestLeaderboardPage() {
   const totalParticipants = leaderboard.length
   const totalContestsSum = useMemo(() => leaderboard.reduce((a,b)=> a + (b.totalContests||0), 0), [leaderboard])
   const avgContests = totalParticipants ? (totalContestsSum/totalParticipants).toFixed(1) : '0'
-  const topRating = useMemo(() => Math.max(0, ...leaderboard.map(l=> l.bestRating||0)), [leaderboard])
-  const topCoder = useMemo(() => leaderboard.length ? [...leaderboard].sort((a,b)=> b.bestRating - a.bestRating)[0] : null, [leaderboard])
+  // rating = AVERAGE contest rating (backend `rating`; `bestRating` fallback for stale cache).
+  const ratingOf = (l: any) => (l.rating ?? l.bestRating ?? 0) as number
+  const topRating = useMemo(() => Math.max(0, ...leaderboard.map(l=> ratingOf(l))), [leaderboard])
+  const topCoder = useMemo(() => leaderboard.length ? [...leaderboard].sort((a,b)=> ratingOf(b) - ratingOf(a))[0] : null, [leaderboard])
   const deptBreakdown = useMemo(() => {
     const m=new Map<string, number>()
     leaderboard.forEach(e=>{ const k=e.department||'Unknown'; m.set(k,(m.get(k)||0)+1) })
@@ -120,11 +122,12 @@ export default function ContestLeaderboardPage() {
         department: e.department,
         year: e.incomingYear ?? '',
         contests: e.totalContests,
+        rating: e.rating ?? e.bestRating,
         bestRating: e.bestRating,
         avgRank: e.avgRank ?? '',
       })),
       'leaderboard.csv',
-      ['rank', 'name', 'department', 'year', 'contests', 'bestRating', 'avgRank']
+      ['rank', 'name', 'department', 'year', 'contests', 'rating', 'bestRating', 'avgRank']
     )
     toast.success(`Exported ${data.length} rows`)
   }
@@ -326,7 +329,7 @@ export default function ContestLeaderboardPage() {
                   <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Department</th>
                   <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Year</th>
                   <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Contests</th>
-                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Best Rating</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Rating</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-50 dark:divide-white/5">
@@ -359,7 +362,7 @@ export default function ContestLeaderboardPage() {
                       <span className="px-2.5 py-1 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-xs font-black">{entry.incomingYear ? `Year ${entry.incomingYear}` : '—'}</span>
                     </td>
                     <td className="px-6 py-4 text-center font-[800] text-surface-900 dark:text-white">{entry.totalContests}</td>
-                    <td className="px-6 py-4 text-center font-black text-primary-600 dark:text-primary-400">{entry.bestRating || '—'}</td>
+                    <td className="px-6 py-4 text-center font-black text-primary-600 dark:text-primary-400">{(entry.rating ?? entry.bestRating) || '—'}</td>
                   </tr>
                   )
                 })}

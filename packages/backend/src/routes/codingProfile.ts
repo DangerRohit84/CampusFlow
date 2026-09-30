@@ -9,6 +9,7 @@ import { buildProfileSyncPayload } from '../services/stagingCounts'
 import { fetchGithubContributions, getGithubCalendar, isValidGithubUsername } from '../services/githubActivity'
 import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
 import { checkAndClaimSyncThrottle, clearSyncThrottleStore } from '../services/syncThrottleStore'
+import { sortLeaderboardGroups, mapLeaderboardGroup } from '../services/leaderboardRating'
 import { logger } from '../utils/logger'
 
 const router = Router()
@@ -523,24 +524,21 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
       by: ['userId'],
       where,
       _count: { _all: true },
-      _avg: { rank: true },
+      _avg: { rank: true, rating: true },
       _max: { rating: true },
     } as any)
 
-    // Sort at DB-equivalent order (totalContests desc, bestRating desc).
+    // Sort: totalContests desc, then rating (AVERAGE) desc — not best/max.
     // groupBy orderBy on aggregates varies by provider; sort in JS over
     // ≤10k small group rows (not 1M full rows) for deterministic output.
-    groups.sort((a: any, b: any) => {
-      const ca = a._count?._all ?? 0
-      const cb = b._count?._all ?? 0
-      if (cb !== ca) return cb - ca
-      return (b._max?.rating ?? 0) - (a._max?.rating ?? 0)
-    })
+    // Ties break by userId asc (see leaderboardRating.sortLeaderboardGroups).
+    // Pure-return: sortLeaderboardGroups returns a NEW sorted copy (never mutates).
+    const sorted = sortLeaderboardGroups(groups)
 
-    const total = groups.length
+    const total = sorted.length
     const pages = Math.ceil(total / limit)
     const start = (page - 1) * limit
-    const pageGroups = groups.slice(start, start + limit)
+    const pageGroups = sorted.slice(start, start + limit)
 
     // Participant details for the page only (single lookup, not N+1).
     // NARROW-READ: was include:{department:true} (full user incl. passwordHash +
@@ -557,17 +555,9 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
 
     const paged = pageGroups.map((g: any) => {
       const u = userMap.get(g.userId) as any
-      return {
-        userId: g.userId,
-        name: u?.name ?? '',
-        department: u?.department?.name || '',
-        departmentId: u?.departmentId || null,
-        incomingYear: u?.incomingYear ?? null,
-        avatar: u?.avatar ?? null,
-        totalContests: g._count?._all ?? 0,
-        avgRank: g._avg?.rank != null ? Math.round(g._avg.rank) : 0,
-        bestRating: g._max?.rating ?? 0,
-      }
+      // rating = AVERAGE contest rating (rounded, fail-open 0); bestRating kept
+      // deprecated for API compat (old clients / CSV). See leaderboardRating.
+      return mapLeaderboardGroup(g, u)
     })
 
     res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')

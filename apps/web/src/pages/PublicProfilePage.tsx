@@ -417,8 +417,8 @@ export default function PublicProfilePage() {
                     <p className="text-[10px] font-bold tracking-widest uppercase text-surface-500 dark:text-night-300">Solved</p>
                   </div>
                   <div className="rounded-xl bg-surface-50 dark:bg-night-700/50 border border-surface-200 dark:border-night-600 p-3 text-center">
-                    <p className="text-xl font-extrabold" style={{ color: cfColor(data.codingProfile?.bestRating) }}>{data.codingProfile?.bestRating ?? '—'}</p>
-                    <p className="text-[10px] font-bold tracking-widest uppercase text-surface-500 dark:text-night-300">Best Rating</p>
+                    <p className="text-xl font-extrabold" style={{ color: cfColor((data.codingProfile as any)?.rating ?? data.codingProfile?.bestRating) }}>{(data.codingProfile as any)?.rating ?? data.codingProfile?.bestRating ?? '—'}</p>
+                    <p className="text-[10px] font-bold tracking-widest uppercase text-surface-500 dark:text-night-300">Rating</p>
                   </div>
                   <div className="rounded-xl bg-surface-50 dark:bg-night-700/50 border border-surface-200 dark:border-night-600 p-3 text-center">
                     <p className="text-xl font-extrabold text-surface-900 dark:text-night-50">{stats.contestsParticipated}</p>

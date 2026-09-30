@@ -14,6 +14,7 @@ import ActivityHeatmap from '../components/coding/ActivityHeatmap'
 import ProblemsTab from '../components/coding/ProblemsTab'
 import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBreakdown, unifiedActiveByDay, filterUnifiedDaysByYear, getAvailableHeatmapYears, getHeatmapYearOptions, formatHeatmapRangeLabel, parseStoredHeatmapYear, ALL_SOURCES_ON, HEATMAP_RANGE_LAST_6, HEATMAP_YEAR_STORAGE_KEY, type SourceToggles, type ActivitySource } from '../lib/codingStreak'
 import { shouldFetchLeaderboard, withTabVisited } from '../lib/codingTabs'
+import { averagePlatformRatings } from '../lib/rating'
 import { downloadShareCard } from '../components/coding/shareCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -521,7 +522,10 @@ export default function CodingProfilePage() {
   // Aggregate numbers
   const totalSolved = Object.values(statsMap).reduce((s, st) => s + (st.problemsSolved || 0), 0)
   const totalContests = participations.length
-  const ratedPlatforms = Object.values(statsMap).filter(s => s.rating)
+  // rating = AVERAGE across rated platforms (ignore nulls, fail-open null);
+  // bestRating kept deprecated for API compat (share card fallback).
+  const rating = averagePlatformRatings(Object.values(statsMap))
+  const ratedPlatforms = Object.values(statsMap).filter(s => s.rating && s.valid !== false)
   const bestRating = ratedPlatforms.reduce((max, s) => Math.max(max, s.rating || 0), 0)
   const avgRank = participations.length > 0
     ? Math.round(participations.filter(p => p.rank).reduce((s, p) => s + p.rank, 0) / participations.filter(p => p.rank).length)
@@ -612,6 +616,7 @@ export default function CodingProfilePage() {
             .filter((h) => h.value),
           problemsSolved: totalSolved,
           contests: totalContests,
+          rating: rating ?? null,
           bestRating: bestRating || null,
           currentStreak: streaks.current,
           longestStreak: streaks.longest,
@@ -870,7 +875,7 @@ export default function CodingProfilePage() {
             {[
               { label: 'Problems Solved', value: totalSolved.toLocaleString(), sub: 'across all platforms', icon: Target, grad: 'from-emerald-400 to-teal-500' },
               { label: 'Contests', value: totalContests, sub: avgRank ? `avg rank #${avgRank}` : 'participated', icon: Trophy, grad: 'from-yellow-400 to-orange-500' },
-              { label: 'Best Rating', value: bestRating || '—', sub: bestRating ? cfColor(bestRating) !== '#9CA3AF' ? 'peak performance' : '' : 'sync to update', icon: TrendingUp, grad: 'from-blue-400 to-indigo-500' },
+              { label: 'Rating', value: rating ?? '—', sub: rating ? cfColor(rating) !== '#9CA3AF' ? 'average across platforms' : '' : 'sync to update', icon: TrendingUp, grad: 'from-blue-400 to-indigo-500' },
               { label: 'Linked Platforms', value: `${Object.keys(statsMap).length}/${filledCount}`, sub: 'with live data', icon: Code, grad: 'from-purple-400 to-pink-500' },
             ].map((stat, i) => (
               <motion.div
@@ -1312,7 +1317,7 @@ export default function CodingProfilePage() {
                     <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Student</th>
                     <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Department</th>
                     <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Contests</th>
-                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Best Rating</th>
+                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Rating</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1343,8 +1348,8 @@ export default function CodingProfilePage() {
                       </td>
                       <td className="py-3 px-4 text-surface-500 dark:text-night-300">{entry.department || '-'}</td>
                       <td className="py-3 px-4 text-center font-medium text-surface-900 dark:text-night-50">{entry.totalContests}</td>
-                      <td className="py-3 px-4 text-center font-semibold" style={{ color: cfColor(entry.bestRating) }}>
-                        {entry.bestRating || '-'}
+                      <td className="py-3 px-4 text-center font-semibold" style={{ color: cfColor(entry.rating ?? entry.bestRating) }}>
+                        {(entry.rating ?? entry.bestRating) || '-'}
                       </td>
                     </tr>
                   ))}

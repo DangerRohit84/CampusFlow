@@ -333,15 +333,23 @@ router.get('/:username', publicProfileLimiter, async (req: Request, res: Respons
     let platformStats: any[] = []
     let totalSolved = 0
     let bestRating: number | null = null
+    let rating: number | null = null
     try {
       const parsed = Array.isArray((codingProfile as any)?.platformStats) ? (codingProfile as any).platformStats : (typeof (codingProfile as any)?.platformStats === 'string' ? JSON.parse((codingProfile as any).platformStats || '[]') : [])
       if (Array.isArray(parsed)) {
         platformStats = parsed.filter((s: any) => s.valid)
         totalSolved = platformStats.reduce((sum: number, s: any) => sum + (s.problemsSolved || 0), 0)
-        const rated = platformStats.filter((s: any) => typeof s.rating === 'number')
-        if (rated.length) bestRating = Math.max(...rated.map((s: any) => s.rating))
+        const rated = platformStats.filter((s: any) => typeof s.rating === 'number' && Number.isFinite(s.rating))
+        // rating = AVERAGE across rated platforms (ignore nulls, fail-open null);
+        // bestRating kept deprecated for API compat (old clients).
+        if (rated.length) {
+          bestRating = Math.max(...rated.map((s: any) => s.rating))
+          rating = Math.round(rated.reduce((sum: number, s: any) => sum + (s.rating as number), 0) / rated.length)
+        }
       }
-    } catch {}
+    } catch (err) {
+      logger.debug({ err }, 'publicProfile platformStats parse failed (fail-open)')
+    }
 
     // contribution calendar - try real GitHub data if githubUsername exists, else deterministic fallback
     // Always overlay real contest/hackathon dates on top of whichever base calendar we use.
@@ -427,6 +435,7 @@ router.get('/:username', publicProfileLimiter, async (req: Request, res: Respons
         githubUsername: (codingProfile as any).githubUsername || null,
         platformStats,
         totalSolved,
+        rating,
         bestRating,
         lastSyncedAt: (codingProfile as any).lastSyncedAt || null,
       } : null,
