@@ -1,31 +1,33 @@
-// components/coding/SheetsTab.tsx — DSA Sheets browser (auto-only).
+// components/coding/SheetsTab.tsx — DSA Sheets browser (plan §3 + A2OJ ladders + auto-mark §4).
 // WHY: interview prep follows curated sheets (Striver A2Z / SDE, NeetCode 150
 // + A2OJ Ladder11 <1300 / Ladder4 Div.2 A), not just daily/recs. This tab
 // renders the STATIC ordered tracks from GET /coding-problems/sheets
 // (titles+links only — no statements, no scraped solves): track selector +
 // step accordions + rows (title, difficulty dot, View-original link,
-// auto checkmark). Progress is localStorage v2 auto set only with per-step +
-// per-track bars — device-only, never synced, never feeds My Stats. Auto-mark:
-// on mount (once) the tab calls GET /coding-problems/automark (CF full-history
-// via contestId-index join + LC recent-20 via titleSlug join, both 10min
-// server-cached, CF through the shared 2s gate) and auto-checks matching rows
-// with a distinct Auto badge (read-only, no toggle). Stored manual data (if
-// any) is KEPT untouched in localStorage and the backend automark route is
-// KEPT (no migration, no delete) — the tab simply stops rendering manual UI.
-// Rate-safe: <=2 GETs per mount (sheets 24h-cached static + automark 10min
-// best-effort).
+// checkmark). Progress is localStorage v2 (manual + auto, lib/sheets.ts)
+// with per-step + per-track bars — same device-only pattern as the Problems
+// MVP marks, never synced, never feeds My Stats. Auto-mark (§4): on mount
+// (once) the tab calls GET /coding-problems/automark (CF full-history OK →
+// contestId-index join + LC recent-20 Accepted → titleSlug join, both 10min
+// server-cached, CF through the shared 2s gate) and auto-checks matching
+// rows with a distinct "Auto" badge (user can uncheck → dismissed, manual is
+// never unmarked). LC auto is honestly "recent 20 only"; CC/HR/GFG stay
+// manual-only (no scrapers). Rate-safe: ≤2 GETs per mount (sheets 24h-cached
+// static + automark 10min-cached best-effort).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ExternalLink, RefreshCw, Loader2, ChevronDown, BookOpen, Sparkles } from 'lucide-react'
+import { ExternalLink, RefreshCw, Loader2, CheckCircle2, ChevronDown, BookOpen, Sparkles } from 'lucide-react'
 import { codingProfileAPI } from '../../lib/api/resources/profile'
 import {
   applyAutoMarks,
   cfKeyFromSheetUrl,
+  combinedMarked,
   isAutoMark,
   lcSlugFromSheetUrl,
   loadSheetMarksV2,
   mapSolvedToSheetKeys,
   sheetItemKey,
   stepProgress,
+  toggleSheetMarkV2,
   trackProgress,
   type SheetMarksV2,
   type SheetTrack,
@@ -84,7 +86,7 @@ export default function SheetsTab() {
       }
       trackProblemsEvent('impression', { source: 'sheets-tab' })
       // Auto-mark (best-effort, once per mount): solved feeds → sheet keys →
-      // append-only auto marks (dismissed never re-added).
+      // append-only auto marks (manual never unmarked, dismissed never re-added).
       if (gen === epoch.current && clean.length > 0) {
         setAutomarkState('loading')
         try {
@@ -117,7 +119,8 @@ export default function SheetsTab() {
             lcStale: !!am?.lc?.stale,
           })
         } catch {
-          // Best-effort: auto stays empty, honest footer note covers fallback.
+          // Best-effort: manual marks still work, no error banner (honest
+          // footer note covers the manual fallback).
         } finally {
           if (gen === epoch.current) setAutomarkState('done')
         }
@@ -139,9 +142,7 @@ export default function SheetsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-only progress: stored dismissed set is respected by applyAutoMarks
-  // (never re-added) but progress bars count auto solves only.
-  const marked = useMemo(() => new Set(marks.auto), [marks.auto])
+  const marked = useMemo(() => combinedMarked(marks), [marks])
   const active = tracks.find((t) => t.id === selected) ?? null
   const progress = useMemo(() => (active ? trackProgress(active, marked) : null), [active, marked])
   const activeAutoCount = useMemo(
@@ -149,6 +150,12 @@ export default function SheetsTab() {
     [active, marks.auto],
   )
 
+  const onToggle = (trackId: string, stepId: string, order: number) => {
+    const key = sheetItemKey(trackId, stepId, order)
+    const wasAuto = isAutoMark(key, marks)
+    setMarks((prev) => toggleSheetMarkV2(key, prev))
+    trackProblemsEvent('mark', { kind: wasAuto ? 'sheet-unmark-auto' : 'sheet', key })
+  }
   const onOpenLink = (url: string) => trackProblemsEvent('click', { titleSlug: url })
 
   const toggleStep = (key: string) => {
@@ -307,8 +314,8 @@ export default function SheetsTab() {
                             : 'manual'
                         const autoTitle =
                           src === 'cf'
-                            ? 'Auto-marked from your Codeforces solve (full history)'
-                            : 'Auto-marked from your LeetCode recent solve (last 20)'
+                            ? 'Auto-marked from your Codeforces solve (full history) — click to uncheck (won’t re-mark)'
+                            : 'Auto-marked from your LeetCode recent solve (last 20) — click to uncheck (won’t re-mark)'
                         return (
                           <li key={item.order} className="flex flex-wrap items-center gap-2 px-4 py-2.5">
                             <span className="flex shrink-0 items-center gap-1.5" title={item.difficulty}>
@@ -324,7 +331,9 @@ export default function SheetsTab() {
                               <span
                                 title={autoTitle}
                                 className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-sky-300 dark:border-sky-500/40 bg-sky-50 dark:bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300"
-                              ><Sparkles size={10}/>Auto</span>
+                              >
+                                <Sparkles size={10} /> Auto
+                              </span>
                             )}
                             <span className="hidden text-[10px] text-surface-400 dark:text-night-400 md:inline">{item.topic}</span>
                             <a
@@ -336,6 +345,21 @@ export default function SheetsTab() {
                             >
                               View original <ExternalLink size={11} />
                             </a>
+                            <button
+                              onClick={() => onToggle(active.id, s.id, item.order)}
+                              aria-pressed={done}
+                              aria-label={done ? (auto ? `Unmark auto ${item.title}` : `Unmark ${item.title}`) : `Mark ${item.title} done`}
+                              title={done ? (auto ? autoTitle : 'Mark undone') : 'Mark done (saved on this device)'}
+                              className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors ${
+                                done
+                                  ? auto
+                                    ? 'border-sky-300 dark:border-sky-500/40 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                                    : 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                  : 'border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 text-surface-500 dark:text-night-300 hover:text-emerald-600 dark:hover:text-emerald-300'
+                              }`}
+                            >
+                              <CheckCircle2 size={12} /> {done ? (auto ? 'Auto' : 'Done') : 'Mark'}
+                            </button>
                           </li>
                         )
                       })}
@@ -347,10 +371,10 @@ export default function SheetsTab() {
           </div>
           <div className="space-y-1">
             <p className="text-[11px] text-surface-400 dark:text-night-400">
-              Checkmarks are automatic from your linked solves and saved on this device only. Solved counts in My Stats come from synced platform data.
+              Checkmarks are saved on this device only. Solved counts in My Stats come from synced platform data — never from these checkmarks.
             </p>
             <p className="text-[11px] text-surface-400 dark:text-night-400">
-              Auto-marks: Codeforces covers your full solve history; LeetCode covers the recent 20 submissions only. CodeChef / HackerRank / GeeksforGeeks stay unmarked (no public solved API, no scrapers).
+              Auto-marks: Codeforces covers your full solve history; LeetCode covers the recent 20 submissions only (“recently solved” — older solves need a manual check). CodeChef / HackerRank / GeeksforGeeks stay manual-only (no public solved API, no scrapers).
             </p>
           </div>
         </>
