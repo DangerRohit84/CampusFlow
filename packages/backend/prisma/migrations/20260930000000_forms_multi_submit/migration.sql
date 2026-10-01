@@ -15,8 +15,9 @@
 --      FormResponse.attemptNo DEFAULT 1) — additive, old code ignores new cols.
 --   2) Backfill attemptNo=1 grouped (all legacy rows → 1; old UNIQUE guarantees
 --      one row per (formId,userId) so no dupes under new UNIQUE).
---   3) CHECK (attemptNo >= 1) + new UNIQUE (formId,userId,attemptNo) via
---      pg_constraint guards, NOT VALID → VALIDATE (P4 zero-lock add).
+--   3) CHECK (attemptNo >= 1) NOT VALID → VALIDATE + new UNIQUE
+--      (formId,userId,attemptNo) direct via pg_constraint guards
+--      (PG UNIQUE has no NOT VALID; plain ADD CONSTRAINT).
 --   4) Covering index (formId,userId,submittedAt DESC) IF NOT EXISTS.
 --      NOTE: `prisma migrate deploy` runs in a transaction so
 --      CREATE INDEX CONCURRENTLY cannot live here. At current scale a regular
@@ -90,7 +91,7 @@ UPDATE "FormResponse" SET "attemptNo" = 1 WHERE "attemptNo" IS NULL;
 UPDATE "FormResponse" SET "attemptNo" = 1 WHERE "attemptNo" IS NULL OR "attemptNo" < 1;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3) CHECK + new UNIQUE (guards + NOT VALID → VALIDATE, zero-lock add per P4)
+-- 3) CHECK (NOT VALID → VALIDATE) + new UNIQUE (direct; PG UNIQUE has no NOT VALID)
 -- ─────────────────────────────────────────────────────────────────────────────
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FormResponse_attemptNo_check') THEN
@@ -99,12 +100,17 @@ DO $$ BEGIN
 END $$;
 ALTER TABLE "FormResponse" VALIDATE CONSTRAINT "FormResponse_attemptNo_check";
 
+-- NOTE (20260930 fix, P3018): Postgres UNIQUE does NOT support NOT VALID /
+-- VALIDATE CONSTRAINT (only CHECK + FK do). Previous revision used
+-- UNIQUE ... NOT VALID → VALIDATE which fails the whole migration
+-- (rolled back, 5 rows 0 dupes). Fixed to plain ADD CONSTRAINT UNIQUE.
+-- Safe at this scale (5 rows, 0 dupes per pre-deploy census); backfill in §2
+-- already forces attemptNo >= 1 so the build scans clean.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FormResponse_formId_userId_attemptNo_key') THEN
-    ALTER TABLE "FormResponse" ADD CONSTRAINT "FormResponse_formId_userId_attemptNo_key" UNIQUE ("formId", "userId", "attemptNo") NOT VALID;
+    ALTER TABLE "FormResponse" ADD CONSTRAINT "FormResponse_formId_userId_attemptNo_key" UNIQUE ("formId", "userId", "attemptNo");
   END IF;
 END $$;
-ALTER TABLE "FormResponse" VALIDATE CONSTRAINT "FormResponse_formId_userId_attemptNo_key";
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4) Covering index for history + teacher table (IF NOT EXISTS).
@@ -124,6 +130,11 @@ DO $$ BEGIN
     ALTER TABLE "FormResponse" DROP CONSTRAINT "FormResponse_formId_userId_key";
   END IF;
 END $$;
+-- Backing-index cleanup: UNIQUE constraint drops its index, but a prior
+-- failed/partial run can leave "FormResponse_formId_userId_key" as a bare
+-- UNIQUE INDEX (no pg_constraint row). DROP INDEX clears that path so
+-- re-runs stay idempotent and the old (formId,userId) gate is truly gone.
+DROP INDEX IF EXISTS "FormResponse_formId_userId_key";
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 6) Reconciliation census — run after deploy; every pair must agree.
