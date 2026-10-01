@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { searchAPI } from '../lib/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useDebounce } from '../hooks/useDebounce'
+import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from './ui/modalCentering'
 
 interface PaletteEntry {
   path: string
@@ -54,6 +56,9 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
   const dialogRef = useRef<HTMLDivElement>(null)
   const listId = useId()
   const navigate = useNavigate()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  // items-start variant keeps pt-[15vh] top-anchored palette, offset shifts horizontal center only.
+  const centeringClass = useModalCenteringClass()
   // WHY: modal dialog must trap focus + restore to trigger on close (WCAG 2.4.3). useFocusTrap handles Tab wrap + restore.
   useFocusTrap(dialogRef as any, open)
 
@@ -124,7 +129,7 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
+      <div className={clsx('fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]', MODAL_CENTERING_TRANSITION, centeringClass)}>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden="true" />
         <motion.div
           ref={dialogRef}

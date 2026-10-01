@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/authStore'
 import { userAPI, publicProfileAPI } from '../lib/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import toast from 'react-hot-toast'
+import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from './ui/modalCentering'
 
 interface Props {
   open: boolean
@@ -22,6 +24,8 @@ function isValid(u: string) {
 
 export default function UsernameSetupModal({ open, onClose, onSkip, force = true }: Props) {
   const { user, updateUser } = useAuthStore()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const [username, setUsername] = useState('')
   const [suggestion, setSuggestion] = useState('')
   const [checking, setChecking] = useState(false)
@@ -157,7 +161,7 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={handleBackdropClick}
           aria-hidden={false}
         >

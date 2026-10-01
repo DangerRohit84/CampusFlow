@@ -25,6 +25,7 @@ import { useModal } from '../hooks/useModal'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { useConfirm } from '../components/ui/ConfirmModal'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 type Platform = 'ALL' | 'LEETCODE' | 'CODECHEF' | 'CODEFORCES'
 type ContestStatus = 'ALL' | 'UPCOMING' | 'ONGOING' | 'ENDED'
@@ -68,6 +69,8 @@ const statusConfig: Record<string, { color: string; dot: string; label: string }
 
 export default function CodingContestsPage() {
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { user } = useAuthStore()
@@ -1199,7 +1202,7 @@ export default function CodingContestsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={createModal.close}
           >
             <motion.div
@@ -1310,7 +1313,7 @@ export default function CodingContestsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={participantsModal.close}
           >
             <motion.div

@@ -19,6 +19,8 @@ import { generateVectorPdfBlob } from '../lib/resumeVectorPdf'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import { motion } from 'framer-motion'
 import { useConfirm } from '../components/ui/ConfirmModal'
+import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 /** #10 — one tailor change with word-diff preview + Apply-per-change. */
 function TailorChangeRow({ label, before, after, onApply }: { label: string; before: string; after: string; onApply: () => void }) {
@@ -45,6 +47,8 @@ function TailorChangeRow({ label, before, after, onApply }: { label: string; bef
 }
 export default function ResumeStudioPage() {
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const user = useAuthStore(s => s.user)
   const userId = user?.id || 'default'
   const navigate = useNavigate()
@@ -1048,7 +1052,7 @@ export default function ResumeStudioPage() {
 
       {/* JD Modal — Tailor / ATS vs JD — portal to body to escape Layout transform/overflow stacking */}
       {showJDModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate" onClick={()=>setShowJDModal(false)}>
+        <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={()=>setShowJDModal(false)}>
           <div className="bg-white dark:bg-night-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-surface-200 dark:border-night-700 flex items-center justify-between">
               <h3 className="font-bold text-surface-900 dark:text-night-50 flex items-center gap-2">
@@ -1092,7 +1096,7 @@ export default function ResumeStudioPage() {
 
       {/* ATS Score Modal — portal to body */}
       {showAtsModal && atsResult && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate" onClick={()=>setShowAtsModal(false)}>
+        <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={()=>setShowAtsModal(false)}>
           <div className="bg-white dark:bg-night-800 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-surface-200 dark:border-night-700 flex items-center justify-between">
               <h3 className="font-bold text-surface-900 dark:text-night-50 flex items-center gap-2"><BarChart3 size={18} className="text-emerald-600"/> ATS Score</h3>
@@ -1172,7 +1176,7 @@ export default function ResumeStudioPage() {
 
       {/* #10 — Cover letter modal (resume + JD via existing AI path, heuristic fallback) */}
       {showCoverModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate" onClick={()=>setShowCoverModal(false)}>
+        <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={()=>setShowCoverModal(false)}>
           <div className="bg-white dark:bg-night-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-surface-200 dark:border-night-700 flex items-center justify-between">
               <h3 className="font-bold text-surface-900 dark:text-night-50 flex items-center gap-2"><Mail size={18} className="text-rose-600"/> Cover Letter</h3>
@@ -1216,7 +1220,7 @@ export default function ResumeStudioPage() {
 
       {/* #10 — GitHub import modal (public repos → projects, no token) */}
       {showGhModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate" onClick={()=>setShowGhModal(false)}>
+        <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm isolate', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={()=>setShowGhModal(false)}>
           <div className="bg-white dark:bg-night-800 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-surface-200 dark:border-night-700 flex items-center justify-between">
               <h3 className="font-bold text-surface-900 dark:text-night-50 flex items-center gap-2"><Github size={18}/> Import GitHub repos</h3>

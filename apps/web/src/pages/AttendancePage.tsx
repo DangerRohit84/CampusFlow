@@ -6,6 +6,8 @@ import toast from 'react-hot-toast'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 import { attendanceAPI } from '../lib/api'
 import { normalizeAttendanceSubjects } from '../lib/api/resources/assignments'
 import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
@@ -59,6 +61,8 @@ const statusConfig = {
 }
 
 export default function AttendancePage() {
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [requiredPct, setRequiredPct] = useState(75)
   const [loading, setLoading] = useState(true)
@@ -459,7 +463,7 @@ export default function AttendancePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            className={clsx('fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={() => { setShowUpload(false); setUploadImage(null); setParsedResults([]) }}
           >
             <motion.div

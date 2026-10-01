@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import type { Department } from '../types/api'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import FormFieldsEditModal from '../components/forms/FormFieldsEditModal'
 import {
   getVisibleFields,
   validateAnswers,
@@ -43,10 +44,10 @@ export default function FormDetailPage() {
   // Epoch guard (same pattern as HackathonDetailPage): rapid id switches must
   // never let a slow getOne overwrite the current form.
   const loadSeq = useRef(0)
-  const [editingFields, setEditingFields] = useState(false)
-  const [editFields, setEditFields] = useState<any[]>([])
+  // Form Fields Edit popup (replaces old inline editor): Edit opens a Modal,
+  // Cancel discards (draft lives inside the modal), Save persists via API.
+  const [fieldsModalOpen, setFieldsModalOpen] = useState(false)
   const [savingFields, setSavingFields] = useState(false)
-  const [expandedEditLogic, setExpandedEditLogic] = useState<Record<number, boolean>>({})
   // #9 logic-lite: teacher Responses/Analytics tabs.
   const [teacherTab, setTeacherTab] = useState<'responses' | 'analytics'>('responses')
   const [analytics, setAnalytics] = useState<any>(null)
@@ -295,158 +296,16 @@ export default function FormDetailPage() {
     }
   }
 
-  const startEditFields = () => {
-    setEditFields(form.fields.map((f: any) => {
-      let options: string[] = []
-      try {
-        const raw = typeof f.options === 'string' ? JSON.parse(f.options || '[]') : (f.options || [])
-        options = Array.isArray(raw) ? raw.map((o: any) => (typeof o === 'string' ? o : String(o?.label ?? o?.value ?? ''))).filter(Boolean) : []
-      } catch { options = [] }
-      let logic: any = {}
-      try { logic = typeof (f as any).logic === 'string' ? JSON.parse((f as any).logic || '{}') : ((f as any).logic || {}) } catch { logic = {} }
-      const asSingle = (v: any): { field: string; value: string } => {
-        const c = Array.isArray(v) ? v[0] : v
-        if (!c || typeof c !== 'object') return { field: '', value: '' }
-        return { field: String(c.fieldId ?? c.field ?? ''), value: String(c.equals ?? '') }
-      }
-      const show = asSingle(logic.showIf)
-      const hide = asSingle(logic.hideIf)
-      const req = asSingle(logic.requireIf)
-      const jumps = Array.isArray(logic.jumpTo) ? logic.jumpTo : logic.jumpTo ? [logic.jumpTo] : []
-      let scoreMap: Record<string, number> = {}
-      try { scoreMap = typeof (f as any).scoreMap === 'string' ? JSON.parse((f as any).scoreMap || '{}') : ((f as any).scoreMap || {}) } catch { scoreMap = {} }
-      // Merge inline {label,points} options into the points editor.
-      try {
-        const rawOpts = typeof f.options === 'string' ? JSON.parse(f.options || '[]') : (f.options || [])
-        if (Array.isArray(rawOpts)) {
-          for (const o of rawOpts) {
-            if (o && typeof o === 'object' && (o as any).label && Number.isFinite(Number((o as any).points)) && (scoreMap as any)[(o as any).label] === undefined) {
-              (scoreMap as any)[(o as any).label] = Number((o as any).points)
-            }
-          }
-        }
-      } catch { /* ignore */ }
-      return {
-        id: f.id,
-        label: f.label,
-        type: f.type,
-        required: f.required,
-        options,
-        optionPoints: scoreMap,
-        showIfField: show.field, showIfValue: show.value,
-        hideIfField: hide.field, hideIfValue: hide.value,
-        requireIfField: req.field, requireIfValue: req.value,
-        jumpRules: jumps.filter((r: any) => r && typeof r === 'object' && r.to).map((r: any) => ({
-          equals: String(r.equals ?? r.contains ?? ''),
-          to: String(r.to ?? ''),
-        })),
-      }
-    }))
-    setExpandedEditLogic({})
-    setEditingFields(true)
+  const openFieldsModal = () => {
+    setFieldsModalOpen(true)
   }
 
-  const addEditField = () => {
-    setEditFields([...editFields, { label: '', type: 'TEXT', required: false, options: [], optionPoints: {}, showIfField: '', showIfValue: '', hideIfField: '', hideIfValue: '', requireIfField: '', requireIfValue: '', jumpRules: [] }])
-  }
-
-  const updateEditField = (index: number, updates: any) => {
-    const updated = [...editFields]
-    const next = { ...updated[index], ...updates }
-    if (updates.options !== undefined && next.optionPoints) {
-      const keep = new Set((Array.isArray(updates.options) ? updates.options : []).map((o: any) => String(o ?? '').trim()).filter(Boolean))
-      const pruned: Record<string, number> = {}
-      for (const [k, v] of Object.entries(next.optionPoints as Record<string, unknown>)) {
-        if (keep.has(k)) pruned[k] = v as number
-      }
-      next.optionPoints = pruned
-    }
-    updated[index] = next
-    setEditFields(updated)
-  }
-
-  const updateEditOptionPoints = (index: number, option: string, points: string) => {
-    const updated = [...editFields]
-    const prev = { ...(((updated[index] as any).optionPoints || {}) as Record<string, unknown>) }
-    if (points === '' || !Number.isFinite(Number(points))) delete prev[option]
-    else prev[option] = Math.max(-10000, Math.min(10000, Number(points)))
-    updated[index] = { ...updated[index], optionPoints: prev }
-    setEditFields(updated)
-  }
-
-  const updateEditJumpRule = (index: number, ruleIdx: number, patch: any) => {
-    const updated = [...editFields]
-    const rules = [...((((updated[index] as any).jumpRules || []) as any[]))]
-    rules[ruleIdx] = { ...rules[ruleIdx], ...patch }
-    updated[index] = { ...updated[index], jumpRules: rules }
-    setEditFields(updated)
-  }
-
-  const addEditJumpRule = (index: number) => {
-    const updated = [...editFields]
-    const rules = [...((((updated[index] as any).jumpRules || []) as any[]))]
-    if (rules.length >= 10) return
-    rules.push({ equals: '', to: '' })
-    updated[index] = { ...updated[index], jumpRules: rules }
-    setEditFields(updated)
-  }
-
-  const removeEditJumpRule = (index: number, ruleIdx: number) => {
-    const updated = [...editFields]
-    updated[index] = {
-      ...updated[index],
-      jumpRules: ((((updated[index] as any).jumpRules || []) as any[])).filter((_: any, i: number) => i !== ruleIdx),
-    }
-    setEditFields(updated)
-  }
-
-  const removeEditField = (index: number) => {
-    if (editFields.length <= 1) return
-    setEditFields(editFields.filter((_: any, i: number) => i !== index))
-  }
-
-  const saveFields = async () => {
-    const valid = editFields
-      .map((f: any, i: number) => ({ f, i }))
-      .filter(({ f }: any) => String(f?.label ?? '').trim())
-    if (valid.length === 0) {
-      toast.error('Need at least one field')
-      return
-    }
+  const saveFieldsFromModal = async (payload: any[]) => {
     setSavingFields(true)
     try {
-      // #9: ship logic + scoring; keep old ids so backend can remap refs,
-      // mint tmp clientIds for brand-new rows.
-      const payload = valid.map(({ f, i }: any) => {
-        const options: string[] = Array.isArray(f.options)
-          ? f.options.map((o: any) => String(o ?? '').trim()).filter(Boolean)
-          : []
-        const scoreMap: Record<string, number> = {}
-        const pts = (f.optionPoints && typeof f.optionPoints === 'object' ? f.optionPoints : {}) as Record<string, unknown>
-        for (const opt of options) {
-          const n = Number((pts as any)[opt])
-          if (Number.isFinite(n) && n !== 0) scoreMap[opt] = Math.max(-10000, Math.min(10000, n))
-        }
-        const logic: any = {}
-        if (f.showIfField && String(f.showIfValue ?? '').trim()) logic.showIf = [{ field: f.showIfField, equals: String(f.showIfValue).trim() }]
-        if (f.hideIfField && String(f.hideIfValue ?? '').trim()) logic.hideIf = [{ field: f.hideIfField, equals: String(f.hideIfValue).trim() }]
-        if (f.requireIfField && String(f.requireIfValue ?? '').trim()) logic.requireIf = [{ field: f.requireIfField, equals: String(f.requireIfValue).trim() }]
-        const jumps = Array.isArray(f.jumpRules) ? f.jumpRules.filter((r: any) => String(r?.equals ?? '').trim() && r?.to) : []
-        if (jumps.length > 0) logic.jumpTo = jumps.map((r: any) => ({ equals: String(r.equals).trim(), to: r.to }))
-        return {
-          ...(f.id && !String(f.id).startsWith('tmp-') ? { id: f.id } : { clientId: `tmp-edit-${i}` }),
-          label: String(f.label).trim(),
-          type: f.type || 'TEXT',
-          required: !!f.required,
-          options,
-          ...(Object.keys(scoreMap).length > 0 ? { scoreMap } : {}),
-          ...((logic.showIf || logic.hideIf || logic.requireIf || logic.jumpTo) ? { logic } : {}),
-        }
-      })
       await formAPI.updateFields(id!, payload)
       toast.success('Fields updated!')
-      setEditingFields(false)
-      setExpandedEditLogic({})
+      setFieldsModalOpen(false)
       setAnalytics(null)
       // Same listener-owns-refetch as handleSubmit (direct load = 2× GET).
       notifyEntityMutated('form', { formId: id })
@@ -1009,192 +868,49 @@ export default function FormDetailPage() {
             <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-surface-900 dark:text-night-50">Form Fields</h3>
-                {!editingFields ? (
-                  <button onClick={startEditFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700">Edit</button>
-                ) : (
-                  <div className="flex gap-3">
-                    <button onClick={() => setEditingFields(false)} className="text-xs font-semibold text-surface-500 hover:text-surface-700 dark:text-night-200">Cancel</button>
-                    <button onClick={saveFields} disabled={savingFields} className="text-xs font-semibold text-primary-600 hover:text-primary-700 disabled:opacity-50">
-                      {savingFields ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
-                )}
+                <button
+                  onClick={openFieldsModal}
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+                >
+                  Edit
+                </button>
               </div>
 
-              {editingFields ? (
-                <div className="space-y-2">
-                  {editFields.map((field: any, i: number) => (
-                    <div key={i} className="p-2.5 bg-surface-50 dark:bg-night-800 rounded-xl border border-surface-100 dark:border-night-600">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-sm">{getFieldIcon(field.type)}</span>
-                        <input
-                          type="text"
-                          value={field.label}
-                          onChange={(e) => updateEditField(i, { label: e.target.value })}
-                          className="flex-1 px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
-                          placeholder="Field label"
-                        />
-                        <button onClick={() => removeEditField(i)} disabled={editFields.length <= 1} className="text-danger-400 hover:text-danger-600 text-xs disabled:opacity-30">✕</button>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={field.type}
-                          onChange={(e) => updateEditField(i, { type: e.target.value })}
-                          className="px-1.5 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
-                        >
-                          <option value="TEXT">Text</option>
-                          <option value="TEXTAREA">Long Text</option>
-                          <option value="NUMBER">Number</option>
-                          <option value="EMAIL">Email</option>
-                          <option value="DATE">Date</option>
-                          <option value="SELECT">Dropdown</option>
-                          <option value="RADIO">Radio</option>
-                          <option value="CHECKBOX">Checkbox</option>
-                          <option value="RATING">Rating</option>
-                        </select>
-                        <label className="flex items-center gap-0.5 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={field.required}
-                            onChange={(e) => updateEditField(i, { required: e.target.checked })}
-                            className="rounded"
-                          />
-                          Req
-                        </label>
-                      </div>
-                      {(field.type === 'SELECT' || field.type === 'RADIO' || field.type === 'CHECKBOX') && (
-                        <>
-                          <input
-                            type="text"
-                            value={field.options?.join(', ') || ''}
-                            onChange={(e) => updateEditField(i, { options: e.target.value.split(',').map((o: string) => o.trim()).filter(Boolean) })}
-                            className="w-full mt-1.5 px-2 py-1 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-xs"
-                            placeholder="Options (comma separated)"
-                          />
-                          {(field.options || []).filter(Boolean).length > 0 && (
-                            <div className="mt-1 space-y-1">
-                              {(field.options || []).filter(Boolean).map((opt: string) => (
-                                <div key={opt} className="flex items-center gap-2">
-                                  <span className="flex-1 truncate text-[11px] text-surface-500 dark:text-night-400">{opt}</span>
-                                  <input
-                                    type="number"
-                                    value={(field.optionPoints?.[opt] ?? '') as any}
-                                    onChange={(e) => updateEditOptionPoints(i, opt, e.target.value)}
-                                    className="w-16 px-1.5 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-[11px]"
-                                    placeholder="pts"
-                                    aria-label={`Points for ${opt}`}
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setExpandedEditLogic((prev) => ({ ...prev, [i]: !prev[i] }))}
-                        className="mt-1.5 text-[11px] font-semibold text-primary-600 hover:underline"
-                      >
-                        {expandedEditLogic[i] ? 'Hide logic ▴' : 'Logic ▾'}
-                      </button>
-                      {expandedEditLogic[i] && (
-                        <div className="mt-1 space-y-1.5 rounded-lg border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 p-1.5">
-                          {[
-                            { title: 'Show if', fk: 'showIfField', vk: 'showIfValue', pool: 'prev' },
-                            { title: 'Hide if', fk: 'hideIfField', vk: 'hideIfValue', pool: 'prev' },
-                            { title: 'Require if', fk: 'requireIfField', vk: 'requireIfValue', pool: 'prev' },
-                          ].map((row: any) => (
-                            <div key={row.fk} className="flex items-center gap-1">
-                              <span className="text-[10px] text-surface-400 w-14 shrink-0">{row.title}</span>
-                              <select
-                                value={(field as any)[row.fk] || ''}
-                                onChange={(e) => updateEditField(i, { [row.fk]: e.target.value })}
-                                className="flex-1 px-1 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-[11px]"
-                              >
-                                <option value="">Never</option>
-                                {editFields.slice(0, i).map((prev: any, pi: number) => (
-                                  <option key={pi} value={prev.id || `tmp-edit-${pi}`}>
-                                    {String(prev.label || `Q${pi + 1}`).slice(0, 20) || `Q${pi + 1}`}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="text"
-                                value={(field as any)[row.vk] || ''}
-                                onChange={(e) => updateEditField(i, { [row.vk]: e.target.value })}
-                                disabled={!(field as any)[row.fk]}
-                                className="flex-1 px-1 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-[11px] disabled:opacity-40"
-                                placeholder="is…"
-                              />
-                            </div>
-                          ))}
-                          <div className="space-y-1">
-                            <p className="text-[10px] font-semibold text-surface-400">Jump if answer…</p>
-                            {(((field as any).jumpRules || []) as any[]).map((rule: any, ri: number) => (
-                              <div key={ri} className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  value={rule.equals || ''}
-                                  onChange={(e) => updateEditJumpRule(i, ri, { equals: e.target.value })}
-                                  className="flex-1 px-1 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-[11px]"
-                                  placeholder="equals…"
-                                />
-                                <span className="text-[10px]">→</span>
-                                <select
-                                  value={rule.to || ''}
-                                  onChange={(e) => updateEditJumpRule(i, ri, { to: e.target.value })}
-                                  className="flex-1 px-1 py-0.5 bg-white dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-[11px]"
-                                >
-                                  <option value="">…</option>
-                                  {editFields.slice(i + 1).map((next: any, ni: number) => (
-                                    <option key={ni} value={next.id || `tmp-edit-${i + 1 + ni}`}>
-                                      {String(next.label || `Q${i + 2 + ni}`).slice(0, 20) || `Q${i + 2 + ni}`}
-                                    </option>
-                                  ))}
-                                  <option value="__END__">End</option>
-                                </select>
-                                <button type="button" onClick={() => removeEditJumpRule(i, ri)} className="text-danger-400 text-[11px]">✕</button>
-                              </div>
-                            ))}
-                            <button type="button" onClick={() => addEditJumpRule(i)} className="text-[11px] font-semibold text-primary-600 hover:underline">+ Jump</button>
-                          </div>
-                        </div>
-                      )}
+              <div className="space-y-2">
+                {form.fields.map((field: any) => {
+                  let logicBadge = ''
+                  try {
+                    const l = parseFieldLogic({ logic: (field as any).logic } as any)
+                    const parts: string[] = []
+                    if ((l as any).showIf) parts.push('show-if')
+                    if ((l as any).hideIf) parts.push('hide-if')
+                    if ((l as any).requireIf) parts.push('req-if')
+                    const jumps = Array.isArray((l as any).jumpTo) ? (l as any).jumpTo : (l as any).jumpTo ? [1] : []
+                    if (jumps.length) parts.push(`jump×${jumps.length}`)
+                    if (Object.keys(parseScoreMap({ scoreMap: (field as any).scoreMap } as any)).length) parts.push('scored')
+                    logicBadge = parts.join(' · ')
+                  } catch { logicBadge = '' }
+                  return (
+                  <div key={field.id} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs">{getFieldIcon(field.type)}</span>
+                      <span className="text-surface-600 dark:text-night-300 truncate">{field.label}</span>
+                      {field.required && <span className="text-danger-500 text-xs">*</span>}
+                      {logicBadge && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-600 font-semibold">{logicBadge}</span>}
                     </div>
-                  ))}
-                  <button onClick={addEditField} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-lg">
-                    <Plus size={12} /> Add Field
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {form.fields.map((field: any) => {
-                    let logicBadge = ''
-                    try {
-                      const l = parseFieldLogic({ logic: (field as any).logic } as any)
-                      const parts: string[] = []
-                      if ((l as any).showIf) parts.push('show-if')
-                      if ((l as any).hideIf) parts.push('hide-if')
-                      if ((l as any).requireIf) parts.push('req-if')
-                      const jumps = Array.isArray((l as any).jumpTo) ? (l as any).jumpTo : (l as any).jumpTo ? [1] : []
-                      if (jumps.length) parts.push(`jump×${jumps.length}`)
-                      if (Object.keys(parseScoreMap({ scoreMap: (field as any).scoreMap } as any)).length) parts.push('scored')
-                      logicBadge = parts.join(' · ')
-                    } catch { logicBadge = '' }
-                    return (
-                    <div key={field.id} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-xs">{getFieldIcon(field.type)}</span>
-                        <span className="text-surface-600 dark:text-night-300 truncate">{field.label}</span>
-                        {field.required && <span className="text-danger-500 text-xs">*</span>}
-                        {logicBadge && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-600 font-semibold">{logicBadge}</span>}
-                      </div>
-                      <span className="text-xs text-surface-400 dark:text-night-400 shrink-0">{field.type}</span>
-                    </div>
-                    )
-                  })}
-                </div>
-              )}
+                    <span className="text-xs text-surface-400 dark:text-night-400 shrink-0">{field.type}</span>
+                  </div>
+                  )
+                })}
+              </div>
+
+              <FormFieldsEditModal
+                open={fieldsModalOpen}
+                initialFields={form.fields || []}
+                saving={savingFields}
+                onClose={() => setFieldsModalOpen(false)}
+                onSave={saveFieldsFromModal}
+              />
             </div>
           )}
 

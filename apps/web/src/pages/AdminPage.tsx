@@ -28,6 +28,7 @@ import BulkDeleteModal from '../components/admin/BulkDeleteModal'
 import BulkPasswordModal from '../components/admin/BulkPasswordModal'
 import PasswordNudgeBanner from '../components/admin/PasswordNudgeBanner'
 import { pageSelectionState, emptyStateCopy, yearOptions, getSortableColumns, normalizeAdminSort, normalizeAdminPageSize, nextSortOrder, mergeSelection, MAX_BULK_SELECTION, ADMIN_PAGE_SIZE_OPTIONS, DEFAULT_ADMIN_PAGE_SIZE, type AdminUserSort } from '../components/admin/bulkHelpers'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 // WHY: Users tab pages server-side (backend take + count dual-mode, same
 // cursor/page contract as notifications/rooms). Page-size dropdown 10/25/50/100
@@ -39,6 +40,8 @@ const subTabToRole = (t: 'students' | 'teachers' | 'college_admins') =>
 export default function AdminPage() {
   const { user } = useAuthStore()
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const navigate = useNavigate()
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isCollegeAdmin = user?.role === 'COLLEGE_ADMIN'
@@ -1548,7 +1551,7 @@ export default function AdminPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={() => setShowAddUser(false)}
           >
             <motion.div
@@ -1597,7 +1600,7 @@ export default function AdminPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={() => setShowAddCollege(false)}
           >
             <motion.div
@@ -1629,7 +1632,7 @@ export default function AdminPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={() => setShowAddDept(false)}
           >
             <motion.div

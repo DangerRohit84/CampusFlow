@@ -13,6 +13,7 @@ import { alumniAPI, type AlumniProfileCard } from '../../lib/api/resources/alumn
 import { MENTORSHIP_TOPIC_CHIPS, validateMentorshipMessage, validateMentorshipTopic } from '../../lib/alumniGuards'
 import { notifyEntityMutated } from '../../lib/entitySync'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 interface Props {
   open: boolean
@@ -26,6 +27,8 @@ const MAX_MESSAGE = 2000
 export default function RequestMentorModal({ open, alumni, onClose, onCreated }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(dialogRef, open)
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const [topic, setTopic] = useState('')
   const [customTopic, setCustomTopic] = useState('')
   const [goal, setGoal] = useState('')
@@ -103,7 +106,7 @@ export default function RequestMentorModal({ open, alumni, onClose, onCreated }:
   }
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" role="presentation">
+    <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)} role="presentation">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div
         ref={dialogRef}

@@ -2,6 +2,11 @@ import { useEffect, useId, useRef } from 'react'
 import { X } from 'lucide-react'
 import clsx from 'clsx'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAppStore } from '../../store/appStore'
+import { getModalCenteringClass } from './modalCentering'
+
+// Backward compat: shared helper is the source of truth (see modalCentering.ts).
+export { getModalCenteringClass }
 
 interface ModalProps {
   open: boolean
@@ -15,6 +20,10 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
   const overlayRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
+  // WHY: sidebar width shifts the content-area center (see helper above).
+  // Subscribe to the same store Layout.tsx toggles — lg-only class keeps
+  // mobile overlay behavior unchanged.
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
 
   // WHY: focus must stay inside the dialog while open and return to the
   // trigger on close (WCAG 2.4.3, audit F24).
@@ -34,7 +43,10 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className={clsx(
+      'fixed inset-0 z-50 flex items-center justify-center p-4 lg:transition-[padding-left] lg:duration-200',
+      getModalCenteringClass(sidebarOpen)
+    )}>
       <div
         ref={overlayRef}
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-slideUp"

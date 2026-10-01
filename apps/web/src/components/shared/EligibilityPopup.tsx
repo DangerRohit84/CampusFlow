@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle2 } from 'lucide-react'
 import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 interface EligibilityPopupProps {
   show: boolean
@@ -32,6 +33,8 @@ export default function EligibilityPopup({
   rooms = [], selectedRoomIds = [], toggleRoom,
   onSkip, onConfirm, onCancel
 }: EligibilityPopupProps) {
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   if (!show) return null
 
   return (
@@ -41,7 +44,7 @@ export default function EligibilityPopup({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className={clsx('fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={onCancel}
         >
           <motion.div

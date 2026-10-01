@@ -23,6 +23,7 @@ import AssignPopup from '../components/shared/AssignPopup'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { useConfirm } from '../components/ui/ConfirmModal'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 import { retryUnlessRateLimited } from '../lib/queryClient'
 import { useAdminCountsPush } from '../hooks/useAdminCountsPush'
 import {
@@ -121,6 +122,8 @@ type TypeFilter = 'all' | 'HACKATHON' | 'INTERNSHIP'
 // ===== Component =====
 export default function AdminOpportunitiesPage() {
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -1094,7 +1097,7 @@ export default function AdminOpportunitiesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={() => setEditingItem(null)}
           >
             <motion.div

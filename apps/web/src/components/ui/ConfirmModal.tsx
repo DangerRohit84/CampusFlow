@@ -8,7 +8,9 @@ import {
   type ReactNode,
 } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import clsx from 'clsx'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from './modalCentering'
 
 export interface ConfirmOptions {
   title?: string
@@ -43,6 +45,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<(ConfirmOptions & { id: number }) | null>(null)
   const resolverRef = useRef<Resolver | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
 
   const confirm = useCallback(
     (opts: ConfirmOptions) =>
@@ -92,7 +96,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={{ confirm }}>
       {children}
       {pending && (
-        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
+        <div className={clsx('fixed inset-0 z-[10001] flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}>
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => settle(false)}

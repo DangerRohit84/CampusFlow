@@ -18,6 +18,8 @@ import { averagePlatformRatings } from '../lib/rating'
 import { downloadShareCard } from '../components/coding/shareCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 interface PlatformStat {
   platform: string
@@ -133,6 +135,8 @@ function DifficultyBar({ stat }: { stat: PlatformStat }) {
 
 export default function CodingProfilePage() {
   const { user } = useAuthStore()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const [profile, setProfile] = useState<CodingProfile | null>(null)
   const [handles, setHandles] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -1393,7 +1397,7 @@ export default function CodingProfilePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            className={clsx('fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}

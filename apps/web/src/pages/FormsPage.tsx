@@ -23,6 +23,7 @@ import { useModal } from '../hooks/useModal'
 import type { Department, Room } from '../types/api'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { useConfirm } from '../components/ui/ConfirmModal'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 type FormStatus = 'active' | 'expiring' | 'expired'
 
@@ -76,6 +77,8 @@ function fieldShortLabel(f: any, index: number): string {
 
 export default function FormsPage() {
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -522,7 +525,7 @@ export default function FormsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={createModal.close}
           >
             <motion.div
@@ -790,7 +793,7 @@ export default function FormsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={editModal.close}
           >
             <motion.div

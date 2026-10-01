@@ -19,9 +19,12 @@ import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../c
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import { useConfirm } from '../components/ui/ConfirmModal'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 export default function InternshipDetailPage() {
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const { id } = useParams<{ id: string }>()
   const { user } = useAuthStore()
   const navigate = useNavigate()
@@ -1025,7 +1028,7 @@ export default function InternshipDetailPage() {
 
       {/* Register Modal — premium */}
       {showRegister && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden"
+        <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={() => setShowRegister(false)}>
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] w-full max-w-md p-6 shadow-[0_24px_64px_rgba(0,0,0,0.25)]" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-xl bg-primary-500 flex items-center justify-center mb-4 shadow"><Briefcase size={20} className="text-black"/></div>
@@ -1046,7 +1049,7 @@ export default function InternshipDetailPage() {
 
       {/* Remind registered modal — teacher/admin only, notifies registered users (#5 leftovers) */}
       {showRemind && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden"
+        <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={() => setShowRemind(false)}>
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] w-full max-w-md p-6 shadow-[0_24px_64px_rgba(0,0,0,0.25)]" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center mb-4"><Bell size={20}/></div>
@@ -1072,7 +1075,7 @@ export default function InternshipDetailPage() {
 
       {/* Report Status Modal — premium */}
       {showReport && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden"
+        <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={() => setShowReport(false)}>
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] w-full max-w-md p-6 shadow-[0_24px_64px_rgba(0,0,0,0.25)]" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center mb-4"><CheckCircle size={20}/></div>
@@ -1110,7 +1113,7 @@ export default function InternshipDetailPage() {
 
       {/* Registrations Modal */}
       {showRegistrations && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden"
+        <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden', MODAL_CENTERING_TRANSITION, centeringClass)}
           onClick={() => setShowRegistrations(false)}>
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] w-full max-w-4xl max-h-[85vh] flex flex-col shadow-[0_24px_64px_rgba(0,0,0,0.25)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-surface-100 dark:border-white/10">

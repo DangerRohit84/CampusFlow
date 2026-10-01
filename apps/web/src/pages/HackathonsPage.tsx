@@ -26,11 +26,14 @@ import { useFilteredItems } from '../hooks/useFilteredItems'
 import { useModal } from '../hooks/useModal'
 import type { Department } from '../types/api'
 import CenteredLoader from '../components/ui/CenteredLoader'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 type HackathonStatus = 'upcoming' | 'ongoing' | 'completed'
 
 export default function HackathonsPage() {
   const { user } = useAuthStore()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [fetching, setFetching] = useState(false)
@@ -491,7 +494,7 @@ export default function HackathonsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className={clsx('fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
             onClick={createModal.close}
           >
             <motion.div

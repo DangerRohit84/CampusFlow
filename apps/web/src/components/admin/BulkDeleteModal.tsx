@@ -7,8 +7,10 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { Loader2, Trash2 } from 'lucide-react'
+import clsx from 'clsx'
 import { adminAPI } from '../../lib/api/resources/admin'
 import { confirmMatches, sampleEmails } from './bulkHelpers'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 interface Props {
   open: boolean
@@ -23,6 +25,8 @@ export default function BulkDeleteModal({ open, onClose, collegeId, roleLabel, u
   const [confirm, setConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [result, setResult] = useState<{ success: number; failed: number; errors: string[]; partial: boolean } | null>(null)
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
 
   if (!open) return null
 
@@ -54,7 +58,7 @@ export default function BulkDeleteModal({ open, onClose, collegeId, roleLabel, u
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={onClose}>
       <div
         className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

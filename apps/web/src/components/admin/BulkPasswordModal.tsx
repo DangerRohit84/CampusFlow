@@ -9,10 +9,12 @@
 import { useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Loader2, KeyRound } from 'lucide-react'
+import clsx from 'clsx'
 import { adminAPI } from '../../lib/api/resources/admin'
 import SharedPasswordField from './SharedPasswordField'
 import ShowOncePanel from './ShowOncePanel'
 import { confirmMatches, sampleEmails, validateSharedPasswordLocal } from './bulkHelpers'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 interface Props {
   open: boolean
@@ -32,6 +34,8 @@ export default function BulkPasswordModal({ open, mode, onClose, collegeId, user
     success: number; failed: number; skippedSelf: number; partial: boolean; errors: string[];
     nudgeEnabled: boolean; sharedTempPassword?: string;
   } | null>(null)
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
 
   const nonSelf = useMemo(() => users.filter((u) => u.id !== selfId), [users, selfId])
   const skippedSelf = users.length - nonSelf.length
@@ -84,7 +88,7 @@ export default function BulkPasswordModal({ open, mode, onClose, collegeId, user
     : null
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={onClose}>
       <div
         className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

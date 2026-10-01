@@ -18,6 +18,7 @@ import { adminAPI, bulkImportAPI, type BulkDryRunReport } from '../../lib/api/re
 import SharedPasswordField from './SharedPasswordField'
 import ShowOncePanel from './ShowOncePanel'
 import { stripPasswordColumn, validateSharedPasswordLocal } from './bulkHelpers'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 export type BulkRole = 'STUDENT' | 'TEACHER'
 
@@ -99,6 +100,8 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
   const [result, setResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null)
   // Show-once holds the FE field value captured at confirm (cleared on close).
   const [showOnce, setShowOnce] = useState<string | null>(null)
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
 
   const validRows = useMemo(() => report?.rows.filter((r) => r.valid) ?? [], [report])
   const localPwErrors = useMemo(() => validateSharedPasswordLocal(sharedPassword), [sharedPassword])
@@ -208,7 +211,7 @@ export default function BulkImportModal({ open, onClose, collegeId, role, onImpo
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className={clsx('fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)} onClick={onClose}>
       <div
         className="bg-white dark:bg-night-800 rounded-2xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

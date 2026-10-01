@@ -5,6 +5,7 @@ import { reportAPI } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from './ui/modalCentering'
 
 type Props = { open: boolean; onClose: () => void; onCreated?: () => void }
 
@@ -27,6 +28,8 @@ const PRIORITIES = [
 
 export default function ReportModal({ open, onClose, onCreated }: Props) {
   const { user } = useAuthStore()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const [scope, setScope] = useState<'COLLEGE' | 'WEBSITE'>('COLLEGE')
   const [issueType, setIssueType] = useState<string>('BUG')
   const [priority, setPriority] = useState<string>('MEDIUM')
@@ -105,7 +108,7 @@ export default function ReportModal({ open, onClose, onCreated }: Props) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+    <div className={clsx('fixed inset-0 z-[10000] flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div
         ref={dialogRef}

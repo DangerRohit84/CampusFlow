@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, X, UserCheck, Loader2, Undo2, Check } from 'lucide-react'
 import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../ui/modalCentering'
 
 interface Teacher {
   id: string
@@ -22,6 +23,8 @@ interface AssignPopupProps {
 
 export default function AssignPopup({ show, onClose, teachers, onAssign, onUnassign, loading, opportunityTitle, assignedToId }: AssignPopupProps) {
   const [search, setSearch] = useState('')
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
 
   const filtered = useMemo(() => {
     if (!search.trim()) return teachers
@@ -39,7 +42,7 @@ export default function AssignPopup({ show, onClose, teachers, onAssign, onUnass
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        className={clsx('fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}
         onClick={onClose}
       >
         <motion.div

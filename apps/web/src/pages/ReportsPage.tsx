@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { useConfirm } from '../components/ui/ConfirmModal'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import clsx from 'clsx'
+import { MODAL_CENTERING_TRANSITION, useModalCenteringClass } from '../components/ui/modalCentering'
 
 const ISSUE_LABEL: Record<string, string> = {
   DESIGN: 'Design', BUG: 'Bug', CRASH: 'Crash', PERFORMANCE: 'Performance', SECURITY: 'Security', FEATURE_REQUEST: 'Feature', OTHER: 'Other'
@@ -34,6 +35,8 @@ function statusBadge(s: string) {
 export default function ReportsPage() {
   const { user } = useAuthStore()
   const { confirm: confirmDialog } = useConfirm()
+  // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
+  const centeringClass = useModalCenteringClass()
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   // For superadmin this page is not used; but keep generic so it works if routed
   const [reports, setReports] = useState<any[]>([])
@@ -284,7 +287,7 @@ export default function ReportsPage() {
 
       {/* Detail drawer */}
       {selected && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+        <div className={clsx('fixed inset-0 z-[9999] flex items-center justify-center p-4', MODAL_CENTERING_TRANSITION, centeringClass)}>
           <div className="absolute inset-0 bg-black/50 dark:bg-black/60 backdrop-blur-sm" onClick={()=>setSelected(null)} />
           <div className="relative w-full max-w-[680px] max-h-[92vh] overflow-hidden rounded-[24px] bg-white dark:bg-[#121212] border border-surface-200 dark:border-[#282828] shadow-xl flex flex-col">
             <div className="px-6 py-5 border-b border-surface-100 dark:border-white/10 shrink-0">
