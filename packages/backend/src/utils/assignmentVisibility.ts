@@ -87,7 +87,7 @@ export function getAssignmentStatus(hub: AssignmentStatusHubLike): 'active' | 'c
   const due = new Date(dueRaw as any).getTime()
   if (Number.isNaN(due)) return 'active'
   if (due >= Date.now()) return 'active'
-  // Overdue without submission: still Active when late allowed (submittable),
+  // Expired without submission: still Active when late allowed (submittable),
   // otherwise Completed as missed/closed so Active+Completed partition All.
   if ((hub as any)?.allowLateSubmission) return 'active'
   return 'completed'

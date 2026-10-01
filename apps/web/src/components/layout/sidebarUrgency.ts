@@ -9,8 +9,10 @@
  *   now every entity has one explicit `isBadgeable` predicate.
  *
  * RULES (§7 final spec):
- * - Single red pill only, 0 = hidden, cap 99+. No overdue split, no weeks.
- * - Assignments = overdue + due ≤3d (students minus submitted).
+ * - Single red pill only, 0 = hidden, cap 99+. No expired split, no weeks.
+ * - Assignments = expired-actionable + due ≤3d (students minus submitted;
+ *   past-due without late allowed is Expired/closed, not actionable — excluded,
+ *   mirrors opportunities expired semantics + getAssignmentStatus Active).
  * - Hackathons = deadline in (0,3d]; Forms = expiresAt||deadline in (0,3d].
  * - Internships = ACTIVE + deadline in (0,3d]; Contests = LIVE NOW.
  * - Rooms = unread (not a deadline, kept for tooltip consistency).
@@ -119,9 +121,12 @@ export function countLiveContests(
 export type AssignmentUrgency = { count: number; hasOverdue: boolean }
 
 /**
- * Assignments urgency: overdue + due ≤3d.
- * WHY students skip submitted: mySubmission present means no action needed,
- * so the badge never nags for done work.
+ * Assignments urgency: expired-actionable + due ≤3d.
+ * WHY students skip submitted: valid mySubmission (status !== RETURNED) means
+ * no action needed, so the badge never nags for done work. RETURNED still
+ * needs resubmit → stays actionable. Past-due without late allowed is
+ * Expired/closed (Completed/missed, not submittable) → excluded for all roles,
+ * mirroring getAssignmentStatus Active + opportunities expired semantics.
  */
 export function countAssignmentUrgent(
   hubs: unknown,
@@ -140,7 +145,13 @@ export function countAssignmentUrgent(
     const isOverdue = diff < 0
     const isDueSoon = diff >= 0 && diff <= NEAR_WINDOW_MS
     if (!isOverdue && !isDueSoon) continue
-    if (opts.isStudent && (h as any)?.mySubmission) continue
+    const sub = (h as any)?.mySubmission
+    const hasValidSubmission = !!sub && (sub as any)?.status !== 'RETURNED'
+    if (opts.isStudent && hasValidSubmission) continue
+    // Expired/closed: past-due + late not allowed + no valid submission
+    // → not submittable (Completed), never urgent. Past-due + late allowed
+    // stays actionable (Active, still submittable as LATE).
+    if (isOverdue && !(h as any)?.allowLateSubmission && !hasValidSubmission) continue
     if (isOverdue) overdue++
     else dueSoon++
   }
@@ -171,7 +182,7 @@ export function getSidebarBadgeLabel(path: string, count: number): string {
   if (!count || count <= 0) return base
   switch (path) {
     case '/assignments':
-      return `Assignments \u2014 ${count} due soon or overdue`
+      return `Assignments \u2014 ${count} due soon or expired`
     case '/hackathons':
       return `Hackathons \u2014 ${count} closing within 3 days`
     case '/contests':

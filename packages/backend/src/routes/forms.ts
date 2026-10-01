@@ -350,11 +350,108 @@ async function fetchEligibleFormStudents(form: any) {
   return []
 }
 
+// --- Forms multi-submit (20260930, user-approved, PROD-SAFE) ---
+// Per-form allowMultipleResponses toggle (default OFF preserves exams single).
+// When ON: unlimited attempts (max=null, no cap) via attemptNo = max+1.
+// Pre-migration DBs lack the columns: every read uses (prisma as any) +
+// try/catch fallback so rolling deploys stay green (SourceHealth pattern).
+export function getAllowMultiple(form: any): boolean {
+  try {
+    return (form as any)?.allowMultipleResponses === true
+  } catch { return false }
+}
+
+export function getAttemptNo(row: any): number {
+  const n = Number((row as any)?.attemptNo)
+  return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : 1
+}
+
+// Dual-read: try new UNIQUE (formId,userId,attemptNo) → old UNIQUE
+// (formId,userId) → findFirst. Covers post-migration, pre-migration, and
+// rolling-deploy states without 500ing.
+async function findExistingSingle(formId: string, userId: string): Promise<any | null> {
+  // New path: latest attempt (attemptNo=1 in single-mode; findFirst covers
+  // multi-mode leftovers if flag was flipped OFF after multi submits).
+  try {
+    const viaNew = await (prisma as any).formResponse.findUnique({
+      where: { formId_userId_attemptNo: { formId, userId, attemptNo: 1 } },
+    })
+    if (viaNew) return viaNew
+  } catch { /* pre-migration client or column absent → fall through */ }
+  try {
+    const viaOld = await (prisma as any).formResponse.findUnique({
+      where: { formId_userId: { formId, userId } },
+    })
+    if (viaOld) return viaOld
+  } catch { /* post-migration client dropped old UNIQUE → fall through */ }
+  try {
+    return await prisma.formResponse.findFirst({ where: { formId, userId } })
+  } catch { return null }
+}
+
+async function getNextAttemptNo(formId: string, userId: string): Promise<number> {
+  try {
+    const latest = await (prisma as any).formResponse.findMany({
+      where: { formId, userId },
+      select: { attemptNo: true },
+      orderBy: { attemptNo: 'desc' },
+      take: 1,
+    })
+    const max = Number(latest?.[0]?.attemptNo)
+    if (Number.isFinite(max) && max >= 1) return Math.trunc(max) + 1
+    // Fallback when attemptNo column absent (pre-migration): count+1 keeps
+    // sequencing sane once migration backfills to 1.
+    const count = await prisma.formResponse.count({ where: { formId, userId } })
+    return count + 1
+  } catch {
+    try {
+      const count = await prisma.formResponse.count({ where: { formId, userId } })
+      return count + 1
+    } catch { return 1 }
+  }
+}
+
+async function listMyResponsesDesc(formId: string, userId: string, take = 100): Promise<any[]> {
+  try {
+    const rows = await (prisma as any).formResponse.findMany({
+      where: { formId, userId },
+      orderBy: [{ submittedAt: 'desc' }, { attemptNo: 'desc' }, { id: 'desc' }],
+      take: Math.min(100, Math.max(1, take)),
+    })
+    return rows
+  } catch {
+    // Pre-migration: no attemptNo/orderBy → submittedAt desc only.
+    try {
+      return await prisma.formResponse.findMany({
+        where: { formId, userId },
+        orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        take: Math.min(100, Math.max(1, take)),
+      })
+    } catch { return [] }
+  }
+}
+
+// Create with attemptNo when the column exists; fallback to legacy create
+// when the DB predates migration (P2022 unknown column).
+async function createResponseWithFallback(data: any): Promise<any> {
+  try {
+    return await (prisma as any).formResponse.create({ data })
+  } catch (err: any) {
+    const code = (err as any)?.code
+    // P2022: column missing (pre-migration). Retry without attemptNo.
+    if (code === 'P2022' || /attemptNo|allowMultipleResponses/i.test(String((err as any)?.message || ''))) {
+      const { attemptNo: _drop, ...legacy } = data
+      return await prisma.formResponse.create({ data: legacy })
+    }
+    throw err
+  }
+}
+
 // Create form (Teacher)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true, name: true } }) // NARROW-READ half1
-    const { title, description, fields, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds, collegeId: bodyCollegeId } = req.body
+    const { title, description, fields, allowEdit, allowMultipleResponses, expiresAt, targetDepartments, targetYears, eligibilityEnabled, roomIds, collegeId: bodyCollegeId } = req.body
     const derivedCollegeId = deriveCollegeId(user as any, bodyCollegeId as string | null | undefined, req)
 
     const isCR = user?.role === 'STUDENT' && roomIds?.length > 0 && await prisma.roomMember.findFirst({
@@ -419,33 +516,69 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const form = await prisma.form.create({
-      data: {
-        creatorId: req.userId!,
-        collegeId: derivedCollegeId,
-        title,
-        description,
-        status: 'ACTIVE',
-        allowEdit: allowEdit || false,
-        expiresAt: expiresAt ? new Date(expiresAt) : null,
-        // Order 3: canonical Json arrays (helpers accept array or legacy JSON-string).
-        targetDepartments: parseJsonArraySafe(targetDepartments) as any,
-        targetYears: parseJsonNumberArraySafe(targetYears) as any,
-        eligibilityEnabled: eligibilityEnabled || false,
-        fields: {
-          create: fields?.map((f: any, i: number) => ({
-            label: f.label,
-            type: f.type || 'TEXT',
-            required: f.required || false,
-            options: JSON.stringify(f.options || []),
-            order: i,
-            logic: sanitizeFieldLogic(f.logic) as any,
-            scoreMap: sanitizeScoreMap(f.scoreMap, f.options) as any,
-          })) || [],
+    let form: any
+    try {
+      form = await (prisma as any).form.create({
+        data: {
+          creatorId: req.userId!,
+          collegeId: derivedCollegeId,
+          title,
+          description,
+          status: 'ACTIVE',
+          allowEdit: allowEdit || false,
+          // Multi-submit toggle (default OFF preserves exams single; unlimited when ON).
+          // Pre-migration fallback: strip unknown key on P2022 so old DBs keep 201.
+          ...(allowMultipleResponses !== undefined ? { allowMultipleResponses: !!allowMultipleResponses } : {}),
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          // Order 3: canonical Json arrays (helpers accept array or legacy JSON-string).
+          targetDepartments: parseJsonArraySafe(targetDepartments) as any,
+          targetYears: parseJsonNumberArraySafe(targetYears) as any,
+          eligibilityEnabled: eligibilityEnabled || false,
+          fields: {
+            create: fields?.map((f: any, i: number) => ({
+              label: f.label,
+              type: f.type || 'TEXT',
+              required: f.required || false,
+              options: JSON.stringify(f.options || []),
+              order: i,
+              logic: sanitizeFieldLogic(f.logic) as any,
+              scoreMap: sanitizeScoreMap(f.scoreMap, f.options) as any,
+            })) || [],
+          },
         },
-      },
-      include: { fields: { orderBy: { order: 'asc' } } },
-    })
+        include: { fields: { orderBy: { order: 'asc' } } },
+      })
+    } catch (err: any) {
+      // Pre-migration DB without allowMultipleResponses column → retry without it.
+      if ((err as any)?.code === 'P2022' || /allowMultipleResponses/i.test(String((err as any)?.message || ''))) {
+        form = await prisma.form.create({
+          data: {
+            creatorId: req.userId!,
+            collegeId: derivedCollegeId,
+            title,
+            description,
+            status: 'ACTIVE',
+            allowEdit: allowEdit || false,
+            expiresAt: expiresAt ? new Date(expiresAt) : null,
+            targetDepartments: parseJsonArraySafe(targetDepartments) as any,
+            targetYears: parseJsonNumberArraySafe(targetYears) as any,
+            eligibilityEnabled: eligibilityEnabled || false,
+            fields: {
+              create: fields?.map((f: any, i: number) => ({
+                label: f.label,
+                type: f.type || 'TEXT',
+                required: f.required || false,
+                options: JSON.stringify(f.options || []),
+                order: i,
+                logic: sanitizeFieldLogic(f.logic) as any,
+                scoreMap: sanitizeScoreMap(f.scoreMap, f.options) as any,
+              })) || [],
+            },
+          },
+          include: { fields: { orderBy: { order: 'asc' } } },
+        })
+      } else { throw err }
+    }
 
     // #9: resolve builder clientId refs (tmp-*) to real field ids (single pass).
     try {
@@ -615,14 +748,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       prisma.form.count({ where }),
     ])
 
-    // Attach per-user myResponse for student card tags (Submitted/Pending) — parity with assignmentHub
+    // Attach per-user myResponse for student card tags (Submitted/Pending) — parity with assignmentHub.
+    // Multi-submit: latest attempt per form (max submittedAt; attemptNo tiebreak).
     let myResponseMap = new Map<string, any>()
     if (user.role === 'STUDENT' && forms.length > 0) {
-      const myResponses = await prisma.formResponse.findMany({
-        where: { userId: req.userId!, formId: { in: forms.map((f: any) => f.id) } },
-        select: { formId: true, id: true, submittedAt: true },
-      })
-      myResponseMap = new Map(myResponses.map((r: any) => [r.formId, r]))
+      let myResponses: any[] = []
+      try {
+        myResponses = await (prisma as any).formResponse.findMany({
+          where: { userId: req.userId!, formId: { in: forms.map((f: any) => f.id) } },
+          select: { formId: true, id: true, submittedAt: true, attemptNo: true },
+          orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        })
+      } catch {
+        myResponses = await prisma.formResponse.findMany({
+          where: { userId: req.userId!, formId: { in: forms.map((f: any) => f.id) } },
+          select: { formId: true, id: true, submittedAt: true },
+        })
+      }
+      for (const r of myResponses) {
+        if (!myResponseMap.has((r as any).formId)) {
+          myResponseMap.set((r as any).formId, { ...(r as any), attemptNo: getAttemptNo(r) })
+        }
+      }
     }
 
     const data = forms.map((f: any) => ({
@@ -681,20 +828,40 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    const { title, description, allowEdit, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
-    const form = await prisma.form.update({
-      where: { id: req.params.id as string },
-      data: {
-        ...(title !== undefined && { title }),
-        ...(description !== undefined && { description }),
-        ...(allowEdit !== undefined && { allowEdit }),
-        ...(expiresAt !== undefined && { expiresAt: expiresAt ? new Date(expiresAt) : null }),
-        // Order 3: canonical Json arrays (local helpers accept array-or-String).
-        ...(targetDepartments !== undefined && { targetDepartments: parseJsonArraySafe(targetDepartments) as any }),
-        ...(targetYears !== undefined && { targetYears: parseJsonNumberArraySafe(targetYears) as any }),
-        ...(eligibilityEnabled !== undefined && { eligibilityEnabled }),
-      },
-    })
+    const { title, description, allowEdit, allowMultipleResponses, expiresAt, targetDepartments, targetYears, eligibilityEnabled } = req.body
+    let form: any
+    try {
+      form = await (prisma as any).form.update({
+        where: { id: req.params.id as string },
+        data: {
+          ...(title !== undefined && { title }),
+          ...(description !== undefined && { description }),
+          ...(allowEdit !== undefined && { allowEdit }),
+          ...(allowMultipleResponses !== undefined && { allowMultipleResponses: !!allowMultipleResponses }),
+          ...(expiresAt !== undefined && { expiresAt: expiresAt ? new Date(expiresAt) : null }),
+          // Order 3: canonical Json arrays (local helpers accept array-or-String).
+          ...(targetDepartments !== undefined && { targetDepartments: parseJsonArraySafe(targetDepartments) as any }),
+          ...(targetYears !== undefined && { targetYears: parseJsonNumberArraySafe(targetYears) as any }),
+          ...(eligibilityEnabled !== undefined && { eligibilityEnabled }),
+        },
+      })
+    } catch (err: any) {
+      // Pre-migration DB without allowMultipleResponses → retry without it.
+      if ((err as any)?.code === 'P2022' || /allowMultipleResponses/i.test(String((err as any)?.message || ''))) {
+        form = await prisma.form.update({
+          where: { id: req.params.id as string },
+          data: {
+            ...(title !== undefined && { title }),
+            ...(description !== undefined && { description }),
+            ...(allowEdit !== undefined && { allowEdit }),
+            ...(expiresAt !== undefined && { expiresAt: expiresAt ? new Date(expiresAt) : null }),
+            ...(targetDepartments !== undefined && { targetDepartments: parseJsonArraySafe(targetDepartments) as any }),
+            ...(targetYears !== undefined && { targetYears: parseJsonNumberArraySafe(targetYears) as any }),
+            ...(eligibilityEnabled !== undefined && { eligibilityEnabled }),
+          },
+        })
+      } else { throw err }
+    }
     try { broadcastFormMutation(form.id, (form as { collegeId?: string | null }).collegeId ?? null) } catch (err) { logger.debug({ err }, '[broadcast] non-fatal (client still gets 200)') }
     res.json(form)
   } catch (error) {
@@ -816,6 +983,8 @@ router.put('/:id/fields', async (req: AuthRequest, res: Response) => {
 })
 
 // Stats for a form — eligible / submitted / pending / rate (teacher/CR only)
+// Multi-submit (20260930): totalResponses = rows, distinctUsers separate,
+// pending = eligible - distinctUsers (a multi-submitter counts once for pending).
 router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
   try {
     // HALF1: user + form independent → Promise.all (was sequential).
@@ -832,16 +1001,22 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
     const isCR = user.role === 'STUDENT' && await prisma.formRoom.findFirst({ where: { formId: form.id, room: { members: { some: { studentId: req.userId!, isCR: true } } } } })
     if (!isTeacher && !isCR) { res.status(403).json({ error: 'Only teachers/CRs can view stats' }); return }
     // HALF1: eligible list + submitted count independent → Promise.all (was sequential).
+    // Multi-submit dual counts: submitted[] = rows (all attempts, not deduped);
+    // totalResponses = submitted.length, distinctUsers = unique submitters
+    // (drives pending + rate so multi-submit doesn't inflate them).
     const [eligibleList, submitted] = await Promise.all([
       fetchEligibleFormStudents(form),
-      prisma.formResponse.count({ where: { formId: form.id } }),
+      prisma.formResponse.findMany({ where: { formId: form.id }, select: { userId: true } }),
     ])
     const eligible = eligibleList.length
-    const pending = Math.max(0, eligible - submitted)
-    const submissionRate = eligible ? Math.round((submitted/eligible)*100) : 0
+    const responses = submitted as any[]
+    const totalResponses = responses.length
+    const distinctUsers = new Set(responses.map((r: any) => r.userId)).size
+    const pending = Math.max(0, eligible - distinctUsers)
+    const submissionRate = eligible ? Math.round((distinctUsers/eligible)*100) : 0
     // CACHE-ALL: aggregate counts only (no respondent PII) — private edge SWR.
     res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
-    res.json({ eligible, submitted, pending, submissionRate, pendingCount: pending, eligibleCount: eligible })
+    res.json({ eligible, submitted: totalResponses, totalResponses, distinctUsers, distinctCount: distinctUsers, pending, submissionRate, pendingCount: pending, eligibleCount: eligible })
   } catch (e) { logger.error({ err: e }, 'Form stats error'); res.status(500).json({ error: 'Failed to get stats' }) }
 })
 
@@ -1039,6 +1214,58 @@ router.post('/:id/view', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Student own history — always 200 when eligible, even if expired/closed.
+// Expiry blocks NEW submits (POST /:id/respond 400) but history stays readable.
+// Teacher/CR use GET /:id responses table (all attempts); this is the student
+// receipt list (desc, attemptNo included).
+router.get('/:id/my-history', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true, departmentId: true, incomingYear: true } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    if (user.role !== 'STUDENT') { res.status(403).json({ error: 'Only students have submission history' }); return }
+    const form = await prisma.form.findUnique({ where: { id: req.params.id as string } })
+    if (!form) { res.status(404).json({ error: 'Form not found' }); return }
+    if (!canAccessCollege(user as any, (form as any).collegeId)) {
+      res.status(403).json({ error: 'Access denied' }); return
+    }
+    // Eligibility mirrors POST /:id/respond (room → college → dept/year) but
+    // NEVER blocks on expiresAt/status — history is readable after expiry/close.
+    const formRooms = await prisma.formRoom.findMany({ where: { formId: (form as any).id }, select: { roomId: true } })
+    if (formRooms.length > 0) {
+      const isMember = await prisma.roomMember.findFirst({
+        where: { studentId: req.userId!, roomId: { in: formRooms.map((fr: any) => fr.roomId) } },
+      })
+      if (!isMember) { res.status(403).json({ error: 'You are not eligible for this form' }); return }
+    }
+    if (formRooms.length === 0 && !(form as any).eligibilityEnabled && (form as any).collegeId !== user.collegeId) {
+      res.status(403).json({ error: 'You are not eligible for this form' }); return
+    }
+    if ((form as any).eligibilityEnabled) {
+      const targetDepts = parseJsonArraySafe((form as any).targetDepartments)
+      const targetYears = parseJsonNumberArraySafe((form as any).targetYears)
+      if (targetDepts.length > 0) {
+        const { isDepartmentEligible, getCollegeDepartments } = await import('../utils/eligibility')
+        const collegeDepts = await getCollegeDepartments((form as any).collegeId || user.collegeId)
+        if (!isDepartmentEligible(targetDepts, user.departmentId, collegeDepts)) {
+          res.status(403).json({ error: 'Your department is not eligible for this form' }); return
+        }
+      }
+      if (targetYears.length > 0 && user.incomingYear) {
+        const currentYear = Math.min(new Date().getFullYear() - user.incomingYear + 1, 4)
+        if (!targetYears.includes(currentYear)) {
+          res.status(403).json({ error: 'You are not eligible for this form' }); return
+        }
+      }
+    }
+    const rows = await listMyResponsesDesc((form as any).id, req.userId!)
+    res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=30')
+    res.json({ data: rows.map((r: any) => ({ ...r, attemptNo: getAttemptNo(r) })), total: rows.length, count: rows.length })
+  } catch (e) {
+    logger.debug({ err: e }, '[forms] my-history failed')
+    res.status(500).json({ error: 'Failed to fetch history' })
+  }
+})
+
 // Get single form with fields
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
@@ -1093,11 +1320,17 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Students: must be active + linked to their room or same department
+    // Students: must be active + linked to their room or same department.
+    // History exception (multi-submit): a CLOSED/DRAFT form stays readable for
+    // students who already submitted (receipt/history), otherwise 403.
+    // Expired-but-ACTIVE forms stay readable (expiry only blocks POST).
     if (user.role === 'STUDENT') {
       if (form.status !== 'ACTIVE') {
-        res.status(403).json({ error: 'Access denied' })
-        return
+        const prior = await prisma.formResponse.findFirst({ where: { formId: (form as any).id, userId: req.userId! }, select: { id: true } })
+        if (!prior) {
+          res.status(403).json({ error: 'Access denied' })
+          return
+        }
       }
       const studentRoomIds = (await prisma.roomMember.findMany({
         where: { studentId: req.userId },
@@ -1129,16 +1362,30 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const responsesCursorClause: any = responsesCursor
       ? { cursor: { id: responsesCursor }, skip: 1 }
       : { skip: (responsesPage - 1) * responsesLimit }
-    const [responses, responsesTotal] = await Promise.all([
-      prisma.formResponse.findMany({
+    // Teacher table shows ALL attempts (not deduped) — one row per response,
+    // ordered newest-first. attemptNo included per row (fallback 1 pre-migration).
+    const [responsesRaw, responsesTotal, myRows] = await Promise.all([
+      (prisma as any).formResponse.findMany({
         where: responsesWhere,
         include: { user: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, collegeId: true, department: { select: { name: true } } } } },
         orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
         take: responsesLimit,
         ...responsesCursorClause,
-      }),
+      }).catch(() => prisma.formResponse.findMany({
+        where: responsesWhere,
+        include: { user: { select: { id: true, name: true, email: true, studentId: true, departmentId: true, incomingYear: true, collegeId: true, department: { select: { name: true } } } } },
+        orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        take: responsesLimit,
+        ...responsesCursorClause,
+      })),
       prisma.formResponse.count({ where: responsesWhere }),
+      // myResponses: own history desc + myResponse latest compat (student receipt).
+      // Teacher/CR get [] (they use the full responses table, not history).
+      user.role === 'STUDENT' ? listMyResponsesDesc((form as any).id, req.userId!) : Promise.resolve([]),
     ])
+    const responses = (responsesRaw as any[]).map((r: any) => ({ ...r, attemptNo: getAttemptNo(r) }))
+    const myResponses = (myRows as any[]).map((r: any) => ({ ...r, attemptNo: getAttemptNo(r) }))
+    const myResponse = myResponses.length > 0 ? myResponses[0] : null
     const responsesPages = Math.ceil(responsesTotal / responsesLimit)
     const responsesNextCursor =
       responses.length === responsesLimit ? (responses[responses.length - 1] as any)?.id ?? null : null
@@ -1147,6 +1394,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       ...(form as any),
       responses,
       responsesCount: responsesTotal,
+      myResponses,
+      myResponse,
       responsesPagination: {
         page: responsesPage,
         limit: responsesLimit,
@@ -1275,47 +1524,136 @@ router.post('/:id/respond', async (req: AuthRequest, res: Response) => {
     } catch { startedAt = null }
     const knownIds = new Set(logicFields.map((f) => (f as any).id))
 
-    // Check if already responded
-    const existing = await prisma.formResponse.findUnique({
-      where: { formId_userId: { formId: req.params.id as string, userId: req.userId! } },
-    })
+    // Multi-submit routing (20260930): mode auto/new/edit.
+    //  auto (default): single → old unique path (create or update iff allowEdit);
+    //    multi → always create attemptNo=max+1 (unlimited, no cap).
+    //  new: force create. Single + existing → 403 (even if allowEdit — use edit
+    //    to update). Multi → create max+1.
+    //  edit: force update. Requires allowEdit; single → update the one row;
+    //    multi → update responseId (or latest when omitted). No prior → create.
+    const modeRaw = String((req.body as any)?.mode ?? (req.query as any)?.mode ?? 'auto').toLowerCase()
+    const mode: 'auto' | 'new' | 'edit' = modeRaw === 'new' ? 'new' : modeRaw === 'edit' ? 'edit' : 'auto'
+    const requestedResponseId = typeof (req.body as any)?.responseId === 'string' ? String((req.body as any).responseId) : null
+    const allowsMultiple = getAllowMultiple(form)
 
-    // Enforce allowEdit setting
-    if (!form.allowEdit && existing) {
-      res.status(403).json({ error: 'This form does not allow editing responses' })
-      return
-    }
+    // Check if already responded (dual-read: new UNIQUE try → old UNIQUE → findFirst).
+    const existing = await findExistingSingle(req.params.id as string, req.userId!)
 
     let finalResponse: any
-    if (existing) {
-      // Update existing response (recompute score/duration; keep original startedAt if already set)
-      finalResponse = await prisma.formResponse.update({
-        where: { id: existing.id },
-        data: {
-          answers: JSON.stringify(storedAnswers),
-          score: Math.round(computedScore),
-          ...(durationMs !== null ? { durationMs } : {}),
-          ...(!((existing as any).startedAt) && startedAt ? { startedAt } : {}),
-        },
-      })
-      // Order 10: dual-write blob → FormAnswer rows (best-effort, then reply).
-      await syncResponseAnswerRows(finalResponse.id, storedAnswers)
-      res.json(finalResponse)
-    } else {
-      // Create new response
-      finalResponse = await prisma.formResponse.create({
-        data: {
+    if (!allowsMultiple) {
+      // Single-mode: preserve old unique path (default OFF keeps exams single).
+      if (existing && mode === 'new') {
+        res.status(403).json({ error: 'This form does not allow multiple responses' })
+        return
+      }
+      // Enforce allowEdit setting (old path: second submit 403 unless editable).
+      if (!form.allowEdit && existing) {
+        res.status(403).json({ error: 'This form does not allow editing responses' })
+        return
+      }
+
+      if (existing) {
+        // Update existing response (recompute score/duration; keep original startedAt if already set)
+        finalResponse = await prisma.formResponse.update({
+          where: { id: existing.id },
+          data: {
+            answers: JSON.stringify(storedAnswers),
+            score: Math.round(computedScore),
+            ...(durationMs !== null ? { durationMs } : {}),
+            ...(!((existing as any).startedAt) && startedAt ? { startedAt } : {}),
+          },
+        })
+        // Order 10: dual-write blob → FormAnswer rows (best-effort, then reply).
+        await syncResponseAnswerRows(finalResponse.id, storedAnswers)
+        res.json({ ...finalResponse, attemptNo: getAttemptNo(finalResponse) })
+      } else {
+        // Create new response (attemptNo=1; fallback strips it pre-migration)
+        finalResponse = await createResponseWithFallback({
           formId: req.params.id as string,
           userId: req.userId!,
+          attemptNo: 1,
           answers: JSON.stringify(storedAnswers),
           score: Math.round(computedScore),
           ...(startedAt ? { startedAt } : {}),
           ...(durationMs !== null ? { durationMs } : {}),
-        },
-      })
-      // Order 10: dual-write blob → FormAnswer rows (best-effort, then reply).
-      await syncResponseAnswerRows(finalResponse.id, storedAnswers)
-      res.status(201).json(finalResponse)
+        })
+        // Order 10: dual-write blob → FormAnswer rows (best-effort, then reply).
+        await syncResponseAnswerRows(finalResponse.id, storedAnswers)
+        res.status(201).json({ ...finalResponse, attemptNo: getAttemptNo(finalResponse) })
+      }
+    } else {
+      // Multi-mode: unlimited attempts (max=null, no cap).
+      if (mode === 'edit') {
+        if (!form.allowEdit) {
+          res.status(403).json({ error: 'This form does not allow editing responses' })
+          return
+        }
+        let target: any = null
+        if (requestedResponseId) {
+          target = await prisma.formResponse.findFirst({ where: { id: requestedResponseId, formId: req.params.id as string, userId: req.userId! } })
+          if (!target) {
+            res.status(404).json({ error: 'Response not found' })
+            return
+          }
+        } else if (existing) {
+          // Latest attempt (desc) — edit the most recent receipt.
+          const latest = await listMyResponsesDesc(req.params.id as string, req.userId!, 1)
+          target = latest[0] || existing
+        }
+        if (target) {
+          finalResponse = await prisma.formResponse.update({
+            where: { id: target.id },
+            data: {
+              answers: JSON.stringify(storedAnswers),
+              score: Math.round(computedScore),
+              ...(durationMs !== null ? { durationMs } : {}),
+              ...(!((target as any).startedAt) && startedAt ? { startedAt } : {}),
+            },
+          })
+          await syncResponseAnswerRows(finalResponse.id, storedAnswers)
+          res.json({ ...finalResponse, attemptNo: getAttemptNo(finalResponse) })
+        } else {
+          const next = await getNextAttemptNo(req.params.id as string, req.userId!)
+          finalResponse = await createResponseWithFallback({
+            formId: req.params.id as string,
+            userId: req.userId!,
+            attemptNo: next,
+            answers: JSON.stringify(storedAnswers),
+            score: Math.round(computedScore),
+            ...(startedAt ? { startedAt } : {}),
+            ...(durationMs !== null ? { durationMs } : {}),
+          })
+          await syncResponseAnswerRows(finalResponse.id, storedAnswers)
+          res.status(201).json({ ...finalResponse, attemptNo: getAttemptNo(finalResponse) })
+        }
+      } else {
+        // auto/new → always create attemptNo=max+1 (unlimited). Retry on
+        // P2002 race (two concurrent submits computed the same max).
+        let next = await getNextAttemptNo(req.params.id as string, req.userId!)
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            finalResponse = await createResponseWithFallback({
+              formId: req.params.id as string,
+              userId: req.userId!,
+              attemptNo: next,
+              answers: JSON.stringify(storedAnswers),
+              score: Math.round(computedScore),
+              ...(startedAt ? { startedAt } : {}),
+              ...(durationMs !== null ? { durationMs } : {}),
+            })
+            break
+          } catch (err: any) {
+            if ((err as any)?.code === 'P2002' && attempt < 2) {
+              next = await getNextAttemptNo(req.params.id as string, req.userId!)
+              continue
+            }
+            throw err
+          }
+        }
+        // Order 10: dual-write blob → FormAnswer rows (best-effort, then reply).
+        await syncResponseAnswerRows(finalResponse.id, storedAnswers)
+        res.status(201).json({ ...finalResponse, attemptNo: getAttemptNo(finalResponse) })
+      }
     }
     // Best-effort view logging for drop-off analytics (never fails the submit).
     try {
@@ -1429,13 +1767,14 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
 
     const sheet = workbook.addWorksheet(form.title.substring(0, 31))
     
-    // Headers (#9: Score column for quiz-style scoring)
+    // Headers (#9: Score column for quiz-style scoring; multi-submit: Attempt#)
     const columns = [
       { header: 'S.No', key: 'sno', width: 8 },
       { header: 'Roll No', key: 'rollNo', width: 15 },
       { header: 'Student Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Department', key: 'department', width: 15 },
+      { header: 'Attempt', key: 'attempt', width: 10 },
       { header: 'Submitted At', key: 'submittedAt', width: 20 },
       { header: 'Score', key: 'score', width: 10 },
     ]
@@ -1448,7 +1787,12 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
     sheet.columns = columns
 
     // Rows — F27: escape every user-controlled cell (formula injection).
-    form.responses.forEach((resp, idx) => {
+    // Multi-submit: one row per attempt (not deduped), ordered newest-first
+    // for teacher review; Attempt = attemptNo (fallback 1 pre-migration).
+    const ordered = [...(form.responses as any[])].sort((a: any, b: any) =>
+      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime() || String(b.id).localeCompare(String(a.id)),
+    )
+    ordered.forEach((resp, idx) => {
       // Order 10: child rows win when present, else the legacy blob
       // (byte-identical blob path — no display drift during transition).
       let answers: any = {}
@@ -1466,6 +1810,7 @@ router.get('/:id/export', async (req: AuthRequest, res: Response) => {
         name: escapeExcelValue(resp.user.name),
         email: escapeExcelValue(resp.user.email),
         department: escapeExcelValue(((resp.user as any).department?.name || '')),
+        attempt: getAttemptNo(resp),
         submittedAt: resp.submittedAt.toLocaleDateString(),
         score: typeof (resp as any).score === 'number' ? (resp as any).score : 0,
       }

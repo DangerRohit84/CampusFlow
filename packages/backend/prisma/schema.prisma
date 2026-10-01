@@ -1228,6 +1228,12 @@ model Form {
   description        String?
   status             FormStatus @default(ACTIVE)
   allowEdit          Boolean   @default(false)
+  // Forms multi-submit (20260930, user-approved): per-form unlimited toggle.
+  // Default OFF preserves single-response exams. When ON: unlimited attempts
+  // (max=null, no cap) via FormResponse.attemptNo = max+1. Old code (pre-migration)
+  // reads via dual-read fallback (findUnique try → findFirst) so rolling deploys
+  // stay green; see routes/forms.ts + migration 20260930000000_forms_multi_submit.
+  allowMultipleResponses Boolean @default(false)
   expiresAt          DateTime?
   targetDepartments  Json      @default("[]")
   targetYears        Json      @default("[]")
@@ -1326,6 +1332,15 @@ model FormResponse {
   id          String   @id @default(uuid())
   formId      String
   userId      String
+  // Forms multi-submit (20260930): per-attempt sequence, 1-based. Single-mode
+  // legacy rows backfill to 1 (grouped, no dupes — old UNIQUE on formId+userId
+  // guaranteed one row per pair). Multi-mode creates max+1 (unlimited, no cap).
+  // FormAnswer child unchanged (responseId → here Cascade; blob kept).
+  // Production-safe migration: ADD COLUMN DEFAULT 1 → backfill → new UNIQUE NOT
+  // VALID → VALIDATE → DROP old UNIQUE in low-traffic (see migration file).
+  // Pre-migration runtime stays green via (prisma as any).attemptNo? guards +
+  // findUnique-try/findFirst-fallback in routes/forms.ts.
+  attemptNo   Int      @default(1)
   answers     String   @default("{}")
   // Order 10 (V-14): answers blob KEPT during dual-write transition (worst
   // analytics blocker — per-field medians/distributions become SQL GROUP BY
@@ -1344,9 +1359,10 @@ model FormResponse {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   answerRows FormAnswer[]
 
-  @@unique([formId, userId])
+  @@unique([formId, userId, attemptNo])
   @@index([formId])
   @@index([userId])
+  @@index([formId, userId, submittedAt])
 }
 
 // Order 10 (V-14 → P9): 4NF child table for answers (one row per answer).

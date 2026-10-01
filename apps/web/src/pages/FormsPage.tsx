@@ -83,6 +83,9 @@ export default function FormsPage() {
   const [formDesc, setFormDesc] = useState('')
   const [fields, setFields] = useState<any[]>([newBuilderField()] as any)
   const [allowEdit, setAllowEdit] = useState(false)
+  // Multi-submit (20260930, user-approved): per-form unlimited toggle, default OFF
+  // (preserves exams single). When ON: unlimited attempts (no max UI, no cap).
+  const [allowMultipleResponses, setAllowMultipleResponses] = useState(false)
   const [expiresAt, setExpiresAt] = useState('')
   // #9: which builder cards show their Logic panel.
   const [expandedLogic, setExpandedLogic] = useState<Record<number, boolean>>({})
@@ -104,6 +107,7 @@ export default function FormsPage() {
   const [editFormTitle, setEditFormTitle] = useState('')
   const [editFormDesc, setEditFormDesc] = useState('')
   const [editAllowEdit, setEditAllowEdit] = useState(false)
+  const [editAllowMultipleResponses, setEditAllowMultipleResponses] = useState(false)
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
   const [crRoomIds, setCrRoomIds] = useState<string[]>([])
@@ -277,6 +281,7 @@ export default function FormsPage() {
         title: formTitle,
         description: formDesc,
         allowEdit,
+        allowMultipleResponses,
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         fields: validFields.map(({ f, i }) => builderFieldToPayload(f, i)),
       }
@@ -295,6 +300,7 @@ export default function FormsPage() {
       setFormTitle('')
       setFormDesc('')
       setAllowEdit(false)
+      setAllowMultipleResponses(false)
       setExpiresAt('')
       setFields([newBuilderField()])
       setExpandedLogic({})
@@ -325,6 +331,7 @@ export default function FormsPage() {
     setEditFormTitle(form.title)
     setEditFormDesc(form.description || '')
     setEditAllowEdit(form.allowEdit || false)
+    setEditAllowMultipleResponses((form as any).allowMultipleResponses || false)
     setEditExpiresAt(form.expiresAt ? new Date(form.expiresAt).toISOString().slice(0, 16) : '')
     editModal.open()
   }
@@ -336,6 +343,7 @@ export default function FormsPage() {
         title: editFormTitle,
         description: editFormDesc,
         allowEdit: editAllowEdit,
+        allowMultipleResponses: editAllowMultipleResponses,
         expiresAt: editExpiresAt ? new Date(editExpiresAt).toISOString() : null,
       })
       toast.success('Form updated!')
@@ -559,6 +567,23 @@ export default function FormsPage() {
                     className={clsx('relative w-11 h-6 rounded-full transition-colors', allowEdit ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
                   >
                     <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', allowEdit && 'translate-x-5')} />
+                  </button>
+                </div>
+
+                {/* Allow multiple responses Toggle (unlimited, no max UI) */}
+                <div className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-850 rounded-xl">
+                  <div>
+                    <p className="text-sm font-medium text-surface-700 dark:text-night-200">Allow multiple responses</p>
+                    <p className="text-xs text-surface-400 dark:text-night-200/70">Students can submit unlimited times (history kept per attempt). Off = single response (exams).</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllowMultipleResponses(!allowMultipleResponses)}
+                    aria-pressed={allowMultipleResponses}
+                    aria-label="Allow multiple responses"
+                    className={clsx('relative w-11 h-6 rounded-full transition-colors', allowMultipleResponses ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
+                  >
+                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', allowMultipleResponses && 'translate-x-5')} />
                   </button>
                 </div>
 
@@ -810,6 +835,23 @@ export default function FormsPage() {
                     className={clsx('relative w-11 h-6 rounded-full transition-colors', editAllowEdit ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
                   >
                     <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', editAllowEdit && 'translate-x-5')} />
+                  </button>
+                </div>
+
+                {/* Allow multiple responses Toggle (unlimited) */}
+                <div className="flex items-center justify-between p-3 bg-surface-50 dark:bg-night-850 rounded-xl">
+                  <div>
+                    <p className="text-sm font-medium text-surface-700 dark:text-night-200">Allow multiple responses</p>
+                    <p className="text-xs text-surface-400 dark:text-night-200/70">Students can submit unlimited times. Off = single response.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditAllowMultipleResponses(!editAllowMultipleResponses)}
+                    aria-pressed={editAllowMultipleResponses}
+                    aria-label="Allow multiple responses"
+                    className={clsx('relative w-11 h-6 rounded-full transition-colors', editAllowMultipleResponses ? 'bg-primary-500' : 'bg-surface-300 dark:bg-night-600')}
+                  >
+                    <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-night-50 rounded-full shadow transition-transform', editAllowMultipleResponses && 'translate-x-5')} />
                   </button>
                 </div>
 

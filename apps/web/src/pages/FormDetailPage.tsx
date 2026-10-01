@@ -32,6 +32,9 @@ export default function FormDetailPage() {
   const [answers, setAnswers] = useState<any>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  // Multi-submit (20260930): own history desc + receipt expansion + new-form reset.
+  const [myHistory, setMyHistory] = useState<any[]>([])
+  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null)
   const [extendDays, setExtendDays] = useState('7')
   // PERPAGE-HALF2: shared 10-min departments key (was uncached getAll per
   // mount); same array data, zero cross-page dedupe before.
@@ -155,13 +158,36 @@ export default function FormDetailPage() {
       startMsRef.current = Date.now()
       loggedViewsRef.current = new Set()
       setViewedIds([])
-      
-      // Pre-fill answers if already responded
-      const response = data.responses?.find((r: any) => r.userId === user?.id)
-      if (response) {
-        try {
-          setAnswers(typeof response.answers === 'string' ? JSON.parse(response.answers) : (response.answers || {}))
-        } catch { setAnswers({}) }
+      setExpandedReceipt(null)
+
+      // Multi-submit history: prefer backend myResponses (desc, attemptNo),
+      // fallback to filtering the paginated responses array (compat).
+      const allowMultiple = (data as any)?.allowMultipleResponses === true
+      let history: any[] = []
+      if (Array.isArray((data as any)?.myResponses) && (data as any).myResponses.length > 0) {
+        history = [...(data as any).myResponses]
+      } else if (Array.isArray((data as any)?.myResponse) && (data as any).myResponse) {
+        history = [(data as any).myResponse]
+      } else {
+        const mine = (data.responses || []).filter((r: any) => r.userId === user?.id || r.user?.id === user?.id)
+        history = [...mine]
+      }
+      // Ensure desc (newest first) by submittedAt then attemptNo.
+      history.sort((a: any, b: any) =>
+        new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime() || Number(b.attemptNo || 1) - Number(a.attemptNo || 1),
+      )
+      setMyHistory(history)
+      const latest = (data as any)?.myResponse || history[0] || data.responses?.find((r: any) => r.userId === user?.id || r.user?.id === user?.id)
+      if (latest) {
+        // Single-mode: pre-fill latest for edit. Multi-mode: start blank for
+        // "Submit new" (receipts stay in history accordion below).
+        if (!allowMultiple) {
+          try {
+            setAnswers(typeof latest.answers === 'string' ? JSON.parse(latest.answers) : (latest.answers || {}))
+          } catch { setAnswers({}) }
+        } else {
+          setAnswers({})
+        }
         setSubmitted(true)
       } else {
         setAnswers({})
@@ -228,8 +254,16 @@ export default function FormDetailPage() {
     try {
       const durationMs = Math.max(0, Date.now() - startMsRef.current)
       const seen = [...new Set([...viewedIds, ...visibility.visibleIds])].slice(0, 100)
-      await formAPI.respond(id!, answers, { startedAt: startedAtRef.current, durationMs, viewedFieldIds: seen })
-      toast.success(submitted ? 'Response updated!' : 'Response submitted!')
+      const allowMultiple = (form as any)?.allowMultipleResponses === true
+      // Multi-submit: always a NEW attempt (mode=new, unlimited). Reset the
+      // form to blank so the next "Submit new" starts fresh; history holds receipts.
+      await formAPI.respond(id!, answers, { startedAt: startedAtRef.current, durationMs, viewedFieldIds: seen, ...(allowMultiple ? { mode: 'new' as const } : {}) })
+      toast.success(allowMultiple ? 'Response submitted! (Attempt ' + (myHistory.length + 1) + ')' : submitted ? 'Response updated!' : 'Response submitted!')
+      if (allowMultiple) {
+        setAnswers({})
+        startedAtRef.current = new Date().toISOString()
+        startMsRef.current = Date.now()
+      }
       setSubmitted(true)
       // LISTENER-OWNS-REFETCH (PERPAGE-HALF2, AssignmentDetailPage precedent):
       // notify busts the RQ forms list AND reloads this detail via the
@@ -515,6 +549,7 @@ export default function FormDetailPage() {
                       <tr className="border-b border-surface-100 dark:border-night-600">
                         <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Roll No</th>
                         <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Student</th>
+                        <th className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">Attempt</th>
                         {form.fields.map((f: any) => (
                           <th key={f.id} className="text-left py-2 text-surface-500 dark:text-night-400 font-medium">{f.label}</th>
                         ))}
@@ -525,6 +560,7 @@ export default function FormDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
+                      {/* ALL attempts, NOT deduped: one row per response (multi-submit). */}
                       {form.responses.map((resp: any) => {
                         let answersData: any = {}
                         try { answersData = typeof resp.answers === 'string' ? JSON.parse(resp.answers) : (resp.answers || {}) } catch { answersData = {} }
@@ -535,6 +571,7 @@ export default function FormDetailPage() {
                               <p className="font-medium text-surface-900 dark:text-night-50">{resp.user.name}</p>
                               <p className="text-xs text-surface-400 dark:text-night-400">{resp.user.email}</p>
                             </td>
+                            <td className="py-2 font-mono text-xs text-surface-600 dark:text-night-300">#{resp.attemptNo || 1}</td>
                             {form.fields.map((f: any) => (
                               <td key={f.id} className="py-2 text-surface-600 dark:text-night-300">
                                 {answersData[f.id] || '-'}
@@ -546,7 +583,7 @@ export default function FormDetailPage() {
                               </td>
                             )}
                             <td className="py-2 text-xs text-surface-400 dark:text-night-400">
-                              {new Date(resp.submittedAt).toLocaleDateString()}
+                              {new Date(resp.submittedAt).toLocaleString()}
                             </td>
                           </tr>
                         )
@@ -618,14 +655,28 @@ export default function FormDetailPage() {
               )}
             </div>
           ) : (
-            /* Student View: Fill Form */
+            /* Student View: Fill Form + My submissions history (multi-submit) */
             <div className="bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-6">
-              {submitted && (
-                <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-200 flex items-center gap-2">
-                  <CheckCircle size={18} className="text-primary-500" />
-                  <span className="text-sm text-primary-700 font-medium">You've already submitted. You can update your response.</span>
-                </div>
-              )}
+              {(() => {
+                const allowMultiple = (form as any)?.allowMultipleResponses === true
+                if (allowMultiple && submitted) {
+                  return (
+                    <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-200 flex items-center gap-2">
+                      <CheckCircle size={18} className="text-primary-500" />
+                      <span className="text-sm text-primary-700 font-medium">You&apos;ve submitted {myHistory.length} time{myHistory.length === 1 ? '' : 's'}. Submit again below — every attempt is kept.</span>
+                    </div>
+                  )
+                }
+                if (!allowMultiple && submitted) {
+                  return (
+                    <div className="mb-4 p-3 bg-primary-50 rounded-xl border border-primary-200 flex items-center gap-2">
+                      <CheckCircle size={18} className="text-primary-500" />
+                      <span className="text-sm text-primary-700 font-medium">You&apos;ve already submitted. You can update your response.</span>
+                    </div>
+                  )
+                }
+                return null
+              })()}
 
               {!isEligible && (
                 <div className="mb-4 p-3 bg-danger-50 rounded-xl border border-danger-200 flex items-center gap-2">
@@ -785,20 +836,80 @@ export default function FormDetailPage() {
                 <div className="mt-6 p-4 bg-danger-50 rounded-xl text-center">
                   <p className="text-sm font-medium text-danger-700">You are not eligible to respond to this form</p>
                 </div>
-              ) : !submitted || form.allowEdit ? (
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting || isExpired}
-                  className="mt-6 w-full py-3 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-                  {submitted ? 'Update Response' : 'Submit Response'}
-                </button>
-              ) : (
-                <div className="mt-6 p-4 bg-surface-50 dark:bg-night-800 rounded-xl text-center">
-                  <CheckCircle size={24} className="mx-auto text-primary-500 mb-2" />
-                  <p className="text-sm font-medium text-surface-700 dark:text-night-200">You've already submitted</p>
-                  <p className="text-xs text-surface-400 dark:text-night-400">Editing is not allowed for this form</p>
+              ) : (() => {
+                const allowMultiple = (form as any)?.allowMultipleResponses === true
+                if (allowMultiple) {
+                  // Multi: always allow "Submit new" (unlimited) unless expired.
+                  // History stays visible even when expired (receipts above the form).
+                  return (
+                    <button
+                      onClick={handleSubmit}
+                      disabled={submitting || isExpired}
+                      className="mt-6 w-full py-3 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                      {submitted ? 'Submit new response' : 'Submit Response'}
+                    </button>
+                  )
+                }
+                return !submitted || form.allowEdit ? (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || isExpired}
+                    className="mt-6 w-full py-3 bg-primary-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                    {submitted ? 'Update Response' : 'Submit Response'}
+                  </button>
+                ) : (
+                  <div className="mt-6 p-4 bg-surface-50 dark:bg-night-800 rounded-xl text-center">
+                    <CheckCircle size={24} className="mx-auto text-primary-500 mb-2" />
+                    <p className="text-sm font-medium text-surface-700 dark:text-night-200">You&apos;ve already submitted</p>
+                    <p className="text-xs text-surface-400 dark:text-night-400">Editing is not allowed for this form</p>
+                  </div>
+                )
+              })()}
+              {/* My submissions history (multi + single receipt list, desc). */}
+              {myHistory.length > 0 && (
+                <div className="mt-6 border-t border-surface-100 dark:border-night-600 pt-4">
+                  <h3 className="text-sm font-bold text-surface-900 dark:text-night-50 mb-2">
+                    My submissions ({myHistory.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {myHistory.map((h: any) => {
+                      let hAnswers: any = {}
+                      try { hAnswers = typeof h.answers === 'string' ? JSON.parse(h.answers) : (h.answers || {}) } catch { hAnswers = {} }
+                      const open = expandedReceipt === h.id
+                      return (
+                        <div key={h.id} className="p-3 rounded-xl border border-surface-100 dark:border-night-600 bg-surface-50 dark:bg-night-700">
+                          <div className="flex items-center justify-between gap-2 text-sm">
+                            <span className="font-semibold text-surface-700 dark:text-night-200">
+                              Attempt #{h.attemptNo || 1} · {new Date(h.submittedAt).toLocaleString()}
+                              {typeof h.score === 'number' && maxScore > 0 ? ` · Score ${h.score}` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedReceipt(open ? null : h.id)}
+                              aria-expanded={open}
+                              className="text-xs font-semibold text-primary-600 hover:underline shrink-0"
+                            >
+                              {open ? 'Hide receipt ▴' : 'View receipt ▾'}
+                            </button>
+                          </div>
+                          {open && (
+                            <div className="mt-2 space-y-1 text-xs text-surface-600 dark:text-night-300">
+                              {(form.fields || []).map((f: any) => (
+                                <div key={f.id} className="flex gap-2">
+                                  <span className="font-semibold shrink-0">{f.label}:</span>
+                                  <span className="break-words">{String(hAnswers[f.id] ?? '-') || '-'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -830,6 +941,12 @@ export default function FormDetailPage() {
                 <span className="text-surface-500 dark:text-night-400">Edit responses</span>
                 <span className={clsx('font-medium', form.allowEdit ? 'text-primary-600' : 'text-danger-500')}>
                   {form.allowEdit ? 'Allowed' : 'Locked'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-surface-500 dark:text-night-400">Multiple responses</span>
+                <span className={clsx('font-medium', (form as any).allowMultipleResponses ? 'text-primary-600' : 'text-surface-400 dark:text-night-400')}>
+                  {(form as any).allowMultipleResponses ? 'Unlimited' : 'Single'}
                 </span>
               </div>
               <div className="flex items-center justify-between">

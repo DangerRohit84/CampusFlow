@@ -3,9 +3,9 @@ import Badge from '../ui/Badge'
 import { Upload, Building, Layers, Users, EyeOff, Clock, CheckCircle2, Award, AlertTriangle, Hourglass, Pencil, X } from 'lucide-react'
 
 export default function AssignmentHubCard({ hub, onClick, onEdit, onDelete }: any) {
-  const daysUntil = (d:string)=> { const diff=Math.ceil((new Date(d).getTime()-Date.now())/(86400000)); if(diff<0) return 'Overdue'; if(diff===0) return 'Today'; if(diff===1) return 'Tomorrow'; return `${diff} days` }
+  const daysUntil = (d:string)=> { const diff=Math.ceil((new Date(d).getTime()-Date.now())/(86400000)); if(diff<0) return 'Expired'; if(diff===0) return 'Today'; if(diff===1) return 'Tomorrow'; return `${diff} days` }
   const due = daysUntil(hub.dueDate)
-  const dueTone = due==='Overdue'?'text-danger-600':due==='Today'||due==='Tomorrow'?'text-warning-600':'text-surface-600 dark:text-night-300'
+  const dueTone = due==='Expired'?'text-danger-600':due==='Today'||due==='Tomorrow'?'text-warning-600':'text-surface-600 dark:text-night-300'
   const scopeLabel = hub.scope==='ALL'?'Everyone':hub.scope==='DEPARTMENT'?'Department':'Classroom'
   const scopePlain = hub.scope==='ALL' ? 'All students' : hub.scope==='DEPARTMENT' ? (hub.department?.name || 'One department') : (hub.room?.name || 'One classroom')
   const scopeColor = hub.scope==='ALL'?'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300 border-primary-200 dark:border-primary-800':hub.scope==='DEPARTMENT'?'bg-warning-50 text-warning-700 dark:bg-warning-900/20 dark:text-warning-300 border-warning-200 dark:border-warning-800':'bg-success-50 text-success-700 dark:bg-success-900/20 dark:text-success-300 border-success-200 dark:border-success-800'
@@ -38,8 +38,8 @@ export default function AssignmentHubCard({ hub, onClick, onEdit, onDelete }: an
     } else {
       // not yet submitted
       if (isOverdue) {
-        if (hub.allowLateSubmission) submissionTag = <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"><Clock size={12}/> Overdue • Late allowed</span>
-        else submissionTag = <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-danger-50 text-danger-700 border border-danger-200 dark:bg-danger-900/30 dark:text-danger-300 dark:border-danger-700"><AlertTriangle size={12}/> Overdue • Not submitted</span>
+        if (hub.allowLateSubmission) submissionTag = <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"><Clock size={12}/> Expired • Late allowed</span>
+        else submissionTag = <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-danger-50 text-danger-700 border border-danger-200 dark:bg-danger-900/30 dark:text-danger-300 dark:border-danger-700"><AlertTriangle size={12}/> Expired • Not submitted</span>
       } else {
         submissionTag = <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-surface-50 text-surface-600 border border-surface-200 dark:bg-night-800 dark:text-night-400 dark:border-night-700"><Hourglass size={12}/> Pending</span>
       }

@@ -112,7 +112,7 @@ describe('cache-all backend list/own-data endpoints set private SWR headers', ()
   it('search + forms stats + rooms unread-counts set private SWR', () => {
     expect(readBackend('routes/search.ts')).toContain("'private, max-age=15, stale-while-revalidate=30'")
     expect(readBackend('routes/forms.ts')).toContain('CACHE-ALL')
-    expect(countPrivateCC(readBackend('routes/forms.ts'))).toBe(5) // 3 pre-existing + stats + analytics (#9 logic-lite, max-age=15)
+    expect(countPrivateCC(readBackend('routes/forms.ts'))).toBe(6) // 3 pre-existing + stats + analytics (#9) + my-history (multi-submit 20260930, max-age=15)
     expect(readBackend('routes/rooms.ts')).toContain('CACHE-ALL')
     expect(countPrivateCC(readBackend('routes/rooms.ts'))).toBe(9) // 4 pre-existing + muted/pins/threads/thread/search (#8 threads-lite, all max-age=10)
   })

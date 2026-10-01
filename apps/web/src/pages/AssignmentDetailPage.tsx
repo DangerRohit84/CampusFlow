@@ -467,7 +467,7 @@ export default function AssignmentDetailPage() {
                 <Download size={14}/> Export CSV
               </button>
             )}
-            {isLateHub && <span className="inline-flex items-center gap-1.5 px-3 h-11 rounded-full bg-[#ff4b5c] text-white text-xs font-black">Overdue</span>}
+            {isLateHub && <span className="inline-flex items-center gap-1.5 px-3 h-11 rounded-full bg-[#ff4b5c] text-white text-xs font-black">Expired</span>}
             {hub.allowLateSubmission && !isLateHub && <span className="inline-flex items-center gap-1.5 px-3 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white text-xs font-bold">Late allowed</span>}
           </>
         }
@@ -694,7 +694,7 @@ export default function AssignmentDetailPage() {
         </motion.div>
       ) : (
         <motion.div initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.45, ease:[0.22,1,0.36,1] as any }}>
-          <SectionCard title="Your Submission" subtitle={`${hub.submissionMode} · ${hub.maxPoints} pts · ${isLateHub?'Overdue':'Open'}`} icon={<GraduationCap size={16}/>} gradient="from-primary-500 via-primary-500 to-emerald-500" action={<button onClick={()=> navigate('/assignments')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-100 dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-xs font-bold">Back to list</button>}>
+          <SectionCard title="Your Submission" subtitle={`${hub.submissionMode} · ${hub.maxPoints} pts · ${isLateHub?'Expired':'Open'}`} icon={<GraduationCap size={16}/>} gradient="from-primary-500 via-primary-500 to-emerald-500" action={<button onClick={()=> navigate('/assignments')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-100 dark:bg-[#1a1a1a] border border-surface-200 dark:border-[#282828] text-xs font-bold">Back to list</button>}>
             <SubmissionPanel hub={hub} submission={hub.mySubmission} onSubmitted={()=> { loadHub(); notifyEntityMutated('assignment') }} onClose={()=> navigate('/assignments')} />
           </SectionCard>
         </motion.div>

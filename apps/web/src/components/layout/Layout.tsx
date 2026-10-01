@@ -244,7 +244,7 @@ export default function Layout() {
   const nearDeadlineCount = useMemo(() => {
     // WHY shared helper: single resolveDate/isBadgeable/isNear per entity
     // (F4 startTime||startDate, F5 expiresAt||deadline, F6 ACTIVE filter).
-    // Single red pill only (§7) — no overdue split, 0 = hidden, cap 99+.
+    // Single red pill only (§7) — no expired split, 0 = hidden, cap 99+.
     const hacks = Array.isArray(badgeHackathons) ? badgeHackathons : []
     const forms = Array.isArray(badgeForms) ? badgeForms : []
     const interns = Array.isArray(badgeInternships) ? badgeInternships : []
@@ -256,7 +256,7 @@ export default function Layout() {
       contests: countLiveContests(contests),
     }
   }, [badgeHackathons, badgeForms, badgeInternships, badgeContests])
-  // Assignments urgent badge: overdue + due within 3 days (for students: only if not yet submitted)
+  // Assignments urgent badge: expired-actionable + due within 3 days (for students: only if not yet submitted; expired/closed excluded)
   const [assignmentUrgent, setAssignmentUrgent] = useState({ count: 0, hasOverdue: false })
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
@@ -450,7 +450,7 @@ export default function Layout() {
   // Badge counts now derive from the shared RQ queries above (useMemo) —
   // the old 4× uncached mount useEffect was removed (PERPAGE-MISSED).
 
-  // Assignments: due soon (≤3 days) + overdue — for STUDENT hide already-submitted.
+  // Assignments: due soon (≤3 days) + expired-actionable — for STUDENT hide already-submitted; expired/closed excluded.
   // PERPAGE-MISSED: was refetching getHubs on EVERY pathname change
   // (dep location.pathname) + 60s interval + focus listener, duplicating the
   // AssignmentHubPage RQ fetch (same endpoint, page owns the list). Now:
@@ -477,7 +477,7 @@ export default function Layout() {
         const res: any = await assignmentHubAPI.getHubs({ page: 1, limit: 50 })
         if (cancelled) return
         const hubs: any[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
-        // WHY shared helper: overdue + due ≤3d, students minus submitted (§7).
+        // WHY shared helper: expired-actionable + due ≤3d, students minus submitted (§7).
         const urgency = countAssignmentUrgent(hubs, { isStudent: user?.role === 'STUDENT' })
         if (!cancelled) setAssignmentUrgent(urgency)
       } catch {

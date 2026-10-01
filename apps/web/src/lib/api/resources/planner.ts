@@ -71,10 +71,12 @@ export const formAPI = {
   getOne: (id: string) => api.get(`/forms/${id}`).then((r) => r.data),
   create: (data: any) => api.post('/forms', data).then((r) => r.data),
   delete: (id: string) => api.delete(`/forms/${id}`).then((r) => r.data),
-  // #9 logic-lite: extra carries startedAt/durationMs/viewedFieldIds for
-  // drop-off + time-to-complete analytics. Backward compat: respond(id, answers).
-  respond: (id: string, answers: any, extra?: { startedAt?: string | null; durationMs?: number | null; viewedFieldIds?: string[] }) =>
-    api.post(`/forms/${id}/respond`, { answers, ...(extra?.startedAt ? { startedAt: extra.startedAt } : {}), ...(typeof extra?.durationMs === 'number' ? { durationMs: extra.durationMs } : {}), ...(extra?.viewedFieldIds ? { viewedFieldIds: extra.viewedFieldIds } : {}) }).then((r) => r.data),
+  // Multi-submit (20260930, unlimited when allowMultipleResponses=true):
+  // extra.mode auto/new/edit + responseId (edit specific attempt) + my-history.
+  // Backward compat: respond(id, answers) and respond(id, answers, {startedAt,…}).
+  respond: (id: string, answers: any, extra?: { startedAt?: string | null; durationMs?: number | null; viewedFieldIds?: string[]; mode?: 'auto' | 'new' | 'edit'; responseId?: string }) =>
+    api.post(`/forms/${id}/respond`, { answers, ...(extra?.startedAt ? { startedAt: extra.startedAt } : {}), ...(typeof extra?.durationMs === 'number' ? { durationMs: extra.durationMs } : {}), ...(extra?.viewedFieldIds ? { viewedFieldIds: extra.viewedFieldIds } : {}), ...(extra?.mode ? { mode: extra.mode } : {}), ...(extra?.responseId ? { responseId: extra.responseId } : {}) }).then((r) => r.data),
+  myHistory: (id: string) => api.get(`/forms/${id}/my-history`).then((r) => r.data),
   exportOne: async (id: string, filename?: string) => {
     const res = await api.get(`/forms/${id}/export`, { responseType: 'blob' })
     const url = window.URL.createObjectURL(new Blob([res.data]))

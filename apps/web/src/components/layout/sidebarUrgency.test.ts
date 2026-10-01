@@ -154,9 +154,10 @@ describe('countLiveContests', () => {
 })
 
 describe('countAssignmentUrgent', () => {
-  it('counts overdue + due-soon together', () => {
+  it('counts expired-actionable + due-soon together (closed expired excluded)', () => {
     const hubs = [
-      { dueDate: iso(NOW - DAY) },
+      { dueDate: iso(NOW - DAY), allowLateSubmission: true },
+      { dueDate: iso(NOW - DAY), allowLateSubmission: false },
       { dueDate: iso(NOW + DAY) },
       { dueDate: iso(NOW + 10 * DAY) },
       {},
@@ -184,6 +185,30 @@ describe('countAssignmentUrgent', () => {
   it('returns empty urgency for non-arrays', () => {
     expect(countAssignmentUrgent(null)).toEqual({ count: 0, hasOverdue: false })
   })
+  // Assignments overdue -> expired: expired/closed must not nag.
+  // Past-due without late allowed and no submission is Completed (missed/closed),
+  // not actionable — sidebar excludes it like opportunities exclude expired.
+  it('excludes expired-closed past-due without late allowed', () => {
+    const hubs = [{ dueDate: iso(NOW - DAY), allowLateSubmission: false }]
+    expect(countAssignmentUrgent(hubs, { isStudent: true, nowMs: NOW })).toEqual({
+      count: 0,
+      hasOverdue: false,
+    })
+  })
+  it('keeps expired-actionable past-due with late allowed', () => {
+    const hubs = [{ dueDate: iso(NOW - DAY), allowLateSubmission: true }]
+    expect(countAssignmentUrgent(hubs, { isStudent: true, nowMs: NOW })).toEqual({
+      count: 1,
+      hasOverdue: true,
+    })
+  })
+  it('RETURNED needs resubmit stays actionable', () => {
+    const hubs = [{ dueDate: iso(NOW + DAY), mySubmission: { status: 'RETURNED' } }]
+    expect(countAssignmentUrgent(hubs, { isStudent: true, nowMs: NOW })).toEqual({
+      count: 1,
+      hasOverdue: false,
+    })
+  })
 })
 
 describe('formatBadgeCount', () => {
@@ -195,8 +220,11 @@ describe('formatBadgeCount', () => {
 })
 
 describe('getSidebarBadgeLabel', () => {
+  it('assignments tooltip says expired not overdue', () => {
+    expect(getSidebarBadgeLabel('/assignments', 3)).toBe('Assignments \u2014 3 due soon or expired')
+  })
   it('returns §7 tooltip strings for all 6 pills', () => {
-    expect(getSidebarBadgeLabel('/assignments', 3)).toBe('Assignments \u2014 3 due soon or overdue')
+    expect(getSidebarBadgeLabel('/assignments', 3)).toBe('Assignments \u2014 3 due soon or expired')
     expect(getSidebarBadgeLabel('/hackathons', 2)).toBe('Hackathons \u2014 2 closing within 3 days')
     expect(getSidebarBadgeLabel('/contests', 1)).toBe('Contests \u2014 1 live now')
     expect(getSidebarBadgeLabel('/internships', 2)).toBe('Internships \u2014 2 closing within 3 days')

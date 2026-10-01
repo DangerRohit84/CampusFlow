@@ -7,7 +7,7 @@
  * - Completed = submitted OR graded OR past-due-with-submission
  * - All = everything
  *
- * Overdue without submission: Active when late allowed (still submittable),
+ * Expired without submission: Active when late allowed (still submittable),
  * otherwise Completed as missed/closed so Active+Completed partition All.
  */
 

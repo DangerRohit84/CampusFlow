@@ -62,7 +62,7 @@ export default function CreateAssignmentModal({ open, hub, onClose, onSaved }: P
     const d = new Date(form.dueDate)
     if(isNaN(d.getTime())) return null
     const diff = Math.ceil((d.getTime() - Date.now())/86400000)
-    if(diff<0) return { text: `Overdue — was due ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'danger' }
+    if(diff<0) return { text: `Expired — was due ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'danger' }
     if(diff===0) return { text: `Due today at ${d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit'})}`, tone: 'warning' }
     if(diff===1) return { text: `Due tomorrow at ${d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit'})}`, tone: 'warning' }
     if(diff<=7) return { text: `Due in ${diff} days — ${d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`, tone: 'ok' }
