@@ -295,9 +295,14 @@ describe('static wiring (topbottom F1–F14)', () => {
   it('F10: fetch validates platform key', () => {
     expect(src('routes/fetch.ts')).toContain('Unknown platform');
   });
-  it('F11: resume alias has no own limiter (single pass)', () => {
+  it('F11: resume alias has no own limiter (single pass, SUPER_ADMIN-only)', () => {
     const s = src('routes/resume.ts');
-    expect(s).toContain("router.post('/ai-enhance', async");
+    // Studio SUPER_ADMIN-only lockdown intentional: alias must carry authenticate + authorize guard.
+    expect(s).toContain("router.post('/ai-enhance', authenticate, authorize(['SUPER_ADMIN'])");
+    // Still no own limiter/quota — re-dispatch runs /ai-upgrade's aiLimiter + aiQuota exactly once.
+    const line = s.split('\n').find((l) => l.includes("'/ai-enhance'")) || '';
+    expect(line).not.toContain('aiLimiter');
+    expect(line).not.toContain('aiQuota');
   });
   it('F12: search isolates all branches + strips joinCode', () => {
     const s = src('routes/search.ts');

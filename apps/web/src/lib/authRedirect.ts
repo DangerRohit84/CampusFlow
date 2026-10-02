@@ -22,6 +22,9 @@ export function isSuperAdminRoute(path: unknown): boolean {
   if (path === '/admin/fetch' || path.startsWith('/admin/fetch')) return true
   if (path === '/admin/ai-manager' || path.startsWith('/admin/ai-manager')) return true
   if (path === '/admin/dashboard' || path.startsWith('/admin/dashboard')) return true
+  // Resume + Portfolio Studio are SUPER_ADMIN-only (direct URL → /403 for non-super).
+  if (path === '/resume-studio' || path.startsWith('/resume-studio/') || path.startsWith('/resume-studio?')) return true
+  if (path === '/portfolio-studio' || path.startsWith('/portfolio-studio/') || path.startsWith('/portfolio-studio?')) return true
   return false
 }
 

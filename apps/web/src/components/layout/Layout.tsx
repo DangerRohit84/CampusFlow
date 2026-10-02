@@ -60,10 +60,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/alumni', label: 'Alumni', icon: GraduationCap },
       { path: '/calendar', label: 'Calendar', icon: CalendarDays },
     ]},
-    { label: 'CAREER', items: [
-      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
-      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
-    ]},
+    // SUPER_ADMIN-only: Resume + Portfolio Studio hidden for STUDENT (route guard → /403).
   ],
   TEACHER: [
     { label: '', items: [{ path: '/dashboard', label: 'Overview', icon: LayoutDashboard }] },
@@ -83,10 +80,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/teacher/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
     ]},
-    { label: 'CAREER', items: [
-      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
-      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
-    ]},
+    // SUPER_ADMIN-only: Resume + Portfolio Studio hidden for TEACHER (route guard → /403).
     { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }] },
   ],
   COLLEGE_ADMIN: [
@@ -107,10 +101,7 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/admin/opportunities', label: 'Opportunities', icon: Target },
       { path: '/contests/leaderboard', label: 'Leaderboard', icon: BarChart2 },
     ]},
-    { label: 'CAREER', items: [
-      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
-      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
-    ]},
+    // SUPER_ADMIN-only: Resume + Portfolio Studio hidden for COLLEGE_ADMIN (route guard → /403).
     { label: 'Management', items: [{ path: '/admin', label: 'Admin Panel', icon: Shield }, { path: '/reports', label: 'Reports', icon: Flag }] },
   ],
   SUPER_ADMIN: [
@@ -120,6 +111,10 @@ const navByRole: Record<string, NavSection[]> = {
       { path: '/superadmin/reports', label: 'Reports', icon: Flag },
       { path: '/admin/fetch', label: 'Fetch Data', icon: Download },
       { path: '/admin/ai-manager', label: 'AI Manager', icon: Brain },
+    ]},
+    { label: 'CAREER', items: [
+      { path: '/resume-studio', label: 'Resume Studio', icon: FileText },
+      { path: '/portfolio-studio', label: 'Portfolio Studio', icon: Globe },
     ]},
   ],
   // Scoped view when SUPER_ADMIN drills into a tenant — mirrors COLLEGE_ADMIN full sidebar

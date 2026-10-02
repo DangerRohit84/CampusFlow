@@ -8,16 +8,22 @@ import { convertFileToLatex, getResumeGlobalModelInfo, getCanvasAvailable } from
 import { scrapeJdUrl, heuristicCoverLetter, fetchGithubRepos } from '../services/resumeDepth'
 import { aiChat, aiChatWithUserKey } from '../ai/client'
 import { config } from '../config'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest, authorize } from '../middleware/auth'
 import { aiQuota } from '../middleware/aiQuota'
 import { validateUploadMagicBytes } from '../utils/uploadScan'
 import prisma from '../config/db'
 import { logger } from '../utils/logger'
+import { decryptApiKey } from '../utils/encryption'
 
 // Helper: extract per-user Groq API key from request (header X-GROQ-API-KEY or body field)
 // Per spec: user/student adds their own Groq key in Settings → AI; remaining features work without it.
-// Backend reads from header X-GROQ-API-KEY (set by frontend from localStorage campusflow:groq-key) or from
-// authenticated user's stored preferences/UserIntegration if available. Superadmin's AI Manager provides global model.
+// SECURITY (HIGH, FULL AUDIT 2026-10-02): frontend holds the key session-only
+// (sessionStorage `campusflow:groq-key`, tab-scoped, never localStorage) and
+// sends X-GROQ-API-KEY per request; backend ALSO reads the encrypted store
+// (UserIntegration type 'groq' accessToken + User.preferences, encrypted with
+// AI_ENCRYPTION_KEY via encryptApiKey, decrypted here). Global fallback is the
+// SUPER_ADMIN AI Manager provider (encrypted, maskApiKey). VITE_GROQ_API_KEY is
+// FORBIDDEN in prod (Vite embeds VITE_* in bundle). Never logs key values.
 function extractUserGroqKey(req: Request): string | null {
   const h = (req.headers['x-groq-api-key'] || req.headers['x-groq-key'] || req.headers['x-groq-apikey'] || '') as string
   if (h && String(h).trim().length > 10) return String(h).trim()
@@ -33,8 +39,9 @@ function extractUserGroqKey(req: Request): string | null {
 async function extractUserGroqKeyWithDb(req: AuthRequest): Promise<string | null> {
   const fromHeader = extractUserGroqKey(req as Request)
   if (fromHeader) return fromHeader
-  // Try fetching from authenticated user's preferences (User.preferences JSON may contain groqApiKey)
-  // or UserIntegration type 'groq'
+  // Encrypted store first (UserIntegration accessToken + preferences, v1: prefix
+  // via encryptApiKey/AI_ENCRYPTION_KEY). Plaintext fallback covers pre-encryption
+  // rows during migration — never logs values, never throws.
   if (req.userId) {
     try {
       // HALF2: parallel independent reads (was 2 sequential awaits) + narrow selects preserved
@@ -46,14 +53,41 @@ async function extractUserGroqKeyWithDb(req: AuthRequest): Promise<string | null
       if (userTyped?.preferences) {
         try {
           const prefs = typeof userTyped.preferences === 'string' ? JSON.parse(userTyped.preferences) : userTyped.preferences
-          if (prefs?.groqApiKey && String(prefs.groqApiKey).trim().length > 10) return String(prefs.groqApiKey).trim()
-          if (prefs?.aiConfig?.groqApiKey && String(prefs.aiConfig.groqApiKey).trim().length > 10) return String(prefs.aiConfig.groqApiKey).trim()
+          for (const cand of [prefs?.groqApiKey, prefs?.aiConfig?.groqApiKey]) {
+            const dec = tryDecryptStoredGroqKey(cand)
+            if (dec) return dec
+          }
         } catch {}
       }
-      if ((integ as any)?.accessToken && String((integ as any).accessToken).trim().length > 10) return String((integ as any).accessToken).trim()
+      const decInteg = tryDecryptStoredGroqKey((integ as any)?.accessToken)
+      if (decInteg) return decInteg
     } catch {}
   }
   return null
+}
+
+/**
+ * Decrypt a stored per-user Groq key (v1: via AI_ENCRYPTION_KEY) with plaintext
+ * fallback for pre-encryption rows. Pure + hermetic for tests. Never logs
+ * values, never throws — returns null when absent/invalid.
+ */
+export function tryDecryptStoredGroqKey(stored: unknown): string | null {
+  try {
+    if (typeof stored !== 'string') return null
+    const trimmed = stored.trim()
+    if (trimmed.length <= 10) return null
+    if (trimmed.startsWith('v1:')) {
+      try {
+        const plain = decryptApiKey(trimmed).trim()
+        return plain.length > 10 ? plain : null
+      } catch {
+        return null
+      }
+    }
+    return trimmed
+  } catch {
+    return null
+  }
 }
 
 const router = Router()
@@ -552,7 +586,7 @@ async function tryAIWithUserKey(promptSystem: string, promptUser: string, userAp
  * - tex: returns .tex as attachment
  * - pdf: returns vector PDF (tries pdflatex, falls back to pdfkit selectable PDF)
  */
-router.post('/latex', limiter, async (req: Request, res: Response) => {
+router.post('/latex', limiter, authenticate, authorize(['SUPER_ADMIN']), async (req: Request, res: Response) => {
   const parsed = resumeSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid ResumeData', details: parsed.error.flatten() })
@@ -653,7 +687,7 @@ const aiUpgradeSchema = z.object({
  * Calls Groq/Llama via aiChat (feature 'resume') or falls back to heuristic.
  * Keeps existing 3 templates; does not modify template choice.
  */
-router.post('/ai-upgrade', aiLimiter, aiQuota('resume-ai-upgrade'), async (req: AuthRequest, res: Response) => {
+router.post('/ai-upgrade', aiLimiter, authenticate, authorize(['SUPER_ADMIN']), aiQuota('resume-ai-upgrade'), async (req: AuthRequest, res: Response) => {
   const parsed = aiUpgradeSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
@@ -851,7 +885,7 @@ Return JSON: { "data": { /* ResumeData */ } }`
  * revision carried its own aiLimiter here AND skipped aiQuota entirely:
  * double limiter count + quota bypass.)
  */
-router.post('/ai-enhance', async (req: Request, res: Response) => {
+router.post('/ai-enhance', authenticate, authorize(['SUPER_ADMIN']), async (req: Request, res: Response) => {
   // Forward to ai-upgrade handler by reusing schema
   req.url = '/ai-upgrade'
   // @ts-ignore
@@ -862,7 +896,7 @@ router.post('/ai-enhance', async (req: Request, res: Response) => {
  * POST /api/resume/ats-score
  * Body: { data: ResumeData, jobDescription?: string }
  */
-router.post('/ats-score', aiLimiter, aiQuota('resume-ats-score'), async (req: AuthRequest, res: Response) => {
+router.post('/ats-score', aiLimiter, authenticate, authorize(['SUPER_ADMIN']), aiQuota('resume-ats-score'), async (req: AuthRequest, res: Response) => {
   const schema = z.object({
     data: resumeSchema,
     jobDescription: z.string().optional().default(''),
@@ -916,7 +950,7 @@ Return JSON: { "aiScore": 0-100, "feedback": ["..."], "missingKeywords": ["..."]
  * Body: { url: string }
  * Returns: { text, length, truncated, sourceUrl } — verbatim JD text (max 6k).
  */
-router.post('/jd-scrape', jdScrapeLimiter, authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/jd-scrape', jdScrapeLimiter, authenticate, authorize(['SUPER_ADMIN']), async (req: AuthRequest, res: Response) => {
   const schema = z.object({ url: z.string().min(8).max(2000) })
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) {
@@ -950,7 +984,7 @@ router.post('/jd-scrape', jdScrapeLimiter, authenticate, async (req: AuthRequest
  * Body: { data: ResumeData, jobDescription: string, tone?: professional|enthusiastic|concise }
  * Returns: { letter, usedAI, hasGroq } — grounded in resume + JD only.
  */
-router.post('/cover-letter', aiLimiter, aiQuota('resume-cover-letter'), async (req: AuthRequest, res: Response) => {
+router.post('/cover-letter', aiLimiter, authenticate, authorize(['SUPER_ADMIN']), aiQuota('resume-cover-letter'), async (req: AuthRequest, res: Response) => {
   const schema = z.object({
     data: resumeSchema,
     jobDescription: z.string().min(1).max(8000),
@@ -982,8 +1016,9 @@ router.post('/cover-letter', aiLimiter, aiQuota('resume-cover-letter'), async (r
 /**
  * GET /api/resume/github-repos/:username?limit=12
  * Returns: { repos: [{ name, description, language, stars, forks, url, homepage, updatedAt, topics }] }
+ * SUPER_ADMIN-only: '/github-repos' family guarded by authorize(['SUPER_ADMIN']) — :username param variant below.
  */
-router.get('/github-repos/:username', githubReposLimiter, authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/github-repos/:username', githubReposLimiter, authenticate, authorize(['SUPER_ADMIN']), async (req: AuthRequest, res: Response) => {
   try {
     const raw = String(req.params.username || '').trim()
     const limitParam = parseInt(String(req.query.limit || '12'), 10)
@@ -1072,7 +1107,7 @@ async function extractTextFromBuffer(buffer: Buffer, originalName: string, mimet
  * Returns: { data: ResumeData, rawText, heuristic, usedAI }
  * Also supports JSON: { rawText: string }
  */
-router.post('/parse', parseLimiter, authenticate, (req: Request, res: Response, next: NextFunction) => {
+router.post('/parse', parseLimiter, authenticate, authorize(['SUPER_ADMIN']), (req: Request, res: Response, next: NextFunction) => {
     upload.single('resume')(req as any, res as any, (err: any) => {
       if (err) {
         const status = err.status || err.statusCode || 400
@@ -1187,7 +1222,7 @@ Rules:
 })
 
 // Alias for convenience — same as /parse but with text field — per-user key + global model
-router.post('/parse-text', parseLimiter, authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/parse-text', parseLimiter, authenticate, authorize(['SUPER_ADMIN']), async (req: AuthRequest, res: Response) => {
   const { rawText, text } = req.body || {}
   const t = rawText || text || ''
   if (!t || String(t).trim().length < 10) {
@@ -1218,7 +1253,7 @@ router.post('/parse-text', parseLimiter, authenticate, async (req: AuthRequest, 
 })
 
 // Backwards alias — some clients may call /upload
-router.post('/upload', parseLimiter, authenticate, (req: Request, res: Response, next: NextFunction) => {
+router.post('/upload', parseLimiter, authenticate, authorize(['SUPER_ADMIN']), (req: Request, res: Response, next: NextFunction) => {
     upload.single('resume')(req as any, res as any, (err: any) => {
       if (err) {
         const status = err.status || err.statusCode || 400
@@ -1288,7 +1323,7 @@ const convertUpload = multer({
   },
 })
 
-router.post('/convert-to-latex', convertLimiter, (req: Request, res: Response, next: NextFunction) => {
+router.post('/convert-to-latex', convertLimiter, authenticate, authorize(['SUPER_ADMIN']), (req: Request, res: Response, next: NextFunction) => {
   // Accept both "file" and "resume" field names for compat with earlier clients
   const anyReq: any = req
   // Peek at multipart header to decide field? Simpler: try both sequentially
@@ -1362,7 +1397,8 @@ router.post('/convert-to-latex', convertLimiter, (req: Request, res: Response, n
     }
 
     // Per spec: per-user Groq API key + superadmin's global model (AI Manager)
-    // Frontend sends X-GROQ-API-KEY header from localStorage campusflow:groq-key; backend also checks user preferences
+    // Frontend sends X-GROQ-API-KEY header from sessionStorage (tab-scoped, never
+    // localStorage); backend ALSO checks the encrypted user store (see above).
     const userGroqKey = await extractUserGroqKeyWithDb(req as any) || extractUserGroqKey(req as Request)
     const result = await convertFileToLatex(buffer, fileName, mimeType, userGroqKey || undefined)
     // For text-only JSON uploads, ensure returned fileName reflects input
@@ -1389,7 +1425,7 @@ router.post('/convert-to-latex', convertLimiter, (req: Request, res: Response, n
  * Body: ResumeData JSON
  * Returns: .docx as attachment (via docx lib mirror of jsPDF templates)
  */
-router.post('/export-docx', limiter, async (req: Request, res: Response) => {
+router.post('/export-docx', limiter, authenticate, authorize(['SUPER_ADMIN']), async (req: Request, res: Response) => {
   const parsed = resumeSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid ResumeData', details: parsed.error.flatten() })
@@ -1428,7 +1464,7 @@ router.get('/export-docx/health', (_req, res) => {
  * Body: ResumeData JSON
  * Returns: .txt as attachment (plain text ATS-safe)
  */
-router.post('/export-txt', limiter, async (req: Request, res: Response) => {
+router.post('/export-txt', limiter, authenticate, authorize(['SUPER_ADMIN']), async (req: Request, res: Response) => {
   const parsed = resumeSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid ResumeData', details: parsed.error.flatten() })

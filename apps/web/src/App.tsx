@@ -287,8 +287,9 @@ export default function App() {
             <Route path="contests" element={<LazyRoute label="Loading contests..."><CodingContestsPage /></LazyRoute>} />
             <Route path="contests/leaderboard" element={<LazyRoute label="Loading leaderboard..."><ContestLeaderboardPage /></LazyRoute>} />
             <Route path="coding-profile" element={<LazyRoute label="Loading coding profile..."><CodingProfilePage /></LazyRoute>} />
-            <Route path="resume-studio" element={<LazyRoute label="Loading Resume Studio..."><ResumeStudioPage /></LazyRoute>} />
-            <Route path="portfolio-studio" element={<LazyRoute label="Loading Portfolio Studio..."><PortfolioStudioPage /></LazyRoute>} />
+            {/* SUPER_ADMIN-only: Resume + Portfolio Studio (direct URL → /403 for non-super). Prop order element-first so guard precedes path in source (studio-superonly lock). */}
+            <Route element={<SuperAdminGuard><LazyRoute label="Loading Resume Studio..."><ResumeStudioPage /></LazyRoute></SuperAdminGuard>} path="resume-studio" />
+            <Route element={<SuperAdminGuard><LazyRoute label="Loading Portfolio Studio..."><PortfolioStudioPage /></LazyRoute></SuperAdminGuard>} path="portfolio-studio" />
 
             <Route path="forms" element={<LazyRoute label="Loading forms..."><FormsPage /></LazyRoute>} />
             <Route path="forms/:id" element={<LazyRoute label="Loading form..."><FormDetailPage /></LazyRoute>} />

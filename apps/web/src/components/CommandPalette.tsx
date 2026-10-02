@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { searchAPI } from '../lib/api'
+import { useAuthStore } from '../store/authStore'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useDebounce } from '../hooks/useDebounce'
 import clsx from 'clsx'
@@ -56,6 +57,12 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
   const dialogRef = useRef<HTMLDivElement>(null)
   const listId = useId()
   const navigate = useNavigate()
+  // SUPER_ADMIN-only: hide Resume/Portfolio Studio for non-super roles.
+  const role = useAuthStore((s) => s.user?.role)
+  const isSuper = role === 'SUPER_ADMIN'
+  const visiblePages = isSuper
+    ? pages
+    : pages.filter((p) => p.path !== '/resume-studio' && p.path !== '/portfolio-studio')
   // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
   // items-start variant keeps pt-[15vh] top-anchored palette, offset shifts horizontal center only.
   const centeringClass = useModalCenteringClass()
@@ -97,7 +104,8 @@ export default function CommandPalette({ open: externalOpen, onClose }: { open?:
     return () => controller.abort()
   }, [debouncedQuery])
 
-  const filteredPages = pages.filter((p) => p.label.toLowerCase().includes(query.toLowerCase()))
+  // SUPER_ADMIN gate: non-super roles never see studio entries (role filter).
+  const filteredPages = visiblePages.filter((p) => p.label.toLowerCase().includes(query.toLowerCase()))
 
   // WHY: one flat option list drives ArrowUp/Down + Enter + aria-activedescendant
   // (combobox pattern) so keyboard and screen-reader users get the same palette.
