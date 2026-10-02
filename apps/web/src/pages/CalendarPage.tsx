@@ -389,11 +389,11 @@ export default function CalendarPage() {
                 </div>
                 <div className="space-y-0.5">
                   {visibleEvents.map((evt) => {
-                    // WHY: contest chip was static text — click did nothing.
-                    // Link contest names to the platform URL (same dest as the
-                    // detail-row link below); other types stay static. Anchor is
-                    // natively keyboard-accessible; stopPropagation keeps the
-                    // parent day-cell onClick (select date) from swallowing it.
+                    // WHY: whole chip navigates to the external platform URL
+                    // (no /contests/:id route). Cursor-only — no underline/color
+                    // on hover. Anchor stays (parent day-cell is a date selector
+                    // div, not role=link, so no nested-interactive); stopPropagation
+                    // keeps day-cell select-date from swallowing the click.
                     const contestHref = evt.type === 'contest' ? getContestHref({ url: evt.url }) : null
                     if (!contestHref) {
                       return (
@@ -417,7 +417,7 @@ export default function CalendarPage() {
                         rel="noopener noreferrer"
                         title={`Open ${evt.title} contest`}
                         onClick={(e) => e.stopPropagation()}
-                        className="block truncate text-[10px] font-medium px-1 py-0.5 rounded cursor-pointer hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1"
+                        className="block truncate text-[10px] font-medium px-1 py-0.5 rounded cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1"
                         style={{
                           backgroundColor: `${eventColor(evt.type)}20`,
                           color: eventColor(evt.type),
@@ -478,10 +478,32 @@ export default function CalendarPage() {
                     : FileText
 
                   const evtColor = eventColor(evt.type)
+                  // WHY: whole contest row navigates to the external platform URL
+                  // (no /contests/:id route — same dest as CodingContestsPage card).
+                  // Matches HackathonsPage article role=link pattern but external
+                  // (window.open _blank noopener). Guard ignores the inner GCal
+                  // <a> so only background row clicks navigate.
+                  const detailHref = evt.type === 'contest' ? getContestHref({ url: evt.url }) : null
                   return (
                     <div
                       key={evt.id}
-                      className="flex items-start gap-3 p-3 rounded-xl bg-white dark:bg-night-850 border border-surface-100 dark:border-night-650"
+                      role={detailHref ? 'link' : undefined}
+                      tabIndex={detailHref ? 0 : undefined}
+                      aria-label={detailHref ? `Open ${evt.title} contest` : undefined}
+                      onClick={detailHref ? (e) => {
+                        const t = e.target as HTMLElement
+                        if (t.closest('a,button')) return
+                        window.open(detailHref, '_blank', 'noopener,noreferrer')
+                      } : undefined}
+                      onKeyDown={detailHref ? (e) => {
+                        const t = e.target as HTMLElement
+                        if (t.closest('a,button')) return
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          window.open(detailHref, '_blank', 'noopener,noreferrer')
+                        }
+                      } : undefined}
+                      className={`flex items-start gap-3 p-3 rounded-xl bg-white dark:bg-night-850 border border-surface-100 dark:border-night-650${detailHref ? ' cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2' : ''}`}
                     >
                       <div
                         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -513,23 +535,20 @@ export default function CalendarPage() {
                         </div>
                         <p className="text-sm font-medium text-surface-900 dark:text-night-50 truncate">
                           {(() => {
-                            // WHY: contest name was static <p> — click did nothing.
-                            // Same external platform URL as CodingContestsPage title
-                            // (no /contests/:id route exists). Native <a> = keyboard
-                            // accessible + pointer + underline affordance.
+                            // WHY: whole detail row navigates (role=link + window.open
+                            // _blank, no /contests/:id route). Title is cursor-only —
+                            // no underline/color on hover. Span (not <a>) avoids nested
+                            // interactive inside the clickable row; row owns the
+                            // focus-visible ring + keyboard handler for a11y.
                             if (evt.type !== 'contest') return <>{evt.title}</>
-                            const href = getContestHref({ url: evt.url })
-                            if (!href) return <>{evt.title}</>
+                            if (!detailHref) return <>{evt.title}</>
                             return (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <span
                                 title={`Open ${evt.title} contest`}
-                                className="cursor-pointer hover:underline hover:text-purple-700 dark:hover:text-purple-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+                                className="cursor-pointer rounded"
                               >
                                 {evt.title}
-                              </a>
+                              </span>
                             )
                           })()}
                         </p>

@@ -784,14 +784,40 @@ export default function CodingContestsPage() {
                 const pCfg = platformConfig[c.platform] || { color: 'text-surface-700 dark:text-night-200', bg: 'bg-surface-100 dark:bg-night-700', label: c.platform }
                 const contestSolutions = solutions[c.id] || []
                 const isExpanded = expandedContest === c.id
+                // WHY: whole card navigates to the external platform URL (no
+                // /contests/:id route exists — same dest as the external icon).
+                // Matches HackathonsPage article role=link pattern but external
+                // (window.open _blank noopener). Guard ignores clicks from inner
+                // controls (Remind/GCal/mute/solutions/participants/delete) so
+                // only background card clicks navigate.
+                const cardHref = getContestHref(c)
 
                 return (
                   <motion.div
                     key={c.id}
+                    role={cardHref ? 'link' : undefined}
+                    tabIndex={cardHref ? 0 : undefined}
+                    aria-label={cardHref ? `Open ${c.title} — ${pCfg.label} contest` : undefined}
+                    onClick={(e) => {
+                      if (!cardHref) return
+                      const t = e.target as HTMLElement
+                      if (t.closest('button,select,input,a,textarea')) return
+                      window.open(cardHref, '_blank', 'noopener,noreferrer')
+                    }}
+                    onKeyDown={(e) => {
+                      if (!cardHref) return
+                      const t = e.target as HTMLElement
+                      if (t.closest('button,select,input,a,textarea')) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        window.open(cardHref, '_blank', 'noopener,noreferrer')
+                      }
+                    }}
                     initial={shouldReduce ? undefined : { opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={clsx(
                       'bg-white dark:bg-night-800 rounded-2xl border border-surface-100 dark:border-night-600 p-4 hover:shadow-lg transition-all',
+                      cardHref && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
                       alarmIds.has(c.id) && 'ring-2 ring-amber-400 dark:ring-amber-500 border-amber-300 dark:border-amber-500',
                       alarmIds.has(c.id) && !shouldReduce && 'animate-pulse',
                     )}
@@ -815,21 +841,19 @@ export default function CodingContestsPage() {
 
                         <h3 className="font-bold text-surface-900 dark:text-night-50 mb-1 line-clamp-1">
                           {(() => {
-                            // WHY: title was static text — hover/click did nothing.
-                            // Link to the external platform URL (same dest as the
-                            // card's external icon; no /contests/:id route exists).
-                            const href = getContestHref(c)
-                            if (!href) return <>{c.title}</>
+                            // WHY: whole card navigates (role=link + window.open _blank,
+                            // no /contests/:id route). Title is cursor-only — no
+                            // underline/color on hover. Span (not <a>) avoids nested
+                            // interactive inside the clickable card; card owns the
+                            // focus-visible ring + keyboard handler for a11y.
+                            if (!cardHref) return <>{c.title}</>
                             return (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <span
                                 title={`Open ${c.title} — ${pCfg.label} contest`}
-                                className="cursor-pointer hover:underline hover:text-primary-600 dark:hover:text-success-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+                                className="cursor-pointer rounded"
                               >
                                 {c.title}
-                              </a>
+                              </span>
                             )
                           })()}
                         </h3>
