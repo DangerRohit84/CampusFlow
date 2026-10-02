@@ -15,6 +15,7 @@ import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
 import { useRaceGuard, isAbortError } from '../hooks/useRaceGuard'
 import { useConfirm } from '../components/ui/ConfirmModal'
 import { showUndoToast } from '../lib/undoToast'
+import { mergeTimetableForDate, mergeTimetableForRange, findClashes, validateOverrideInput, GCAL_REPEAT_OPTIONS, GCAL_EDIT_SCOPE_OPTIONS, resolveAddRepeatMode, type GCalRepeat } from '../lib/timetableMerge'
 
 function getActiveProvider() {
   try {
@@ -46,11 +47,40 @@ export function normalizeTimetableResult(result: unknown): any[] {
   return Array.isArray(list) ? list : []
 }
 
+function toISODate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+function addDaysISO(iso: string, n: number): string {
+  const t = new Date(`${iso}T00:00:00.000Z`).getTime() + n * 86400000
+  return new Date(t).toISOString().slice(0, 10)
+}
+function toMinutesLocal(t: string | null | undefined): number | null {
+  if (!t) return null
+  const m = String(t).trim().match(/^(\d{1,2})\s*:\s*(\d{2})\s*([AP]M)?$/i)
+  if (!m) return null
+  let h = parseInt(m[1], 10)
+  const min = parseInt(m[2], 10)
+  const ap = (m[3] || '').toUpperCase()
+  if (ap) {
+    if (h < 1 || h > 12) return null
+    h = ap === 'AM' ? h % 12 : (h % 12) + 12
+  } else if (h < 0 || h > 23) return null
+  if (min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<any[]>([])
+  const [overrides, setOverrides] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1)
+  // Editable Period Grid — view toggle Weekly | Range
+  const [viewMode, setViewMode] = useState<'weekly' | 'range'>('weekly')
+  const [rangeFrom, setRangeFrom] = useState(() => toISODate(new Date()))
+  const [rangeTo, setRangeTo] = useState(() => addDaysISO(toISODate(new Date()), 6))
+  const [rangeEntries, setRangeEntries] = useState<any[]>([])
+  const [rangeLoading, setRangeLoading] = useState(false)
 
   // Upload modal
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
@@ -61,7 +91,33 @@ export default function SchedulePage() {
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [offlineOcrLoading, setOfflineOcrLoading] = useState(false)
+  const [saveClearOverrides, setSaveClearOverrides] = useState(false)
   const { confirm: confirmDialog } = useConfirm()
+
+  // Add Class modal — GCal-aligned Repeats (Does not repeat / Daily / Weekly).
+  // WHY GCal model: manual adding follows Google Calendar "Does not repeat"
+  // dropdown mental model; Weekly maps to recurring template (infinite, like
+  // upload), Daily / Does not repeat map to dated TEMP overrides (62d cap).
+  // Monthly omitted V1 (weekly template + 62d range cap, no new tables).
+  const [addOpen, setAddOpen] = useState(false)
+  const [addRepeat, setAddRepeat] = useState<GCalRepeat>('weekly')
+  const [addForm, setAddForm] = useState({ title: '', course: '', location: '', teacher: '', dayOfWeek: 0, startTime: '09:00', endTime: '10:00', type: 'CLASS', validFrom: toISODate(new Date()), validUntil: addDaysISO(toISODate(new Date()), 5) })
+  const [addSaving, setAddSaving] = useState(false)
+
+  // Edit modal — scope radio Every week vs Only this range
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState<any>(null)
+  const [editScope, setEditScope] = useState<'every' | 'range'>('every')
+  const [editForm, setEditForm] = useState({ title: '', course: '', location: '', teacher: '', dayOfWeek: 0, startTime: '09:00', endTime: '10:00', type: 'CLASS' })
+  const [editRange, setEditRange] = useState({ validFrom: toISODate(new Date()), validUntil: addDaysISO(toISODate(new Date()), 5) })
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Delete scope modal — Every week vs Only this range
+  const [delOpen, setDelOpen] = useState(false)
+  const [delTarget, setDelTarget] = useState<any>(null)
+  const [delScope, setDelScope] = useState<'every' | 'range'>('every')
+  const [delRange, setDelRange] = useState({ validFrom: toISODate(new Date()), validUntil: addDaysISO(toISODate(new Date()), 5) })
+  const [delSaving, setDelSaving] = useState(false)
 
   // Offline OCR fallback — tesseract.js on demand (backend vision is primary).
   const handleOfflineOcr = async () => {
@@ -99,17 +155,44 @@ export default function SchedulePage() {
   const load = async () => {
     const { signal, seq } = newRequest()
     try {
-      const [s, t] = await Promise.all([timetableAPI.getAll({ signal }), taskAPI.getToday(signal)])
+      const [s, t, o] = await Promise.all([
+        timetableAPI.getAll({ signal }),
+        taskAPI.getToday(signal),
+        scheduleAPI.listOverrides({ signal }).catch(() => []),
+      ])
       if (!isCurrent(seq) || signal.aborted) return
-      setSchedules(s)
-      setTasks(t)
+      setSchedules(Array.isArray(s) ? s : [])
+      setTasks(Array.isArray(t) ? t : [])
+      setOverrides(Array.isArray(o) ? o : [])
     } catch (e: any) {
       if (isAbortError(e, signal)) return
     }
     if (isCurrent(seq) && !signal.aborted) setLoading(false)
   }
 
+  const loadRange = async (from: string, to: string) => {
+    setRangeLoading(true)
+    try {
+      // Prefer server merge (single source); fall back to client merge offline.
+      const merged = await timetableAPI.getRange(from, to).catch(() => null)
+      if (Array.isArray(merged)) {
+        setRangeEntries(merged)
+      } else {
+        setRangeEntries(mergeTimetableForRange(schedules, overrides, from, to))
+      }
+    } finally {
+      setRangeLoading(false)
+    }
+  }
+
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (viewMode === 'range' && rangeFrom && rangeTo && rangeFrom <= rangeTo) {
+      loadRange(rangeFrom, rangeTo)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, rangeFrom, rangeTo, schedules, overrides])
 
   // STATE-SYNC: timetable + task changes from any surface (planner, dashboard,
   // other device) refresh the period grid without navigation.
@@ -154,14 +237,15 @@ export default function SchedulePage() {
     }
   }
 
-  // Save parsed classes
+  // Save parsed classes — clearExisting wipes TEMPLATES ONLY (overrides survive
+  // re-uploads). Checkbox "Also clear temporary edits" maps to clearOverrides.
   const handleSaveClasses = async () => {
     if (parsedClasses.length === 0) return
     setUploading(true)
     try {
-      await timetableAPI.save(parsedClasses, true)
-      toast.success(`${parsedClasses.length} classes saved!`)
-      setUploadModalOpen(false); setParsedClasses([]); setTimetableText(''); setFile(null)
+      await timetableAPI.save(parsedClasses, true, saveClearOverrides)
+      toast.success(`${parsedClasses.length} classes saved!${saveClearOverrides ? '' : ' (temporary edits preserved)'}`)
+      setUploadModalOpen(false); setParsedClasses([]); setTimetableText(''); setFile(null); setSaveClearOverrides(false)
       // LISTENER-OWNS-REFETCH (AssignmentDetailPage precedent): notify reloads
       // the grid via useEntitySync(['schedule','task']) — a direct load() here
       // would double-fetch (direct + listener).
@@ -170,28 +254,145 @@ export default function SchedulePage() {
     setUploading(false)
   }
 
+  // Delete opens scope modal (Every week vs Only this range) — not immediate.
   const handleDeleteClass = async (item: any) => {
-    const id = typeof item === 'string' ? item : item?.id
-    if (!id) return
-    // WHY: accessible ConfirmModal instead of native confirm() (F24), plus Undo.
-    const ok = await confirmDialog({ title: 'Delete class?', message: `Delete "${item?.title || 'this class'}" from your timetable? You can undo right after.`, confirmLabel: 'Delete' })
-    if (!ok) return
-    // Snapshot for Undo — backend whitelists fields on save, extra keys ignored.
-    const snapshot = typeof item === 'object' && item ? { ...item } : null
+    if (!item?.id) return
+    // Temporary dated entries delete directly (they ARE the override).
+    if (item._temp || item._overrideKind === 'TEMP') {
+      const ok = await confirmDialog({ title: 'Delete temporary class?', message: `Delete "${item?.title}" (${item?.date || 'dated'})?`, confirmLabel: 'Delete' })
+      if (!ok) return
+      try {
+        await scheduleAPI.deleteOverride(item._overrideId || item.id)
+        toast.success('Temporary class deleted')
+        notifyEntityMutated('schedule', { action: 'override-deleted' })
+      } catch { toast.error('Failed') }
+      return
+    }
+    setDelTarget(item)
+    setDelScope('every')
+    setDelRange({ validFrom: rangeFrom, validUntil: rangeTo })
+    setDelOpen(true)
+  }
+
+  const handleConfirmDeleteScope = async () => {
+    if (!delTarget?.id) return
+    setDelSaving(true)
     try {
-      // WHY: env-aware shared client (VITE_API_URL) — never hardcode localhost (F21).
-      await scheduleAPI.delete(id)
-      // Same listener-owns-refetch as handleSaveClasses (direct load = 2×).
-      notifyEntityMutated('schedule', { scheduleId: id, action: 'deleted' })
-      if (snapshot) {
-        showUndoToast('Class deleted', async () => {
-          const { id: _id, _type: _t, _colorClass: _c, _data: _d, ...rest } = snapshot
+      if (delScope === 'every') {
+        const snapshot = { ...delTarget }
+        await scheduleAPI.delete(delTarget.id)
+        notifyEntityMutated('schedule', { scheduleId: delTarget.id, action: 'deleted' })
+        showUndoToast('Class deleted (every week)', async () => {
+          const { id: _id, _type: _t, _colorClass: _c, _data: _d, date: _dt, _overrideKind: _ok, _overrideId: _oi, _cancelled: _x, _temp: _tp, ...rest } = snapshot
           await timetableAPI.save([rest], false)
           notifyEntityMutated('schedule', { action: 'restored' })
         })
       } else {
-        toast.success('Deleted')
+        if (delRange.validFrom > delRange.validUntil) { toast.error('Range start must be on or before end'); setDelSaving(false); return }
+        const res: any = await scheduleAPI.createOverride({ kind: 'CANCELLED', baseScheduleId: delTarget.id, validFrom: delRange.validFrom, validUntil: delRange.validUntil })
+        if (res?.warnings?.length) toast(`Cancelled with ${res.warnings.length} clash warning(s)`, { icon: '⚠️' } as any)
+        else toast.success(`Cancelled ${delRange.validFrom} → ${delRange.validUntil}`)
+        notifyEntityMutated('schedule', { action: 'override-created' })
       }
+      setDelOpen(false); setDelTarget(null)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed')
+    }
+    setDelSaving(false)
+  }
+
+  const openEdit = (item: any) => {
+    if (item._temp) {
+      // TEMP entries edit their override directly (range scope implied).
+      setEditingItem(item)
+      setEditScope('range')
+      setEditForm({ title: item.title || '', course: item.course || '', location: item.location || '', teacher: item.teacher || '', dayOfWeek: item.dayOfWeek ?? 0, startTime: item.startTime || '09:00', endTime: item.endTime || '10:00', type: item.type || 'CLASS' })
+      setEditRange({ validFrom: item.date || rangeFrom, validUntil: item.date || rangeTo })
+      setEditOpen(true)
+      return
+    }
+    setEditingItem(item)
+    setEditScope('every')
+    setEditForm({ title: item.title || '', course: item.course || '', location: item.location || '', teacher: item.teacher || '', dayOfWeek: item.dayOfWeek ?? selectedDay, startTime: item.startTime || '09:00', endTime: item.endTime || '10:00', type: item.type || 'CLASS' })
+    setEditRange({ validFrom: rangeFrom, validUntil: rangeTo })
+    setEditOpen(true)
+  }
+
+  const handleConfirmEdit = async () => {
+    if (!editingItem?.id) return
+    const sm = toMinutesLocal(editForm.startTime)
+    const em = toMinutesLocal(editForm.endTime)
+    if (sm === null || em === null || sm >= em) { toast.error('Start time must be before end time'); return }
+    setEditSaving(true)
+    try {
+      if (editScope === 'every' && !editingItem._temp) {
+        await scheduleAPI.update(editingItem.id, { ...editForm })
+        toast.success('Updated every week')
+        notifyEntityMutated('schedule', { action: 'updated' })
+      } else {
+        if (editRange.validFrom > editRange.validUntil) { toast.error('Range start must be on or before end'); setEditSaving(false); return }
+        if (editingItem._temp || editingItem._overrideKind === 'TEMP') {
+          await scheduleAPI.updateOverride(editingItem._overrideId || editingItem.id, { ...editForm, validFrom: editRange.validFrom, validUntil: editRange.validUntil, dayOfWeek: null })
+          toast.success('Temporary class updated')
+        } else {
+          const payload = { kind: 'EDITED', baseScheduleId: editingItem.id, ...editForm, validFrom: editRange.validFrom, validUntil: editRange.validUntil }
+          const err = validateOverrideInput(payload)
+          if (err) { toast.error(err); setEditSaving(false); return }
+          const res: any = await scheduleAPI.createOverride(payload)
+          if (res?.warnings?.length) toast(`Saved with ${res.warnings.length} clash warning(s)`, { icon: '⚠️' } as any)
+          else toast.success(`Edited ${editRange.validFrom} → ${editRange.validUntil}`)
+        }
+        notifyEntityMutated('schedule', { action: 'override-created' })
+      }
+      setEditOpen(false); setEditingItem(null)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed')
+    }
+    setEditSaving(false)
+  }
+
+  const handleAdd = async () => {
+    const sm = toMinutesLocal(addForm.startTime)
+    const em = toMinutesLocal(addForm.endTime)
+    if (!addForm.title.trim()) { toast.error('Title required'); return }
+    if (sm === null || em === null || sm >= em) { toast.error('Start time must be before end time'); return }
+    setAddSaving(true)
+    try {
+      const mode = resolveAddRepeatMode(addRepeat)
+      if (mode === 'weekly-template') {
+        await scheduleAPI.create({ title: addForm.title, course: addForm.course, location: addForm.location, teacher: addForm.teacher || undefined, dayOfWeek: addForm.dayOfWeek, startTime: addForm.startTime, endTime: addForm.endTime, type: addForm.type })
+        toast.success('Weekly class added — repeats every week')
+      } else {
+        // GCal Daily / Does not repeat → dated TEMP override (owner-only,
+        // clash soft). Does not repeat = single date (validFrom=validUntil).
+        const from = addForm.validFrom
+        const until = mode === 'single' ? addForm.validFrom : addForm.validUntil
+        if (from > until) { toast.error('Range start must be on or before end'); setAddSaving(false); return }
+        const payload: any = { kind: 'ADDED_TEMP', title: addForm.title, course: addForm.course, location: addForm.location, teacher: addForm.teacher, type: addForm.type, startTime: addForm.startTime, endTime: addForm.endTime, validFrom: from, validUntil: until, dayOfWeek: null }
+        const err = validateOverrideInput(payload)
+        if (err) { toast.error(err); setAddSaving(false); return }
+        const res: any = await scheduleAPI.createOverride(payload)
+        if (res?.warnings?.length) toast(`Added with ${res.warnings.length} clash warning(s)`, { icon: '⚠️' } as any)
+        else if (mode === 'single') toast.success(`Added ${from} (does not repeat)`)
+        else toast.success(`Added daily ${from} → ${until}`)
+      }
+      setAddOpen(false)
+      setAddForm({ title: '', course: '', location: '', teacher: '', dayOfWeek: 0, startTime: '09:00', endTime: '10:00', type: 'CLASS', validFrom: rangeFrom, validUntil: rangeTo })
+      notifyEntityMutated('schedule', { action: 'created' })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed')
+    }
+    setAddSaving(false)
+  }
+
+  const handleRevert = async (overrideId: string) => {
+    if (!overrideId) return
+    const ok = await confirmDialog({ title: 'Revert this change?', message: 'Remove the temporary edit/cancellation and restore the weekly template?', confirmLabel: 'Revert' })
+    if (!ok) return
+    try {
+      await scheduleAPI.deleteOverride(overrideId)
+      toast.success('Reverted to weekly template')
+      notifyEntityMutated('schedule', { action: 'override-deleted' })
     } catch { toast.error('Failed') }
   }
 
@@ -199,6 +400,44 @@ export default function SchedulePage() {
     const [h, m] = t.split(':').map(Number)
     return `${h > 12 ? h - 12 : h}:${m?.toString().padStart(2, '0') || '00'} ${h >= 12 ? 'PM' : 'AM'}`
   }
+
+  // Clash warnings for current view (soft, non-blocking)
+  const clashWarnings = useMemo(() => {
+    if (viewMode === 'range') {
+      const byDate = new Map<string, any[]>()
+      for (const e of rangeEntries) {
+        const k = String((e as any).date || '')
+        if (!byDate.has(k)) byDate.set(k, [])
+        byDate.get(k)!.push(e)
+      }
+      const out: any[] = []
+      for (const [date, list] of byDate) {
+        for (const w of findClashes(list.filter((x: any) => !x._cancelled))) out.push({ date, ...w })
+      }
+      return out.slice(0, 10)
+    }
+    return findClashes(timeline.filter((x: any) => x._type === 'class' && !x._cancelled) as any[]).map((w: any) => ({ date: days[selectedDay], ...w }))
+  }, [viewMode, rangeEntries, timeline, selectedDay])
+
+  const addFormError = useMemo(() => {
+    const sm = toMinutesLocal(addForm.startTime)
+    const em = toMinutesLocal(addForm.endTime)
+    if (sm === null || em === null) return 'Times must be HH:MM'
+    if (sm >= em) return 'Start time must be before end time'
+    if (addRepeat === 'daily' && addForm.validFrom > addForm.validUntil) return 'Range start must be on or before end'
+    if (!addForm.title.trim()) return 'Title required'
+    return null
+  }, [addForm, addRepeat])
+
+  const editFormError = useMemo(() => {
+    const sm = toMinutesLocal(editForm.startTime)
+    const em = toMinutesLocal(editForm.endTime)
+    if (sm === null || em === null) return 'Times must be HH:MM'
+    if (sm >= em) return 'Start time must be before end time'
+    if (editScope === 'range' && editRange.validFrom > editRange.validUntil) return 'Range start must be on or before end'
+    if (!editForm.title.trim()) return 'Title required'
+    return null
+  }, [editForm, editScope, editRange])
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-[1280px] mx-auto">
@@ -210,14 +449,50 @@ export default function SchedulePage() {
             <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center"><CalendarDays size={18} className="text-white" /></div>
             <div>
               <h1 className="font-display text-xl font-extrabold text-slate-800 dark:text-night-50 leading-none">Timetable — Period Grid</h1>
-              <p className="text-xs text-surface-500 dark:text-night-400">Your weekly period grid</p>
+              <p className="text-xs text-surface-500 dark:text-night-400">Weekly template + temporary range edits</p>
             </div>
           </div>
-          <Button size="sm" variant="accent" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
-            <Upload size={16} /> Upload Timetable
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => { setAddForm({ title: '', course: '', location: '', teacher: '', dayOfWeek: selectedDay, startTime: '09:00', endTime: '10:00', type: 'CLASS', validFrom: rangeFrom, validUntil: rangeTo }); setAddRepeat('weekly'); setAddOpen(true) }}>
+              <Plus size={16} /> Add Class
+            </Button>
+            <Button size="sm" variant="accent" onClick={() => { setUploadModalOpen(true); setParsedClasses([]); setTimetableText(''); setFile(null) }}>
+              <Upload size={16} /> Upload Timetable
+            </Button>
+          </div>
+        </div>
+        {/* View toggle Weekly | Specific range */}
+        <div className="px-5 pb-4 flex flex-wrap items-center gap-3">
+          <div className="flex gap-1 bg-surface-100 dark:bg-night-700 p-1 rounded-xl" role="tablist" aria-label="Timetable view">
+            <button role="tab" aria-selected={viewMode === 'weekly'} onClick={() => setViewMode('weekly')} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${viewMode === 'weekly' ? 'bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 shadow-sm' : 'text-surface-500'}`}>Weekly</button>
+            <button role="tab" aria-selected={viewMode === 'range'} onClick={() => setViewMode('range')} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${viewMode === 'range' ? 'bg-white dark:bg-night-850 text-surface-900 dark:text-night-50 shadow-sm' : 'text-surface-500'}`}>Specific range</button>
+          </div>
+          {viewMode === 'range' && (
+            <div className="flex items-center gap-2 text-sm">
+              <input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} aria-label="Range start" className="px-2 py-1.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50" />
+              <span className="text-surface-400">→</span>
+              <input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} aria-label="Range end" className="px-2 py-1.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-lg text-surface-900 dark:text-night-50" />
+              {rangeFrom > rangeTo && <span className="text-xs text-danger-600">Start must be ≤ end</span>}
+            </div>
+          )}
+          {overrides.length > 0 && <Badge variant="accent">{overrides.length} temporary</Badge>}
         </div>
       </div>
+
+      {/* Clash warnings (soft overlap/room) */}
+      {clashWarnings.length > 0 && (
+        <div className="rounded-xl border border-warning-200 dark:border-amber-900/40 bg-warning-50 dark:bg-amber-950/30 p-3 flex items-start gap-2" role="alert">
+          <AlertCircle size={16} className="text-warning-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-xs text-warning-800 dark:text-amber-200">
+            <p className="font-semibold mb-1">Clash warning ({clashWarnings.length}) — soft, saving still allowed</p>
+            <ul className="space-y-0.5">
+              {clashWarnings.slice(0, 5).map((w: any, i: number) => (
+                <li key={i}>{w.date ? `${w.date}: ` : ''}{w.message}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Day Tabs */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="flex gap-2 overflow-x-auto pb-2">
@@ -233,6 +508,68 @@ export default function SchedulePage() {
           )
         })}
       </motion.div>
+
+      {/* Range view — merged dated entries (templates - CANCELLED flag + EDITED/ADDED) */}
+      {viewMode === 'range' && (
+        <Card padding="none" hover className="overflow-hidden">
+          <div className="p-5 pb-3 flex items-center justify-between border-b border-surface-100 dark:border-night-600">
+            <div className="flex items-center gap-3">
+              <CalendarDays className="w-5 h-5 text-primary-600" />
+              <h3 className="font-bold text-surface-900 dark:text-night-50">{rangeFrom} → {rangeTo}</h3>
+            </div>
+            <Badge variant="primary">{rangeEntries.length} items</Badge>
+          </div>
+          <div className="p-5">
+            {rangeLoading ? (
+              <CenteredLoader text="Loading range..." minHeight="min-h-[120px]" />
+            ) : rangeEntries.length === 0 ? (
+              <p className="text-sm text-surface-500 dark:text-night-400 text-center py-8">No classes in this range — add a temporary class or pick another range.</p>
+            ) : (
+              <div className="space-y-4">
+                {Array.from(new Set(rangeEntries.map((e: any) => e.date))).sort().map((date: string) => {
+                  const list = rangeEntries.filter((e: any) => e.date === date)
+                  return (
+                    <div key={date}>
+                      <p className="text-xs font-bold text-surface-500 dark:text-night-400 mb-2">{date}</p>
+                      <div className="space-y-2">
+                        {list.map((item: any) => (
+                          <div key={`${item.date}-${item.id}`} className={`p-3 rounded-xl border-l-4 bg-surface-50 dark:bg-night-800 ${item._cancelled ? 'opacity-70' : ''}`} style={{ borderLeftColor: item.color || '#5c7cfa' }}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className={item._cancelled ? 'line-through' : ''}>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-bold text-sm text-surface-900 dark:text-night-50">{item.title}</p>
+                                  {item._overrideKind === 'TEMP' && <Badge variant="accent">TEMP</Badge>}
+                                  {item._overrideKind === 'EDITED' && <Badge variant="primary">EDITED</Badge>}
+                                  {item._overrideKind === 'CANCELLED' && <Badge variant="accent">CANCELLED</Badge>}
+                                  {!item._overrideKind && <Badge variant="primary">{item.type || 'CLASS'}</Badge>}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs text-surface-400 dark:text-night-400 flex items-center gap-1"><Clock size={10} />{item.startTime} - {item.endTime}</span>
+                                  {item.location && <span className="text-xs text-surface-400 dark:text-night-400">· {item.location}</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {(item._overrideKind === 'TEMP' || item._overrideKind === 'EDITED' || item._cancelled) ? (
+                                  <button onClick={() => handleRevert(item._overrideId)} aria-label={`Revert ${item.title}`} className="text-xs font-semibold px-3 py-2 rounded-lg bg-surface-100 dark:bg-night-700 hover:bg-surface-200 dark:hover:bg-night-600">Revert</button>
+                                ) : (
+                                  <>
+                                    <button onClick={() => openEdit(item)} aria-label={`Edit ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 hover:text-primary-600"><Edit3 size={14} /></button>
+                                    <button onClick={() => handleDeleteClass(item)} aria-label={`Delete ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 hover:text-danger-600"><Trash2 size={14} /></button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Main Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
@@ -290,7 +627,10 @@ export default function SchedulePage() {
                                   {item.teacher && <p className="text-[11px] text-surface-400 dark:text-night-400 mt-1">{/^(Prof|Dr|Mr|Mrs|Ms|Sir|Ma'am)\./i.test(item.teacher) ? '' : 'Prof. '}{item.teacher}</p>}
                                 </div>
                                 {item._type === 'class' && (
-                                   <button onClick={() => handleDeleteClass(item)} aria-label={`Delete class ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 dark:text-night-400 hover:text-danger-600 opacity-100 focus-visible:opacity-100 transition-all"><Trash2 size={14} aria-hidden="true" /></button>
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={() => openEdit(item)} aria-label={`Edit class ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 dark:text-night-400 hover:text-primary-600 opacity-100 focus-visible:opacity-100 transition-all"><Edit3 size={14} aria-hidden="true" /></button>
+                                    <button onClick={() => handleDeleteClass(item)} aria-label={`Delete class ${item.title}`} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-1 rounded text-surface-400 dark:text-night-400 hover:text-danger-600 opacity-100 focus-visible:opacity-100 transition-all"><Trash2 size={14} aria-hidden="true" /></button>
+                                  </div>
                                 )}
                               </div>
                             </motion.div>
@@ -428,12 +768,212 @@ export default function SchedulePage() {
                   </div>
                 ))}
               </div>
+              <label className="flex items-center gap-2 text-xs text-surface-600 dark:text-night-300">
+                <input type="checkbox" checked={saveClearOverrides} onChange={(e) => setSaveClearOverrides(e.target.checked)} className="w-4 h-4 rounded" />
+                Also clear temporary edits (otherwise temporaries are preserved)
+              </label>
               <div className="flex gap-3">
                 <Button onClick={handleSaveClasses} loading={uploading} variant="accent" className="flex-1"><Zap size={16} /> Save to Timetable</Button>
               </div>
-              <p className="text-xs text-surface-400 dark:text-night-400 text-center">This will replace your existing timetable</p>
+              <p className="text-xs text-surface-400 dark:text-night-400 text-center">Upload saves weekly templates that automatically repeat every week (like before) — temporary range edits are preserved unless checked</p>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Add Class Modal — Google Calendar Repeats mental model (V1: Does not repeat / Daily / Weekly) */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Class" size="lg">
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <label htmlFor="add-repeat" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Repeats</label>
+            <select id="add-repeat" value={addRepeat} onChange={(e) => setAddRepeat(e.target.value as GCalRepeat)} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50">
+              {GCAL_REPEAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <p className="text-xs text-surface-500 dark:text-night-400">
+            {addRepeat === 'weekly'
+              ? 'Weekly — repeats every week on the chosen weekday (template, like Google Calendar Weekly — uploads behave the same).'
+              : addRepeat === 'daily'
+                ? 'Daily — repeats every day inside the date range below (max 62 days). Clash warnings are soft — saving still allowed.'
+                : 'Does not repeat — appears once on the date below (like Google Calendar single event).'}
+            {' '}Monthly omitted in V1 (weekly template + 62-day range cap).
+          </p>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Title *" value={addForm.title} onChange={(e) => setAddForm({ ...addForm, title: e.target.value })} placeholder="e.g. Data Structures" />
+            <Input label="Course / code" value={addForm.course} onChange={(e) => setAddForm({ ...addForm, course: e.target.value })} placeholder="CS201" />
+            <Input label="Location / room" value={addForm.location} onChange={(e) => setAddForm({ ...addForm, location: e.target.value })} placeholder="Room 301" />
+            <Input label="Teacher" value={addForm.teacher} onChange={(e) => setAddForm({ ...addForm, teacher: e.target.value })} placeholder="Prof. Sharma" />
+            <div className="space-y-1.5">
+              <label htmlFor="add-type" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Type</label>
+              <select id="add-type" value={addForm.type} onChange={(e) => setAddForm({ ...addForm, type: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50">
+                {['CLASS', 'LAB', 'SEMINAR', 'OTHER'].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            {addRepeat === 'weekly' && (
+              <div className="space-y-1.5">
+                <label htmlFor="add-day" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Weekday</label>
+                <select id="add-day" value={addForm.dayOfWeek} onChange={(e) => setAddForm({ ...addForm, dayOfWeek: parseInt(e.target.value, 10) })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50">
+                  {days.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label htmlFor="add-start" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Start time</label>
+              <input id="add-start" type="time" value={addForm.startTime} onChange={(e) => setAddForm({ ...addForm, startTime: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="add-end" className="block text-sm font-semibold text-surface-700 dark:text-night-200">End time</label>
+              <input id="add-end" type="time" value={addForm.endTime} onChange={(e) => setAddForm({ ...addForm, endTime: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+            </div>
+          </div>
+
+          {addRepeat === 'does-not-repeat' && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="add-date" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Date</label>
+                <input id="add-date" type="date" value={addForm.validFrom} onChange={(e) => setAddForm({ ...addForm, validFrom: e.target.value, validUntil: e.target.value })} aria-label="Single date (does not repeat)" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+            </div>
+          )}
+          {addRepeat === 'daily' && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="add-from" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range start (Until from)</label>
+                <input id="add-from" type="date" value={addForm.validFrom} onChange={(e) => setAddForm({ ...addForm, validFrom: e.target.value })} aria-label="Daily range start" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="add-until" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range end (Until date)</label>
+                <input id="add-until" type="date" value={addForm.validUntil} onChange={(e) => setAddForm({ ...addForm, validUntil: e.target.value })} aria-label="Daily range end (until date)" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+            </div>
+          )}
+
+          {addFormError && <p role="alert" className="text-sm text-danger-600">{addFormError}</p>}
+
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
+            <Button variant="accent" onClick={handleAdd} loading={addSaving} disabled={!!addFormError} className="flex-1"><Plus size={16} /> {addRepeat === 'weekly' ? 'Add Weekly' : addRepeat === 'daily' ? 'Add Daily' : 'Add once'}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Modal — GCal scope (Every week = All events, Only this range = This / This and following) */}
+      <Modal open={editOpen} onClose={() => { setEditOpen(false); setEditingItem(null) }} title={editingItem ? `Edit ${editingItem.title || 'Class'}` : 'Edit Class'} size="lg">
+        <div className="space-y-5">
+          {editingItem?._temp || editingItem?._overrideKind === 'TEMP' ? (
+            <p className="text-xs text-surface-500 dark:text-night-400">Temporary class (Does not repeat / Daily) — range edit only. Deleting removes just this dated entry.</p>
+          ) : (
+            <fieldset>
+              <legend className="text-sm font-semibold text-surface-700 dark:text-night-200 mb-2">Edit scope (like Google Calendar)</legend>
+              <div className="grid sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Edit scope">
+                {GCAL_EDIT_SCOPE_OPTIONS.map((o) => (
+                  <label key={o.value} className={`flex flex-col p-3 rounded-xl border min-h-[44px] cursor-pointer ${editScope === o.value ? 'border-primary-400 bg-primary-50 dark:bg-sky-950/30' : 'border-surface-200 dark:border-night-600'}`}>
+                    <span className="flex items-center gap-2">
+                      <input type="radio" name="edit-scope" value={o.value} checked={editScope === o.value} onChange={() => setEditScope(o.value)} className="w-4 h-4" />
+                      <span className="text-sm font-medium">{o.label}</span>
+                    </span>
+                    <span className="text-[11px] text-surface-400 dark:text-night-400 ml-6">{o.hint}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">Like Google Calendar: Every week = All events (rewrites template); Only this range = This event / This and following (keeps template, saves temporary override for dates below).</p>
+            </fieldset>
+          )}
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Title *" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="e.g. Data Structures" />
+            <Input label="Course / code" value={editForm.course} onChange={(e) => setEditForm({ ...editForm, course: e.target.value })} placeholder="CS201" />
+            <Input label="Location / room" value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Hall B" />
+            <Input label="Teacher" value={editForm.teacher} onChange={(e) => setEditForm({ ...editForm, teacher: e.target.value })} placeholder="Prof. Sharma" />
+            <div className="space-y-1.5">
+              <label htmlFor="edit-type" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Type</label>
+              <select id="edit-type" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50">
+                {['CLASS', 'LAB', 'SEMINAR', 'OTHER'].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            {editScope === 'every' && !(editingItem?._temp || editingItem?._overrideKind === 'TEMP') && (
+              <div className="space-y-1.5">
+                <label htmlFor="edit-day" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Weekday</label>
+                <select id="edit-day" value={editForm.dayOfWeek} onChange={(e) => setEditForm({ ...editForm, dayOfWeek: parseInt(e.target.value, 10) })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50">
+                  {days.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label htmlFor="edit-start" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Start time</label>
+              <input id="edit-start" type="time" value={editForm.startTime} onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-end" className="block text-sm font-semibold text-surface-700 dark:text-night-200">End time</label>
+              <input id="edit-end" type="time" value={editForm.endTime} onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })} className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+            </div>
+          </div>
+
+          {(editScope === 'range' || editingItem?._temp || editingItem?._overrideKind === 'TEMP') && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="edit-from" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range start</label>
+                <input id="edit-from" type="date" value={editRange.validFrom} onChange={(e) => setEditRange({ ...editRange, validFrom: e.target.value })} aria-label="Edit range start" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="edit-until" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range end</label>
+                <input id="edit-until" type="date" value={editRange.validUntil} onChange={(e) => setEditRange({ ...editRange, validUntil: e.target.value })} aria-label="Edit range end" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+            </div>
+          )}
+
+          {editFormError && <p role="alert" className="text-sm text-danger-600">{editFormError}</p>}
+
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => { setEditOpen(false); setEditingItem(null) }} className="flex-1">Cancel</Button>
+            <Button variant="accent" onClick={handleConfirmEdit} loading={editSaving} disabled={!!editFormError} className="flex-1"><Check size={16} /> {editScope === 'every' && !(editingItem?._temp || editingItem?._overrideKind === 'TEMP') ? 'Save every week' : 'Save this range'}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete scope Modal — GCal scope (Every week = All events, Only this range = This / This and following → Revert) */}
+      <Modal open={delOpen} onClose={() => { setDelOpen(false); setDelTarget(null) }} title={delTarget ? `Delete ${delTarget.title || 'Class'}` : 'Delete Class'} size="md">
+        <div className="space-y-5">
+          <fieldset>
+            <legend className="text-sm font-semibold text-surface-700 dark:text-night-200 mb-2">Delete scope (like Google Calendar)</legend>
+            <div className="grid sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Delete scope">
+              {GCAL_EDIT_SCOPE_OPTIONS.map((o) => (
+                <label key={o.value} className={`flex flex-col p-3 rounded-xl border min-h-[44px] cursor-pointer ${delScope === o.value ? 'border-danger-300 bg-danger-50 dark:bg-danger-950/20' : 'border-surface-200 dark:border-night-600'}`}>
+                  <span className="flex items-center gap-2">
+                    <input type="radio" name="del-scope" value={o.value} checked={delScope === o.value} onChange={() => setDelScope(o.value)} className="w-4 h-4" />
+                    <span className="text-sm font-medium">{o.label}</span>
+                  </span>
+                  <span className="text-[11px] text-surface-400 dark:text-night-400 ml-6">{o.hint}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-surface-500 dark:text-night-400 mt-1.5">
+              {delScope === 'every' ? 'Every week = All events — deletes the weekly template permanently (undo available).' : 'Only this range = This / This and following — cancels the class for the dates below, template stays and entry shows struck-through with Revert.'}
+            </p>
+          </fieldset>
+
+          {delScope === 'range' && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="del-from" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range start</label>
+                <input id="del-from" type="date" value={delRange.validFrom} onChange={(e) => setDelRange({ ...delRange, validFrom: e.target.value })} aria-label="Delete range start" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="del-until" className="block text-sm font-semibold text-surface-700 dark:text-night-200">Range end</label>
+                <input id="del-until" type="date" value={delRange.validUntil} onChange={(e) => setDelRange({ ...delRange, validUntil: e.target.value })} aria-label="Delete range end" className="w-full min-h-[44px] px-4 bg-white dark:bg-night-850 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50" />
+              </div>
+            </div>
+          )}
+
+          {delScope === 'range' && delRange.validFrom > delRange.validUntil && (
+            <p role="alert" className="text-sm text-danger-600">Range start must be on or before end</p>
+          )}
+
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => { setDelOpen(false); setDelTarget(null) }} className="flex-1">Cancel</Button>
+            <Button variant="danger" onClick={handleConfirmDeleteScope} loading={delSaving} className="flex-1"><Trash2 size={16} /> {delScope === 'every' ? 'Delete every week' : 'Cancel this range'}</Button>
+          </div>
         </div>
       </Modal>
     </motion.div>

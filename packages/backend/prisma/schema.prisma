@@ -175,6 +175,12 @@ enum ScheduleType {
   OTHER
 }
 
+enum ScheduleOverrideKind {
+  EDITED
+  CANCELLED
+  ADDED_TEMP
+}
+
 enum ChatMessageRole {
   USER
   ASSISTANT
@@ -239,6 +245,7 @@ model User {
   reports        Report[]
 
   schedules     Schedule[]
+  scheduleOverrides ScheduleOverride[]
   notifications Notification[]
   assignments   Assignment[]
   grades        Grade[]
@@ -510,10 +517,52 @@ model Schedule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  overrides ScheduleOverride[]
 
   @@index([userId])
   @@index([userId, dayOfWeek])
   @@index([userId, dayOfWeek, startMinutes])
+}
+
+// Timetable editable Period Grid — Approach A (template + dated overrides).
+// Additive only (20261002): Schedule stays the weekly template (dayOfWeek);
+// this table carries temporary range+time edits. Existing Schedule rows
+// untouched; pre-migration code reads templates-only via try/catch fallback.
+// - EDITED/CANCELLED: baseScheduleId required, applies when date in
+//   [validFrom, validUntil] AND weekday matches base template's dayOfWeek.
+// - ADDED_TEMP: standalone dated entry (baseScheduleId null), daily when
+//   dayOfWeek null or weekday-filtered when set (e.g. Oct 6-11 daily fest).
+// validFrom/validUntil are date-only (UTC midnight); start/end times are
+// String HH:MM + typed minutes dual-write (same CHECK 0-1439 as Schedule).
+// Owner-only: userId scoping on every query (routes verify base ownership).
+model ScheduleOverride {
+  id             String               @id @default(cuid())
+  userId         String
+  baseScheduleId String?
+  kind           ScheduleOverrideKind
+  title          String?
+  course         String?
+  location       String?
+  teacher        String?
+  type           ScheduleType?
+  color          String?
+  dayOfWeek      Int?
+  validFrom      DateTime
+  validUntil     DateTime
+  startTime      String?
+  endTime        String?
+  startMinutes   Int?
+  endMinutes     Int?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseSchedule   Schedule?            @relation(fields: [baseScheduleId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, validFrom])
+  @@index([userId, validUntil])
+  @@index([baseScheduleId])
+  @@map("ScheduleOverride")
 }
 
 model Notification {

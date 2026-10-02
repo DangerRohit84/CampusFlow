@@ -10,6 +10,7 @@ import { validateUploadMagicBytes, scanBufferForMalware } from '../utils/uploadS
 import { logger } from '../utils/logger'
 import { toScheduleTypeEnum } from '../lib/enums'
 import { isValidDayOfWeek } from '../lib/validators'
+import { mergeTimetableForDate, mergeTimetableForRange, toDateKey } from '../lib/timetableMerge'
 
 const router = Router()
 router.use(authenticate)
@@ -370,10 +371,20 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    // Optionally clear existing schedules
-    const { clearExisting } = req.body
+    // Optionally clear existing schedules.
+    // Approach A (20261002): clearExisting deletes TEMPLATES ONLY — dated
+    // overrides (temporaries) survive re-uploads. Pass clearOverrides=true
+    // to also wipe overrides (explicit checkbox in UI).
+    const { clearExisting, clearOverrides } = req.body
     if (clearExisting) {
       await prisma.schedule.deleteMany({ where: { userId: req.userId } })
+    }
+    if (clearOverrides) {
+      try {
+        await (prisma as any).scheduleOverride?.deleteMany?.({ where: { userId: req.userId } })
+      } catch {
+        // Pre-migration: table missing → nothing to clear.
+      }
     }
 
     const colors = ['#5c7cfa', '#845ef7', '#20c997', '#fcc419', '#f06595', '#7950f2', '#22b8cf', '#ff6b6b']
@@ -421,15 +432,29 @@ router.post('/save', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get today's classes
+// Get today's classes (merged with dated overrides for today).
 router.get('/today', async (req: AuthRequest, res: Response) => {
   try {
     const dayOfWeek = getDayOfWeek()
+    const todayKey = new Date().toISOString().slice(0, 10)
 
     const classes = await prisma.schedule.findMany({
       where: { userId: req.userId, dayOfWeek },
       orderBy: { startTime: 'asc' },
     })
+    try {
+      const delegate = (prisma as any).scheduleOverride
+      if (delegate) {
+        const allTemplates = await prisma.schedule.findMany({ where: { userId: req.userId } })
+        const overrides = await delegate.findMany({ where: { userId: req.userId } })
+        if (overrides && overrides.length > 0) {
+          res.json(mergeTimetableForDate(allTemplates as any, overrides as any, todayKey))
+          return
+        }
+      }
+    } catch {
+      // Pre-migration → fall through to templates.
+    }
 
     res.json(classes)
   } catch (error) {
@@ -437,23 +462,74 @@ router.get('/today', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Get full timetable
+// Get timetable.
+// - No query: weekly templates (preserve current behaviour for existing clients).
+// - ?date=YYYY-MM-DD: merged single-date view (templates - CANCELLED flag + EDITED/ADDED).
+// - ?from=YYYY-MM-DD&to=YYYY-MM-DD: merged flat dated list (max 62 days).
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const dateQ = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined
+    const fromQ = typeof req.query.from === 'string' ? req.query.from.slice(0, 10) : undefined
+    const toQ = typeof req.query.to === 'string' ? req.query.to.slice(0, 10) : undefined
+
     const schedules = await prisma.schedule.findMany({
       where: { userId: req.userId },
       orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
     })
-    res.json(schedules)
+
+    if (!dateQ && !(fromQ && toQ)) {
+      res.json(schedules)
+      return
+    }
+
+    let overrides: any[] = []
+    try {
+      const delegate = (prisma as any).scheduleOverride
+      if (delegate) overrides = (await delegate.findMany({ where: { userId: req.userId } })) || []
+    } catch {
+      overrides = []
+    }
+
+    if (dateQ) {
+      if (!toDateKey(dateQ)) {
+        res.status(400).json({ error: 'date must be YYYY-MM-DD' })
+        return
+      }
+      res.json(mergeTimetableForDate(schedules as any, overrides as any, dateQ))
+      return
+    }
+
+    // Range mode
+    if (!toDateKey(fromQ!) || !toDateKey(toQ!)) {
+      res.status(400).json({ error: 'from and to must be YYYY-MM-DD' })
+      return
+    }
+    if (fromQ! > toQ!) {
+      res.status(400).json({ error: 'from must be on or before to' })
+      return
+    }
+    const days = Math.round(
+      (new Date(`${toQ}T00:00:00.000Z`).getTime() - new Date(`${fromQ}T00:00:00.000Z`).getTime()) / 86400000
+    )
+    if (days < 0 || days > 62) {
+      res.status(400).json({ error: 'Range too large (max 62 days)' })
+      return
+    }
+    res.json(mergeTimetableForRange(schedules as any, overrides as any, fromQ!, toQ!))
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch timetable' })
   }
 })
 
-// Delete all classes
+// Delete all classes (templates only by default; overrides survive unless ?includeOverrides=true).
 router.delete('/clear', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.schedule.deleteMany({ where: { userId: req.userId } })
+    if (req.query.includeOverrides === 'true') {
+      try {
+        await (prisma as any).scheduleOverride?.deleteMany?.({ where: { userId: req.userId } })
+      } catch {}
+    }
     try { broadcastScheduleMutation({ action: 'timetable:cleared', userId: req.userId }) } catch {}
     res.json({ message: 'Timetable cleared' })
   } catch (error) {
