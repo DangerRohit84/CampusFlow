@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { codingContestAPI, codingProfileAPI, contestPrefsAPI } from '../lib/api'
 import { buildGoogleCalendarUrl } from '../lib/gcal'
+import { getContestHref } from '../lib/contestLinks'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { qk } from '../lib/queryKeys'
 import { useCollegeScope } from '../hooks/useCollegeScope'
@@ -812,7 +813,26 @@ export default function CodingContestsPage() {
                           )}
                         </div>
 
-                        <h3 className="font-bold text-surface-900 dark:text-night-50 mb-1 line-clamp-1">{c.title}</h3>
+                        <h3 className="font-bold text-surface-900 dark:text-night-50 mb-1 line-clamp-1">
+                          {(() => {
+                            // WHY: title was static text — hover/click did nothing.
+                            // Link to the external platform URL (same dest as the
+                            // card's external icon; no /contests/:id route exists).
+                            const href = getContestHref(c)
+                            if (!href) return <>{c.title}</>
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Open ${c.title} — ${pCfg.label} contest`}
+                                className="cursor-pointer hover:underline hover:text-primary-600 dark:hover:text-success-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+                              >
+                                {c.title}
+                              </a>
+                            )
+                          })()}
+                        </h3>
 
                         {(() => {
                           const mine = myParticipations.find((p) => {

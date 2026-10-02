@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, CalendarDays, CalendarPlus, Clock, MapPin, BookOpen, FileText, Trophy, Target, CheckSquare } from 'lucide-react'
 import { timetableAPI, assignmentAPI, taskAPI, codingContestAPI, hackathonAPI, formAPI } from '../lib/api'
 import { buildGoogleCalendarUrl } from '../lib/gcal'
+import { getContestHref } from '../lib/contestLinks'
 import { useEntitySync } from '../lib/entitySync'
 import CenteredLoader from '../components/ui/CenteredLoader'
 
@@ -387,18 +388,45 @@ export default function CalendarPage() {
                   </span>
                 </div>
                 <div className="space-y-0.5">
-                  {visibleEvents.map((evt) => (
-                    <div
-                      key={evt.id}
-                      className="truncate text-[10px] font-medium px-1 py-0.5 rounded"
-                      style={{
-                        backgroundColor: `${eventColor(evt.type)}20`,
-                        color: eventColor(evt.type),
-                      }}
-                    >
-                      {evt.title}
-                    </div>
-                  ))}
+                  {visibleEvents.map((evt) => {
+                    // WHY: contest chip was static text — click did nothing.
+                    // Link contest names to the platform URL (same dest as the
+                    // detail-row link below); other types stay static. Anchor is
+                    // natively keyboard-accessible; stopPropagation keeps the
+                    // parent day-cell onClick (select date) from swallowing it.
+                    const contestHref = evt.type === 'contest' ? getContestHref({ url: evt.url }) : null
+                    if (!contestHref) {
+                      return (
+                        <div
+                          key={evt.id}
+                          className="truncate text-[10px] font-medium px-1 py-0.5 rounded"
+                          style={{
+                            backgroundColor: `${eventColor(evt.type)}20`,
+                            color: eventColor(evt.type),
+                          }}
+                        >
+                          {evt.title}
+                        </div>
+                      )
+                    }
+                    return (
+                      <a
+                        key={evt.id}
+                        href={contestHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Open ${evt.title} contest`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block truncate text-[10px] font-medium px-1 py-0.5 rounded cursor-pointer hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1"
+                        style={{
+                          backgroundColor: `${eventColor(evt.type)}20`,
+                          color: eventColor(evt.type),
+                        }}
+                      >
+                        {evt.title}
+                      </a>
+                    )
+                  })}
                   {extraCount > 0 && (
                     <div className="text-[10px] text-surface-500 dark:text-night-300 font-medium px-1">
                       +{extraCount} more
@@ -484,7 +512,26 @@ export default function CalendarPage() {
                           )}
                         </div>
                         <p className="text-sm font-medium text-surface-900 dark:text-night-50 truncate">
-                          {evt.title}
+                          {(() => {
+                            // WHY: contest name was static <p> — click did nothing.
+                            // Same external platform URL as CodingContestsPage title
+                            // (no /contests/:id route exists). Native <a> = keyboard
+                            // accessible + pointer + underline affordance.
+                            if (evt.type !== 'contest') return <>{evt.title}</>
+                            const href = getContestHref({ url: evt.url })
+                            if (!href) return <>{evt.title}</>
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Open ${evt.title} contest`}
+                                className="cursor-pointer hover:underline hover:text-purple-700 dark:hover:text-purple-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+                              >
+                                {evt.title}
+                              </a>
+                            )
+                          })()}
                         </p>
                         <div className="flex items-center gap-3 mt-1 text-xs text-surface-500 dark:text-night-300">
                           {evt.time && (
