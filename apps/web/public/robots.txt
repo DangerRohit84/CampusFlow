@@ -9,22 +9,38 @@ Allow: /terms
 Allow: /about
 Allow: /help
 Allow: /contact
-Disallow: /dashboard
-Disallow: /admin
-Disallow: /superadmin
-Disallow: /api/
-Disallow: /u/
-# WHY: keep authed/app surfaces out of the index (docs/seo.md index map).
+# WHY: keep authed/app surfaces out of the index (docs/seo.md index map +
+# Seo.tsx PUBLIC_EXACT/ROUTE_META noindex). Tenant lists (/hackathons,
+# /internships, /contests) stay crawlable via Allow: / but carry noindex meta
+# until F01–F04 tenant gates land; /u/ is both disallowed and noindex (W7).
 # Authed chat/rooms/settings/fetch/insights + data-entry forms + gaming-prone leaderboard stay noindex + disallow.
 # Canonical SSOT: VITE_SITE_URL (Vercel env). Sitemap host below uses the campusflow.dev fallback
 # placeholder — at build/deploy replace with the SAME VITE_SITE_URL host as index.html canonical/OG,
 # sitemap.xml locs, and Seo.tsx canonical (verify dist post-build).
+Disallow: /dashboard
+Disallow: /assignments
+Disallow: /grades
+Disallow: /attendance
+Disallow: /tasks
+Disallow: /calendar
+Disallow: /notifications
+Disallow: /search
+Disallow: /insights
+Disallow: /settings
 Disallow: /chat
 Disallow: /rooms/
-Disallow: /settings
-Disallow: /fetch
-Disallow: /insights
 Disallow: /forms
+Disallow: /announcements
+Disallow: /alumni
+Disallow: /coding-profile
+Disallow: /resume-studio
+Disallow: /portfolio-studio
+Disallow: /reports
+Disallow: /admin
+Disallow: /superadmin
+Disallow: /api/
+Disallow: /u/
+Disallow: /fetch
 Disallow: /contests/leaderboard
 
 Sitemap: https://campusflow.dev/sitemap.xml

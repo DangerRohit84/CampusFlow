@@ -297,7 +297,7 @@ export default function LandingPage() {
                 src="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1200&q=80&auto=format&fit=crop"
                 srcSet="https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=400&q=70&auto=format&fit=crop 400w, https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=800&q=75&auto=format&fit=crop 800w, https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1200&q=80&auto=format&fit=crop 1200w"
                 sizes="100vw"
-                alt="Campus quad"
+                alt="Campus quad — students checking pinned timetable on CampusFlow"
                 width={1200}
                 height={800}
                 fetchPriority="high"

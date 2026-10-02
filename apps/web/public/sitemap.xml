@@ -6,13 +6,13 @@
 <!-- Deploy (VITE_SITE_URL SSOT): production host comes from VITE_SITE_URL (Vercel env: Production + Preview). At build/deploy, replace https://campusflow.dev below + robots.txt Sitemap + index.html canonical/OG + .well-known/security.txt Canonical with the SAME host (Vercel URL or custom domain after DNS). Seo.tsx falls back to campusflow.dev when unset — always set the env to avoid indexing the placeholder. Verify: dist/index.html canonical == Seo.tsx canonical == sitemap locs == robots Sitemap. -->
 <!-- security.txt: add /.well-known/security.txt (contact + expires) at deploy — devops lane, not part of sitemap. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://campusflow.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://campusflow.dev/login</loc><changefreq>yearly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://campusflow.dev/register</loc><changefreq>yearly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://campusflow.dev/register-college</loc><changefreq>yearly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://campusflow.dev/about</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://campusflow.dev/help</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://campusflow.dev/contact</loc><changefreq>yearly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://campusflow.dev/privacy</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://campusflow.dev/terms</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://campusflow.dev/</loc><lastmod>2026-10-02</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://campusflow.dev/login</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://campusflow.dev/register</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://campusflow.dev/register-college</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://campusflow.dev/about</loc><lastmod>2026-10-02</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://campusflow.dev/help</loc><lastmod>2026-10-02</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://campusflow.dev/contact</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://campusflow.dev/privacy</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://campusflow.dev/terms</loc><lastmod>2026-10-02</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>

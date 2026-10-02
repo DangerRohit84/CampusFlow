@@ -20,8 +20,11 @@
     <meta name="application-name" content="CampusFlow" />
     <meta name="apple-mobile-web-app-title" content="CampusFlow" />
     <meta name="description" content="CampusFlow pins your timetable, rooms, assignments and career boards — live in seconds." />
+    <meta name="keywords" content="CampusFlow, campus app, college timetable, student assignments, study rooms, hackathons, internships, coding contests" />
+    <meta name="author" content="CampusFlow" />
     <link rel="canonical" href="https://campusflow.dev/" />
     <meta property="og:site_name" content="CampusFlow" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="CampusFlow — Campus OS" />
     <meta property="og:description" content="Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
@@ -39,6 +42,9 @@
     <meta name="twitter:image" content="https://campusflow.dev/og-cover.png" />
     <meta name="twitter:image:alt" content="CampusFlow — Stop hunting timetables in WhatsApp forwards. Photo in, live board out in 14 seconds." />
     <title>CampusFlow — Campus OS</title>
+    <!-- WHY CSR fallback: Organization + WebSite JSON-LD for crawlers without JS (mirrors Seo.tsx builders; host uses the campusflow.dev fallback — replace with VITE_SITE_URL host at deploy like canonical/OG). -->
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "CampusFlow", "url": "https://campusflow.dev/", "logo": "https://campusflow.dev/brand/campusflow-logo-primary.png", "description": "CampusFlow pins your timetable, rooms, assignments and career boards — live in seconds."}</script>
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebSite", "name": "CampusFlow", "alternateName": "CampusFlow — Campus OS", "url": "https://campusflow.dev/", "description": "CampusFlow pins your timetable, rooms, assignments and career boards — live in seconds.", "inLanguage": "en"}</script>
     <!-- High-scale head: 2 families only (Fraunces display + DM Sans body) for fast first-paint.
          JetBrains Mono/Source Sans 3 removed — mono uses system stack (0KB), body uses DM Sans.
          preconnect kept + display=swap avoids FOIT (Shopify/StackOverflow pattern). -->
