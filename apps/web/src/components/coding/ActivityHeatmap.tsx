@@ -151,9 +151,15 @@ export default function ActivityHeatmap({
       `longest ${longestStreak} day${longestStreak === 1 ? '' : 's'}.`;
 
   const toggleSources: ActivitySource[] = ['contests', 'coding', 'git'];
+  // WHY public-profile-overflow: month labels are absolutely positioned at
+  // weekIndex*(CELL+GAP). On mobile / year+All ranges the row is wider than
+  // the card, so labels + grid share ONE horizontal scroll region with an
+  // explicit pixel width (weeks.length*(CELL+GAP)). The card stays
+  // overflow-hidden so nothing crosses its border; labels scroll in sync.
+  const gridWidth = weeks.length * (CELL + GAP);
 
   return (
-    <figure className="bg-surface-50 dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 p-5">
+    <figure className="bg-surface-50 dark:bg-night-800 rounded-2xl border border-surface-200 dark:border-night-600 p-5 overflow-hidden max-w-full min-w-0">
       <style>{VAR_CSS}</style>
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
         <figcaption className="font-semibold text-surface-900 dark:text-night-50 text-sm">
@@ -235,65 +241,71 @@ export default function ActivityHeatmap({
         {summary}
       </p>
 
-      {/* Month labels */}
-      <div
-        aria-hidden="true"
-        className="relative mb-1 text-[10px] text-surface-400 dark:text-night-400 select-none"
-        style={{ height: 14 }}
-      >
-        {labels.map((l) => (
-          <span
-            key={`${l.index}-${l.label}`}
-            className="absolute"
-            style={{ left: l.index * (CELL + GAP) }}
+      {/* Shared horizontal scroll: month labels + grid scroll together so
+          labels never cross the card border (mobile + year/All widths). */}
+      <div data-testid="heatmap-scroll" className="overflow-x-auto pb-1 max-w-full">
+        <div style={{ width: gridWidth, minWidth: '100%' }}>
+          {/* Month labels */}
+          <div
+            aria-hidden="true"
+            className="relative mb-1 text-[10px] text-surface-400 dark:text-night-400 select-none max-w-full overflow-hidden"
+            style={{ height: 14 }}
           >
-            {l.label}
-          </span>
-        ))}
-      </div>
+            {labels.map((l) => (
+              <span
+                key={`${l.index}-${l.label}`}
+                className="absolute whitespace-nowrap"
+                style={{ left: l.index * (CELL + GAP) }}
+              >
+                {l.label}
+              </span>
+            ))}
+          </div>
 
-      {/* Grid: list semantics + per-cell labels (spec: "table or list with
-          aria-labels"). Cells are tabIndex -1 (browse-mode readable, no
-          180-stop tab trap); the sr-only summary carries the announcements. */}
-      <ul
-        aria-label={`Activity per week, ${rangeLabel}. ${summary}`}
-        className="flex gap-[3px] overflow-x-auto pb-1 list-none m-0 p-0"
-      >
-        {weeks.map((week, wi) => (
-          <li key={wi} aria-label={`Week ${wi + 1}`} className="shrink-0 list-none">
-            <ul className="flex flex-col gap-[3px] list-none m-0 p-0">
-              {week.map((day, di) =>
-                day === null ? (
-                  <li
-                    key={`blank-${di}`}
-                    aria-hidden="true"
-                    className="list-none rounded-[3px]"
-                    style={{ width: CELL, height: CELL }}
-                  />
-                ) : (
-                  <li
-                    key={day.date}
-                    title={cellLabel(day)}
-                    aria-label={cellLabel(day)}
-                    data-date={day.date}
-                    data-count={day.count}
-                    data-level={day.level}
-                    tabIndex={-1}
-                    style={{ width: CELL, height: CELL }}
-                    className="list-none rounded-[3px] border border-black/[0.04] dark:border-white/[0.06] outline-none motion-safe:transition-transform motion-safe:hover:scale-125"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="block w-full h-full rounded-[3px]"
-                      style={{ backgroundColor: `var(--heat-${day.level})` }}
-                    />
-                  </li>
-                ),
-              )}
-            </ul>
-          </li>
-        ))}
-      </ul>
+          {/* Grid: list semantics + per-cell labels (spec: "table or list with
+              aria-labels"). Cells are tabIndex -1 (browse-mode readable, no
+              180-stop tab trap); the sr-only summary carries the announcements. */}
+          <ul
+            aria-label={`Activity per week, ${rangeLabel}. ${summary}`}
+            className="flex gap-[3px] pb-1 list-none m-0 p-0"
+          >
+            {weeks.map((week, wi) => (
+              <li key={wi} aria-label={`Week ${wi + 1}`} className="shrink-0 list-none">
+                <ul className="flex flex-col gap-[3px] list-none m-0 p-0">
+                  {week.map((day, di) =>
+                    day === null ? (
+                      <li
+                        key={`blank-${di}`}
+                        aria-hidden="true"
+                        className="list-none rounded-[3px]"
+                        style={{ width: CELL, height: CELL }}
+                      />
+                    ) : (
+                      <li
+                        key={day.date}
+                        title={cellLabel(day)}
+                        aria-label={cellLabel(day)}
+                        data-date={day.date}
+                        data-count={day.count}
+                        data-level={day.level}
+                        tabIndex={-1}
+                        style={{ width: CELL, height: CELL }}
+                        className="list-none rounded-[3px] border border-black/[0.04] dark:border-white/[0.06] outline-none motion-safe:transition-transform motion-safe:hover:scale-125"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="block w-full h-full rounded-[3px]"
+                          style={{ backgroundColor: `var(--heat-${day.level})` }}
+                        />
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
 
       {/* Legend: combined intensity + source dots */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

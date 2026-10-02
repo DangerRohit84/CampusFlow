@@ -257,7 +257,7 @@ export default function PublicProfilePage() {
       noindex={isPrivateProfile}
       canonicalPath={`/u/${u?.username || username}`}
     />
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 w-full">
       {/* top bar */}
       <div className="flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-800 text-sm font-medium text-surface-700 dark:text-night-200 hover:bg-surface-50 dark:hover:bg-night-700">
@@ -376,9 +376,9 @@ export default function PublicProfilePage() {
       ) : null}
 
       {/* main grid */}
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-12 gap-6 w-full">
         {/* left 8 */}
-        <div className="col-span-12 lg:col-span-8 space-y-6">
+        <div className="col-span-12 lg:col-span-8 space-y-6 min-w-0">
           {/* unified activity heatmap — SAME component + helpers as
               CodingProfilePage (contests + coding solves + git, per-source
               toggles + year filter, combined streaks). Read-only here:
@@ -504,7 +504,7 @@ export default function PublicProfilePage() {
         </div>
 
         {/* right 4 — stats + participations */}
-        <div className="col-span-12 lg:col-span-4 space-y-6">
+        <div className="col-span-12 lg:col-span-4 space-y-6 min-w-0">
           <div className="bg-white dark:bg-night-800 rounded-[18px] border border-surface-200 dark:border-night-650 p-5">
             <h3 className="font-bold text-surface-900 dark:text-night-50 mb-3 inline-flex items-center gap-2"><Layers size={14}/> Stats</h3>
             <div className="grid grid-cols-2 gap-2">
