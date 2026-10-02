@@ -3,13 +3,23 @@
 // Moved verbatim from lib/api.ts; AbortSignal threading preserved.
 import { api, API_TIMEOUTS } from '../client'
 
-// Schedules
+// Schedules (weekly templates) + dated overrides (Approach A, 20261002).
+// Templates stay owner-only weekly (dayOfWeek); overrides carry temporary
+// range+time (validFrom/validUntil + start/end). UI scope radio maps to:
+// Every week → create/update/delete template; Only this range → override CRUD.
 export const scheduleAPI = {
   getAll: () => api.get('/schedules').then((r) => r.data),
   getByDay: (day: number) => api.get(`/schedules/day/${day}`).then((r) => r.data),
   create: (data: any) => api.post('/schedules', data).then((r) => r.data),
   update: (id: string, data: any) => api.put(`/schedules/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/schedules/${id}`).then((r) => r.data),
+  listOverrides: (params?: { from?: string; to?: string; signal?: AbortSignal }) => {
+    const { signal, ...query } = (params as any) || {}
+    return api.get('/schedules/overrides', { params: query, signal }).then((r) => r.data)
+  },
+  createOverride: (data: any) => api.post('/schedules/overrides', data).then((r) => r.data),
+  updateOverride: (id: string, data: any) => api.put(`/schedules/overrides/${id}`, data).then((r) => r.data),
+  deleteOverride: (id: string) => api.delete(`/schedules/overrides/${id}`).then((r) => r.data),
 }
 
 // Tasks (Personal Planner) — signal makes rapid tab switches cancellable.
@@ -39,6 +49,8 @@ export const taskAPI = {
 export const timetableAPI = {
   getAll: (opts?: { signal?: AbortSignal }) => api.get('/timetable', { signal: opts?.signal }).then((r) => r.data),
   getToday: (signal?: AbortSignal) => api.get('/timetable/today', { signal }).then((r) => r.data),
+  getByDate: (date: string, opts?: { signal?: AbortSignal }) => api.get('/timetable', { params: { date }, signal: opts?.signal }).then((r) => r.data),
+  getRange: (from: string, to: string, opts?: { signal?: AbortSignal }) => api.get('/timetable', { params: { from, to }, signal: opts?.signal }).then((r) => r.data),
   uploadImage: (file: File, provider?: { baseUrl?: string; apiKey?: string; model?: string }) => {
     const formData = new FormData()
     formData.append('timetable', file)
@@ -46,8 +58,9 @@ export const timetableAPI = {
     return api.post('/timetable/upload', formData, { headers: { 'Content-Type': undefined } as any, timeout: API_TIMEOUTS.fetch }).then((r) => r.data)
   },
   parseText: (text: string) => api.post('/timetable/parse-text', { text }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
-  save: (classes: any[], clearExisting?: boolean) => api.post('/timetable/save', { classes, clearExisting }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
-  clear: () => api.delete('/timetable/clear').then((r) => r.data),
+  // clearExisting wipes TEMPLATES ONLY (overrides survive); pass clearOverrides=true to also wipe temporaries.
+  save: (classes: any[], clearExisting?: boolean, clearOverrides?: boolean) => api.post('/timetable/save', { classes, clearExisting, ...(clearOverrides ? { clearOverrides: true } : {}) }, { timeout: API_TIMEOUTS.fetch }).then((r) => r.data),
+  clear: (includeOverrides?: boolean) => api.delete('/timetable/clear', { params: includeOverrides ? { includeOverrides: 'true' } : {} }).then((r) => r.data),
 }
 
 // Forms
