@@ -6,6 +6,7 @@ import {
 import api from '../lib/api'
 import PlatformCard from '../components/fetch/PlatformCard'
 import FetchStats from '../components/fetch/FetchStats'
+import PasteLinksCard from '../components/fetch/PasteLinksCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 
 interface PlatformStats {
@@ -603,6 +604,9 @@ export default function FetchPage() {
           ))}
         </div>
       </div>
+
+      {/* Superadmin paste-links (manual-only, type-aware, rollback: remove this block) */}
+      <PasteLinksCard onRefresh={handleCardRefresh} />
     </div>
   )
 }

@@ -14,6 +14,7 @@ import { getAutoFetchState, setAutoFetchEnabled } from '../services/fetch/autoFe
 import { recordSourceRun, selectFailedPlatforms, sourceHealthStore } from '../services/fetch/health'
 import { getOrSet } from '../lib/cache'
 import { getCachedPlatformSettings, invalidatePlatformSettingsCache } from '../services/fetch/settingsCache'
+import { PASTE_LINK_HACKATHON_SOURCE, PASTE_LINK_INTERNSHIP_SOURCE, fetchPasteLinks, validatePasteLinksPayload } from '../services/opportunities/sources/pasteLinks'
 
 // PERF (prod burst fix): /fetch/stats counts payload cached 60s shared
 // (Redis when healthy, memory otherwise — same seam as super-dashboard).
@@ -22,9 +23,12 @@ import { getCachedPlatformSettings, invalidatePlatformSettingsCache } from '../s
 const FETCH_STATS_CACHE_KEY = 'fetch:stats:counts'
 const FETCH_STATS_CACHE_TTL_MS = 60_000
 
-// #4 source health: canonical platform list for health (registry 10 + detached OTHER_*).
+// #4 source health: canonical platform list for health (registry 12 + detached OTHER_* + PASTE_LINK_* manual-only).
+// PASTE_LINK_* stay manual-only (never in Fetch All/cron fan-out); listed here
+// only so stats/health show separate hackathon vs internship paste counts.
+// Rollback: remove the two PASTE_LINK_* entries (additive-only change).
 function listHealthPlatforms(): string[] {
-  return [...listFetchAllPlatforms(), 'OTHER_HACKATHON', 'OTHER_INTERNSHIP']
+  return [...listFetchAllPlatforms(), 'OTHER_HACKATHON', 'OTHER_INTERNSHIP', 'PASTE_LINK_HACKATHON', 'PASTE_LINK_INTERNSHIP']
 }
 
 // ─── AI 429 detection helper — returns AI issue message if rate-limited, else null ───
@@ -372,8 +376,8 @@ async function enrichAllPending(source?: string): Promise<{ hackEnriched: number
 // counts cache. Shape identical.
 router.get('/stats', async (req, res) => {
   try {
-    // SSOT: registry owns the 10 fetch platforms; OTHER_* stay detached manual-only.
-    const platforms = [...listFetchAllPlatforms(), 'OTHER_HACKATHON', 'OTHER_INTERNSHIP']
+    // SSOT: registry owns the 12 fetch platforms; OTHER_* + PASTE_LINK_* stay detached manual-only.
+    const platforms = [...listFetchAllPlatforms(), 'OTHER_HACKATHON', 'OTHER_INTERNSHIP', 'PASTE_LINK_HACKATHON', 'PASTE_LINK_INTERNSHIP']
 
     // DIP: batched counts via fetchStatsStore (Prisma groupBy in prod, fake in tests).
     const stats = await getOrSet(FETCH_STATS_CACHE_KEY, FETCH_STATS_CACHE_TTL_MS, async () => {
@@ -1062,6 +1066,120 @@ router.post('/custom', fetchLimiter, async (req, res) => {
     }
     logger.error({ err: error }, 'Fetch custom error:', error?.stack)
     res.status(500).json({ error: 'Failed to fetch custom URLs' })
+  }
+})
+
+// POST /api/fetch/paste-links - Superadmin paste-links (manual-only, type-aware).
+// Body: { type: 'HACKATHON'|'INTERNSHIP' ('hackathons'/'internships' aliases ok), urls: string[] (1-20) } OR { type, raw: string } (multiline/comma/space bulk).
+// Separate staging via source PASTE_LINK_HACKATHON vs PASTE_LINK_INTERNSHIP
+// (separate hackathonStaging vs internshipStaging tables by type). Fail-open
+// per-URL: one bad link records perUrl error, siblings still save. SSRF via
+// validatePublicUrl (no platform allowlist — arbitrary public http(s), still
+// no private IP/metadata + 6k + 15s + 2MB caps). Rate-limited 30/h like /custom.
+// NOTE: must be registered BEFORE POST /:platform or Express would treat
+// "paste-links" as a platform param. Manual-only: never in Fetch All/cron.
+// Rollback: delete this block + remove PASTE_LINK_* from listHealthPlatforms/stats.
+router.post('/paste-links', fetchLimiter, async (req, res) => {
+  const t0 = Date.now()
+  try {
+    let parsed: { type: 'HACKATHON' | 'INTERNSHIP'; urls: string[] }
+    try {
+      parsed = validatePasteLinksPayload(req.body as { type?: unknown; urls?: unknown; raw?: unknown })
+    } catch (e: unknown) {
+      res.status(400).json({ error: String((e as Error)?.message || 'Invalid paste-links payload') })
+      return
+    }
+    const admin = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true, collegeId: true } })
+    if (!admin) return res.status(400).json({ error: 'No admin user found' })
+    const source = parsed.type === 'HACKATHON' ? PASTE_LINK_HACKATHON_SOURCE : PASTE_LINK_INTERNSHIP_SOURCE
+    logger.info(`[Fetch] Paste-links ${source} (${parsed.urls.length} url(s))...`)
+    const { items, perUrl } = await fetchPasteLinks(parsed.urls, parsed.type)
+    const failed = perUrl.filter((p) => !p.ok)
+    // Health: ok when at least one URL succeeded (isolated per-URL failures don't mark DOWN).
+    try {
+      await recordSourceRun(sourceHealthStore, {
+        platform: source,
+        ok: perUrl.some((p) => p.ok),
+        latencyMs: Date.now() - t0,
+        error: perUrl.some((p) => p.ok) ? undefined : (failed[0]?.error || 'All paste-links failed').slice(0, 500),
+        fetchedCount: items.length,
+      })
+    } catch {}
+    if (items.length === 0) {
+      res.json({ success: true, fetched: 0, saved: 0, hackathons: 0, internships: 0, skipped: failed.length, enriched: 0, source, perUrl, failed: failed.length, message: failed.length > 0 ? `No links saved — ${failed.length} failed (see perUrl)` : 'No valid URLs' })
+      return
+    }
+    const saved = await saveItems(items, admin.id, admin.collegeId)
+    const total = saved.hackathonSaved + saved.internshipSaved
+    logger.info(`[Fetch] Saved ${total} paste-link item(s) from ${source} (${failed.length} failed)`)
+    let enriched: { hackEnriched: number; intEnriched: number; enriched: number; skipped: number; reason?: string; aiIssue?: boolean; message?: string } = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: 0 }
+    let enrichMessage: string | undefined
+    let enrichReason: string | undefined
+    let enrichAiIssue = false
+    try {
+      if (!(await isEnrichmentAIEnabled())) {
+        logger.warn('[Enrich] GROQ_API_KEY not set — AI disabled, skipping paste-links enrichment')
+        enrichMessage = 'AI disabled — run with GROQ_API_KEY to enrich'
+        enrichReason = 'AI_DISABLED'
+      } else {
+        try {
+          enriched = await enrichAllPending(source)
+        } catch (enrichErr: unknown) {
+          const aiMsg = detectAiRateLimit(enrichErr)
+          if (aiMsg) {
+            logger.warn({ err: aiMsg }, '[Enrich] enrichAllPending paste-links AI rate limit (non-fatal):')
+            enriched = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: 0, reason: 'AI_ISSUE', aiIssue: true, message: aiMsg }
+          } else {
+            logger.warn({ err: (enrichErr as Error)?.message || enrichErr }, '[Enrich] enrichAllPending paste-links failed (non-fatal):')
+            enriched = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: 0 }
+            enrichMessage = 'Enrich skipped due to error — saved items remain'
+          }
+        }
+        if ((enriched as { reason?: string }).reason === 'AI_DISABLED') {
+          enrichMessage = 'AI disabled — run with GROQ_API_KEY to enrich'
+          enrichReason = 'AI_DISABLED'
+          enriched = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: (enriched as { skipped?: number }).skipped || 0 }
+        } else if ((enriched as { reason?: string }).reason === 'AI_ISSUE' || (enriched as { aiIssue?: boolean }).aiIssue) {
+          enrichMessage = (enriched as { message?: string }).message || toAiIssueMessage({ message: String((enriched as { message?: string }).message || '') })
+          enrichReason = 'AI_ISSUE'
+          enrichAiIssue = true
+        }
+      }
+    } catch (enrichOuterErr: unknown) {
+      const aiMsg = detectAiRateLimit(enrichOuterErr)
+      if (aiMsg) {
+        enriched = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: 0, reason: 'AI_ISSUE', aiIssue: true, message: aiMsg }
+        enrichMessage = aiMsg
+        enrichReason = 'AI_ISSUE'
+        enrichAiIssue = true
+      } else {
+        enriched = { hackEnriched: 0, intEnriched: 0, enriched: 0, skipped: 0 }
+        enrichMessage = 'Enrich skipped due to error — saved items remain'
+      }
+    }
+    const finalMessage = enrichMessage || (enrichAiIssue ? (enriched as { message?: string }).message : undefined)
+    const finalReason = enrichReason || (enriched as { reason?: string }).reason
+    res.json({
+      success: true,
+      fetched: items.length,
+      saved: total,
+      hackathons: saved.hackathonSaved,
+      internships: saved.internshipSaved,
+      skipped: saved.skipped,
+      enriched: enriched.hackEnriched + enriched.intEnriched,
+      source,
+      perUrl,
+      failed: failed.length,
+      ...(finalMessage ? { message: finalMessage, enrichReason: finalReason || 'AI_DISABLED', ...(enrichAiIssue || isAiIssueReason(finalReason) ? { aiIssue: true } : {}) } : {}),
+      ...(enrichAiIssue || finalReason === 'AI_ISSUE' ? { aiIssue: true } : {}),
+    })
+  } catch (error: unknown) {
+    const aiMsg = detectAiRateLimit(error)
+    if (aiMsg) {
+      return res.json({ success: true, fetched: 0, saved: 0, hackathons: 0, internships: 0, skipped: 0, enriched: 0, aiIssue: true, message: aiMsg, enrichReason: 'AI_ISSUE' })
+    }
+    logger.error({ err: error }, 'Fetch paste-links error:', (error as Error)?.stack)
+    res.status(500).json({ error: 'Failed to fetch paste-links' })
   }
 })
 
