@@ -50,14 +50,14 @@ import { createPresenceStore } from '../src/services/socket';
 import { fetchFromPlatform } from '../src/services/opportunityAgent';
 
 describe('registry SSOT (1-file adds)', () => {
-  it('lists 10 fetch platforms with types (no local copies)', () => {
+  it('lists 12 fetch platforms with types (no local copies)', () => {
     const keys = listFetchAllPlatforms();
     expect(keys).toContain('DEVFOLIO');
     expect(keys).toContain('WELLFOUND');
     expect(keys).toContain('UNSTOP_INTERNSHIP');
     expect(keys).not.toContain('UNSTOP_INTERNSHIPS');
     expect(keys).not.toContain('OTHER_HACKATHON');
-    expect(keys.length).toBe(10);
+    expect(keys.length).toBe(12);
     const types = platformTypeMap();
     expect(types.DEVFOLIO).toBe('HACKATHON');
     expect(types.WELLFOUND).toBe('INTERNSHIP');

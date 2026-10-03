@@ -91,6 +91,8 @@ const HACKATHON_PLATFORMS = [
   { id: 'HACK2SKILL', name: 'Hack2Skill', icon: '🛠️', color: 'border-l-sky-500' },
   { id: 'DORAHACKS', name: 'DoraHacks', icon: '🌐', color: 'border-l-violet-500' },
   { id: 'HACKEREARTH', name: 'HackerEarth', icon: '🧠', color: 'border-l-emerald-500' },
+  { id: 'LABLAB', name: 'LabLab', icon: '🤖', color: 'border-l-cyan-500' },
+  { id: 'DEVNOVATE', name: 'DevNovate', icon: '🎓', color: 'border-l-amber-500' },
 ]
 
 const INTERNSHIP_PLATFORMS = [

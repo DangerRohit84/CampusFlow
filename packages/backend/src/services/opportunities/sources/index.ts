@@ -30,6 +30,8 @@ export {
 } from './hack2skill'
 export { fetchDoraHacks, fetchDoraHacksPage, parseDoraHacksTimeline, extractDoraHacksOrganizer } from './dorahacks'
 export { fetchHackerEarth, fetchHackerEarthPage, isHackerEarthEventUrl } from './hackerearth'
+export { fetchLablab, fetchLablabPage, isLablabEventUrl, normalizeLablabUrl, parseLablabMode, parseLablabDateRange, parseLablabListing, parseLablabDetail, fetchLablabDetail, enrichLablabItems, LABLAB_LISTING_URL, LABLAB_SITEMAP_URL } from './lablab'
+export { fetchDevnovate, fetchDevnovatePage, isDevnovateEventUrl, normalizeDevnovateUrl, parseDevnovateMode, parseDevnovateTeamSize, extractDevnovateOrganizer, DEVNOVATE_LISTING_URL, DEVNOVATE_EVENT_BASE, DEVNOVATE_SEED_SLUGS } from './devnovate'
 export { fetchWellfoundInternships, fetchWellfoundPage, buildWellfoundPageUrls, isGenericWellfoundRemotePage, isWellfoundInternTitle } from './wellfound'
 export { fetchReskilllPage, buildReskilllListingUrl, isReskilllHackUrl, RESKILLL_LISTING_BASE } from './reskilll'
 export {

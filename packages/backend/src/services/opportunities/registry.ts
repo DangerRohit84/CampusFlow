@@ -97,6 +97,8 @@ function defaultMatchFor(key: string): (url: string) => boolean {
     if (key === 'HACK2SKILL') return u.includes('hack2skill.com')
     if (key === 'DORAHACKS') return u.includes('dorahacks.io')
     if (key === 'HACKEREARTH') return u.includes('hackerearth.com')
+    if (key === 'LABLAB') return u.includes('lablab.ai')
+    if (key === 'DEVNOVATE') return u.includes('devnovate.co')
     if (key === 'INTERNSHALA') return u.includes('internshala.com')
     if (key === 'WELLFOUND') return u.includes('wellfound.com')
     return u.includes(k)

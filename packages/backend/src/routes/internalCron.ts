@@ -210,7 +210,7 @@ export async function runOpportunitiesJob(opts?: {
       logger.info(`[Cron] PlatformSettings limits: ${Object.entries(limits).map(([k, v]) => `${k}:${v === undefined ? 'All' : v}`).join(', ')}${disabledSkipped.length ? ` (skipped disabled: ${disabledSkipped.join(', ')})` : ''}`)
     } else {
       for (const p of ALL_PLATFORMS) limits[p] = 10
-      logger.info('[Cron] No PlatformSettings found — defaulting to 10 each for all 10 platforms')
+      logger.info('[Cron] No PlatformSettings found — defaulting to 10 each for all 12 platforms')
     }
   } catch (e: any) {
     logger.warn({ err: e?.message || e }, '[Cron] PlatformSettings read failed, defaulting to 10 each:')

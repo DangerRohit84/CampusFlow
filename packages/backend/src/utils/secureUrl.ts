@@ -28,7 +28,7 @@ const BLOCKED_HOSTS = new Set([
 ])
 
 // I-12 default allowlist (prod fallback when EXTERNAL_FETCH_ALLOWLIST unset):
-// 10 platform suffixes actually fetched by opportunityAgent + fetch.ts custom URLs.
+// 12 platform suffixes actually fetched by opportunityAgent + fetch.ts custom URLs.
 export const DEFAULT_FETCH_ALLOWLIST = [
   'unstop.com',
   'internshala.com',
@@ -40,6 +40,8 @@ export const DEFAULT_FETCH_ALLOWLIST = [
   'wellfound.com',
   'reskilll.com',
   'hackerearth.com',
+  'lablab.ai',
+  'devnovate.co',
 ]
 
 // Optional allowlist: if set, URL host must end with one of these suffixes (e.g., "unstop.com,internshala.com")
@@ -97,7 +99,7 @@ function isPrivateIP(ip: string): boolean {
   return false
 }
 
-export async function validateExternalUrl(raw: string): Promise<URL> {
+async function validateUrlBase(raw: string, enforceAllowlist: boolean): Promise<URL> {
   let parsed: URL
   try {
     parsed = new URL(raw)
@@ -154,12 +156,14 @@ export async function validateExternalUrl(raw: string): Promise<URL> {
     }
   }
 
-  // Allowlist suffix check (if configured)
-  const allowlist = getAllowlist()
-  if (allowlist.length > 0) {
-    const ok = allowlist.some(suffix => hostname === suffix || hostname.endsWith('.' + suffix))
-    if (!ok) {
-      throw new Error(`Host not in allowlist: ${hostname}`)
+  if (enforceAllowlist) {
+    // Allowlist suffix check (if configured)
+    const allowlist = getAllowlist()
+    if (allowlist.length > 0) {
+      const ok = allowlist.some(suffix => hostname === suffix || hostname.endsWith('.' + suffix))
+      if (!ok) {
+        throw new Error(`Host not in allowlist: ${hostname}`)
+      }
     }
   }
 
@@ -167,6 +171,21 @@ export async function validateExternalUrl(raw: string): Promise<URL> {
   // Additional: block file:// etc already done via protocol
 
   return parsed
+}
+
+export async function validateExternalUrl(raw: string): Promise<URL> {
+  return validateUrlBase(raw, true)
+}
+
+/**
+ * Paste-links SSRF guard: same private-IP/DNS/metadata checks as
+ * validateExternalUrl but WITHOUT the platform allowlist suffix check.
+ * WHY: superadmin pastes arbitrary public links (any domain). Superadmin is
+ * trusted for target selection, but SSRF must still fail closed (no private
+ * IP, no metadata, http(s) only, 6k + 15s + 2MB caps enforced by callers).
+ */
+export async function validatePublicUrl(raw: string): Promise<URL> {
+  return validateUrlBase(raw, false)
 }
 
 export function isPrivateIPAddress(ip: string): boolean {

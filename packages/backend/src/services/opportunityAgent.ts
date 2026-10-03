@@ -33,6 +33,8 @@ import { fetchUnstop, fetchUnstopInternships } from './opportunities/sources/uns
 import { fetchHack2Skill } from './opportunities/sources/hack2skill'
 import { fetchDoraHacks } from './opportunities/sources/dorahacks'
 import { fetchHackerEarth } from './opportunities/sources/hackerearth'
+import { fetchLablab } from './opportunities/sources/lablab'
+import { fetchDevnovate } from './opportunities/sources/devnovate'
 import { fetchWellfoundInternships } from './opportunities/sources/wellfound'
 
 export type { NormalizedOpportunity } from './opportunities/types'
@@ -69,6 +71,8 @@ export { fetchUnstop, fetchUnstopInternships } from './opportunities/sources/uns
 export { fetchHack2Skill, fetchHack2SkillRegistrationEnd } from './opportunities/sources/hack2skill'
 export { fetchDoraHacks } from './opportunities/sources/dorahacks'
 export { fetchHackerEarth } from './opportunities/sources/hackerearth'
+export { fetchLablab } from './opportunities/sources/lablab'
+export { fetchDevnovate } from './opportunities/sources/devnovate'
 export { fetchWellfoundInternships } from './opportunities/sources/wellfound'
 export { fetchReskilllPage } from './opportunities/sources/reskilll'
 
@@ -89,11 +93,11 @@ export function isEnded(deadlineStr?: string | null, title?: string | null): boo
   return isEndedSSOT(deadlineStr, title)
 }
 
-// New high-signal sources: DoraHacks (global Web3/AI), HackerEarth (India college/corporate), Wellfound (startup internships with salary).
-// OPERATIONAL MODE BUILD: Fetch All tick/target persisted via PlatformSettings (enabled/fetchLimit). When limits map is provided and non-empty, only platforms present in the map are fetched (missing = disabled/tick-off → skipped). When limits is undefined or empty, all 10 are fetched (legacy default).
+// New high-signal sources: DoraHacks (global Web3/AI), HackerEarth (India college/corporate), Wellfound (startup internships with salary), LabLab (AI hackathons), DevNovate (India college hackathons).
+// OPERATIONAL MODE BUILD: Fetch All tick/target persisted via PlatformSettings (enabled/fetchLimit). When limits map is provided and non-empty, only platforms present in the map are fetched (missing = disabled/tick-off → skipped). When limits is undefined or empty, all 12 are fetched (legacy default).
 //
 // SSOT: platform list/type/enrichPages live in ./opportunities/registry.ts.
-// Adding platform #11 = new sources/<site>.ts + ONE registerPlatform() below.
+// Adding platform #13 = new sources/<site>.ts + ONE registerPlatform() below.
 // Do NOT add another if (shouldFetch(...)) branch — fetchFromAllSources iterates
 // listFetchAllPlatforms() so orchestrator/cron/fetch stay in sync.
 
@@ -235,6 +239,8 @@ const platformFetchers: Record<string, (limit?: number, opts?: { signal?: AbortS
   HACK2SKILL: fetchHack2Skill,
   DORAHACKS: fetchDoraHacks,
   HACKEREARTH: fetchHackerEarth,
+  LABLAB: fetchLablab,
+  DEVNOVATE: fetchDevnovate,
   UNSTOP_INTERNSHIP: fetchUnstopInternships,
   UNSTOP_INTERNSHIPS: fetchUnstopInternships,
   WELLFOUND: fetchWellfoundInternships,
@@ -243,7 +249,7 @@ const platformFetchers: Record<string, (limit?: number, opts?: { signal?: AbortS
 // OCP: single registration site — new platform = new sources/<site>.ts file +
 // ONE registerPlatform() entry below (fetch + type + enrichPages travel together).
 // fetchFromAllSources / fetch.ts / internalCron / stages all read the registry,
-// so no orchestrator/fetch/cron/enrich edits are needed for platform #11.
+// so no orchestrator/fetch/cron/enrich edits are needed for platform #13.
 registerPlatform({ key: 'DEVFOLIO', type: 'HACKATHON', fetcher: fetchDevfolio, enrichPages: ['', '/schedule', '/prizes', '/judges'] })
 registerPlatform({ key: 'DEVPOST', type: 'HACKATHON', fetcher: fetchDevpost, enrichPages: ['', '/rules', '/prizes', '/judges'] })
 registerPlatform({ key: 'MLH', type: 'HACKATHON', fetcher: fetchMLH, enrichPages: ['', '/schedule', '/faq', '/prizes'] })
@@ -251,6 +257,8 @@ registerPlatform({ key: 'UNSTOP', type: 'HACKATHON', fetcher: fetchUnstop, enric
 registerPlatform({ key: 'HACK2SKILL', type: 'HACKATHON', fetcher: fetchHack2Skill, enrichPages: [''] })
 registerPlatform({ key: 'DORAHACKS', type: 'HACKATHON', fetcher: fetchDoraHacks, enrichPages: ['', '/details'] })
 registerPlatform({ key: 'HACKEREARTH', type: 'HACKATHON', fetcher: fetchHackerEarth, enrichPages: ['', '/prizes', '/rules', '/judges', '/teams'] })
+registerPlatform({ key: 'LABLAB', type: 'HACKATHON', fetcher: fetchLablab, enrichPages: [''] })
+registerPlatform({ key: 'DEVNOVATE', type: 'HACKATHON', fetcher: fetchDevnovate, enrichPages: [''] })
 registerPlatform({ key: 'INTERNSHALA', type: 'INTERNSHIP', fetcher: fetchInternshala, enrichPages: ['', '/perks'] })
 registerPlatform({ key: 'UNSTOP_INTERNSHIP', type: 'INTERNSHIP', fetcher: fetchUnstopInternships, enrichPages: ['', '/problem-statement', '/timeline', '/prizes'] })
 registerPlatform({ key: 'WELLFOUND', type: 'INTERNSHIP', fetcher: fetchWellfoundInternships, enrichPages: [''] })

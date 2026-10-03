@@ -425,7 +425,7 @@ router.get('/health', async (_req, res) => {
 import { saveItems } from '../services/fetch/save';
 export { saveItems };
 
-// POST /api/fetch/all - Fetch from all platforms (BUILD MODE: 10 fetchers — DEVFOLIO, DEVPOST, MLH, UNSTOP (hackathons), HACK2SKILL, DORAHACKS, HACKEREARTH (hackathons), INTERNSHALA, UNSTOP_INTERNSHIP, WELLFOUND (internships))
+// POST /api/fetch/all - Fetch from all platforms (BUILD MODE: 12 fetchers — DEVFOLIO, DEVPOST, MLH, UNSTOP (hackathons), HACK2SKILL, DORAHACKS, HACKEREARTH, LABLAB, DEVNOVATE (hackathons), INTERNSHALA, UNSTOP_INTERNSHIP, WELLFOUND (internships))
 // NOTE: Other Sources (OTHER_HACKATHON / OTHER_INTERNSHIP) are DELIBERATELY excluded from this bulk path.
 // They remain manual-only via POST /fetch/other/hackathons and POST /fetch/other/internships (detached per user request).
 // Body: { limits?: Record<string, number> } — 0 = all, 1-50 = max items
