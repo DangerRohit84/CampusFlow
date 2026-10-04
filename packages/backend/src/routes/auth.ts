@@ -8,6 +8,12 @@ import { signJwtWithJti, signRefreshToken, verifyRefreshToken, generateCsrfToken
 import { verifyTurnstile } from '../utils/turnstile'
 import { logger } from '../utils/logger'
 import { toRoleEnum } from '../lib/enums'
+import {
+  MAX_USERNAME_CHANGES,
+  sanitizeUsernameValue as sanitizeUsername,
+  isValidUsernameValue as isValidUsername,
+  needsUsernameSetup,
+} from '../utils/username'
 
 const router = Router()
 
@@ -66,12 +72,6 @@ const registerSchema = z.object({
   incomingYear: z.number().optional(),
 })
 
-function sanitizeUsername(raw: string): string {
-  return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
-}
-function isValidUsername(u: string): boolean {
-  return /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u) && u.length >= 3 && u.length <= 20
-}
 function suggestBase(name: string, email: string): string {
   const base = sanitizeUsername(name.replace(/\s+/g, '_')) || sanitizeUsername(email.split('@')[0]) || 'user'
   let s = base
@@ -228,8 +228,12 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(body.password, 12)
     // HIBP enforced above via checkPasswordBreach (k-anonymity, offline-safe).
-    // username: use provided or generate from name/email, ensure unique
+    // username: use provided or generate from name/email, ensure unique.
+    // usernameSetByUser tracks whether the user chose it (true only when they
+    // explicitly provided it here). Auto-generated names are provisional
+    // (false) so the first-login modal prompts to set/keep (free setup).
     let username: string | undefined
+    let usernameProvided = false
     if ((body as any).username) {
       const s = sanitizeUsername(String((body as any).username))
       if (!isValidUsername(s)) {
@@ -244,6 +248,7 @@ router.post('/register', async (req: Request, res: Response) => {
         return
       }
       username = s
+      usernameProvided = true
     } else {
       username = await generateUniqueUsername(body.name, email)
     }
@@ -255,6 +260,8 @@ router.post('/register', async (req: Request, res: Response) => {
           email,
           name: body.name,
           username,
+          usernameSetByUser: usernameProvided,
+          usernameChangeCount: 0,
           passwordHash,
           departmentId: body.departmentId || undefined,
           // safeRole is one of STUDENT/TEACHER/COLLEGE_ADMIN (validated above);
@@ -315,11 +322,20 @@ router.post('/register', async (req: Request, res: Response) => {
       buildAuthCookies(res, token, refresh.token, csrfToken)
     } catch {}
 
+    // Register response flags: explicitly-provided username is final
+    // (no prompt); auto-generated is provisional (prompt free setup).
+    const regSetByUser = (user as any).usernameSetByUser === true ? true : usernameProvided
+    const regNeedsSetup = !regSetByUser || !(user as any).username
     res.status(201).json({
       user: {
         id: user.id,
         name: user.name,
         username: (user as any).username || username,
+        usernameSetByUser: regSetByUser,
+        usernameChangeCount: Number((user as any).usernameChangeCount ?? 0) || 0,
+        remainingChanges: MAX_USERNAME_CHANGES,
+        needsSetup: regNeedsSetup,
+        needsUsernameSetup: regNeedsSetup,
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
@@ -403,12 +419,30 @@ router.post('/login', async (req: Request, res: Response) => {
       include: { college: { select: { id: true, name: true } }, department: true },
     })
 
-    // backfill username if missing (legacy users)
+    // backfill username if missing (legacy / admin-created users).
+    // Provisional: persisted with usernameSetByUser=false + count 0 so the
+    // first-login modal prompts to set/keep (free setup, NOT forced
+    // name-as-username). Pre-migration safe (P2022 → plain username).
     let username = (user as any).username
+    let loginSetByUser = (user as any).usernameSetByUser === true
+    let loginChangeCount = Number((user as any).usernameChangeCount ?? 0)
+    if (!Number.isFinite(loginChangeCount) || loginChangeCount < 0) loginChangeCount = 0
+    else loginChangeCount = Math.floor(loginChangeCount)
     if (!username) {
       try {
         username = await generateUniqueUsername(user.name, user.email)
-        await (prisma as any).user.update({ where: { id: user.id }, data: { username } as any })
+        try {
+          await (prisma as any).user.update({
+            where: { id: user.id },
+            data: { username, usernameSetByUser: false, usernameChangeCount: 0 } as any,
+          })
+        } catch (e: any) {
+          if (e?.code === 'P2022' || /usernameSetByUser|usernameChangeCount/i.test(String(e?.message || ''))) {
+            await (prisma as any).user.update({ where: { id: user.id }, data: { username } as any })
+          } else throw e
+        }
+        loginSetByUser = false
+        loginChangeCount = 0
       } catch {}
     }
     // Order 12 CTI read-new (profile-first, User fallback — IDENTICAL shape).
@@ -447,6 +481,11 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         username: username || (user as any).username || null,
+        usernameSetByUser: loginSetByUser,
+        usernameChangeCount: loginChangeCount,
+        remainingChanges: String(user.role ?? '') === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - loginChangeCount),
+        needsSetup: needsUsernameSetup({ username: username || (user as any).username || null, usernameSetByUser: loginSetByUser } as any),
+        needsUsernameSetup: needsUsernameSetup({ username: username || (user as any).username || null, usernameSetByUser: loginSetByUser } as any),
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
@@ -575,10 +614,22 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       _mNudge = (user as any)?.passwordNudgeAt != null
     } catch {}
 
+    // Username setup flags (additive, pre-migration safe: missing cols read
+    // as false/0 via `as any` + nullish defaults — prompt + full budget).
+    const meSetByUser = (user as any)?.usernameSetByUser === true
+    const meRawCount = Number((user as any)?.usernameChangeCount ?? 0)
+    const meCount = Number.isFinite(meRawCount) && meRawCount > 0 ? Math.floor(meRawCount) : 0
+    const meNeedsSetup = needsUsernameSetup(user as any)
+
     res.json({
       id: user.id,
       name: user.name,
       username: (user as any).username || null,
+      usernameSetByUser: meSetByUser,
+      usernameChangeCount: meCount,
+      remainingChanges: String((user as any)?.role ?? '') === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - meCount),
+      needsSetup: meNeedsSetup,
+      needsUsernameSetup: meNeedsSetup,
       email: user.email,
       role: user.role,
       departmentId: user.departmentId,

@@ -13,6 +13,8 @@ interface Props {
   onClose?: () => void
   onSkip?: () => void
   force?: boolean // if true, cannot close without saving — mandatory username (students)
+  mode?: 'setup' | 'change' // setup = free first set (not counted); change = counted (max 3). Auto-derived from user flags when omitted.
+  remainingChanges?: number | null // remaining counted changes (null = unlimited, SUPER_ADMIN). Falls back to user store.
 }
 
 function sanitize(v: string) {
@@ -22,7 +24,7 @@ function isValid(u: string) {
   return /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u) && u.length >= 3 && u.length <= 20
 }
 
-export default function UsernameSetupModal({ open, onClose, onSkip, force = true }: Props) {
+export default function UsernameSetupModal({ open, onClose, onSkip, force = true, mode, remainingChanges: remainingProp }: Props) {
   const { user, updateUser } = useAuthStore()
   // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
   const centeringClass = useModalCenteringClass()
@@ -120,20 +122,47 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
     return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
   }, [username, open])
 
+  // Username setup flow (2026-10-04): setup (free, first set/keep of a
+  // provisional auto-set) vs change (counted, max 3 for non-superadmins).
+  // Derived from user flags when `mode` omitted: needsSetup (or missing /
+  // provisional username) => setup, else change.
+  const needsSetup = (user as any)?.needsSetup === true || (user as any)?.needsUsernameSetup === true || !(user as any)?.username || (user as any)?.usernameSetByUser === false
+  const effectiveMode: 'setup' | 'change' = mode ?? (needsSetup ? 'setup' : 'change')
+  const provisional = (user as any)?.username && (user as any)?.usernameSetByUser === false ? String((user as any).username) : null
+  const remaining: number | null | undefined = remainingProp !== undefined ? remainingProp : ((user as any)?.remainingChanges as number | null | undefined)
+  const [keeping, setKeeping] = useState(false)
+
   const handleSave = async () => {
     const u = sanitize(username)
     if (!isValid(u)) { toast.error('Enter a valid username (3-20 chars, letters/numbers/_.-)'); return }
     if (available === false) { toast.error(reason || 'Username not available'); return }
     setSaving(true)
     try {
-      const res = await userAPI.setUsername(u)
+      // Free setup for first set; counted change afterwards (403 after 3).
+      const res = effectiveMode === 'setup' ? await userAPI.setupUsername(u) : await userAPI.changeUsername(u)
       const newName = res.username || u
-      updateUser({ username: newName } as any)
-      toast.success(`Username set to @${newName}`)
+      updateUser({ username: newName, usernameSetByUser: true, usernameChangeCount: res.usernameChangeCount, remainingChanges: res.remainingChanges, needsSetup: false, needsUsernameSetup: false } as any)
+      toast.success(effectiveMode === 'setup' ? `Username set to @${newName}` : `Username changed to @${newName}`)
       onClose?.()
     } catch (e: any) {
-      toast.error(e.response?.data?.error || e.message || 'Failed to save username')
+      const status = e.response?.status
+      if (status === 403) toast.error(e.response?.data?.error || 'Maximum username changes reached (3). Contact support for an exception.')
+      else if (status === 409) toast.error(e.response?.data?.error || 'Username already set — reload to refresh')
+      else toast.error(e.response?.data?.error || e.message || 'Failed to save username')
     } finally { setSaving(false) }
+  }
+
+  const handleKeep = async () => {
+    if (!provisional) return
+    setKeeping(true)
+    try {
+      const res = await userAPI.keepUsername()
+      updateUser({ username: res.username || provisional, usernameSetByUser: true, usernameChangeCount: res.usernameChangeCount, remainingChanges: res.remainingChanges, needsSetup: false, needsUsernameSetup: false } as any)
+      toast.success(`Kept @${res.username || provisional} — you still have ${res.remainingChanges ?? 3} changes`)
+      onClose?.()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.message || 'Failed to keep username')
+    } finally { setKeeping(false) }
   }
 
   const handleSkip = () => {
@@ -191,8 +220,13 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
               </div>
               <h2 id="username-modal-title" className="text-xl font-bold text-surface-900 dark:text-night-50">Choose your username</h2>
               <p className="text-sm text-surface-500 dark:text-night-300 mt-1.5 leading-relaxed pr-6">
-                Your profile will be at <span className="font-mono font-semibold text-primary-600 dark:text-success-300">/u/{sanitize(username) || suggestion || 'username'}</span>. You can change it later in settings.
+                Your profile will be at <span className="font-mono font-semibold text-primary-600 dark:text-success-300">/u/{sanitize(username) || suggestion || 'username'}</span>. {effectiveMode === 'setup' ? 'First set is free — afterwards you get 3 changes.' : (remaining === null ? 'As an admin you can rename freely.' : `You have ${remaining ?? 3} change${(remaining ?? 3) === 1 ? '' : 's'} left (max 3).`)}
               </p>
+              {provisional && effectiveMode === 'setup' && (
+                <p className="mt-2 text-xs text-surface-500 dark:text-night-300">
+                  We auto-suggested <span className="font-mono font-semibold">@{provisional}</span> from your name — keep it or pick your own.
+                </p>
+              )}
             </div>
 
             <div className="px-6 pb-2">
@@ -227,9 +261,19 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
               )}
             </div>
 
-            {/* actions — conditional: mandatory (students) has only Save; optional (teacher/admin) has Skip + Save */}
+            {/* actions — conditional: mandatory (students) has only Save; optional (teacher/admin) has Skip + Save.
+                Setup mode with a provisional auto-set also offers Keep (free confirm, budget untouched). */}
             <div className="px-6 py-5 flex items-center gap-3 bg-surface-50 dark:bg-night-850/50 border-t border-surface-100 dark:border-night-700 mt-4">
-              {!force && (
+              {provisional && effectiveMode === 'setup' && (
+                <button
+                  onClick={handleKeep}
+                  disabled={keeping || saving}
+                  className="px-5 py-3 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-700 text-surface-700 dark:text-night-200 font-medium text-sm hover:bg-surface-50 dark:hover:bg-night-600 transition-colors disabled:opacity-50"
+                >
+                  {keeping ? 'Keeping...' : `Keep @${provisional}`}
+                </button>
+              )}
+              {!force && !(provisional && effectiveMode === 'setup') && (
                 <button
                   onClick={handleSkip}
                   className="px-5 py-3 rounded-xl border border-surface-200 dark:border-night-600 bg-white dark:bg-night-700 text-surface-700 dark:text-night-200 font-medium text-sm hover:bg-surface-50 dark:hover:bg-night-600 transition-colors"

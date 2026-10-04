@@ -139,6 +139,13 @@ export const userAPI = {
   getIntegrations: () => api.get('/user/integrations').then((r) => r.data),
   checkUsername: (username: string) => api.get(`/user/check-username/${encodeURIComponent(username)}`).then((r) => r.data),
   setUsername: (username: string) => api.put('/user/username', { username }).then((r) => r.data),
+  // Username setup flow (2026-10-04, additive): free first set (not counted)
+  // vs counted change (max 3, 403 after; SUPER_ADMIN exempt). setUsername
+  // (legacy alias) stays for compat — backend smart-routes it by needsSetup.
+  setupUsername: (username: string) => api.post('/user/username/setup', { username }).then((r) => r.data),
+  keepUsername: () => api.post('/user/username/setup', { keep: true }).then((r) => r.data),
+  changeUsername: (username: string) => api.put('/user/username/change', { username }).then((r) => r.data),
+  getUsernameStatus: () => api.get('/user/username/status').then((r) => r.data),
   suggestUsername: () => api.get('/user/suggest-username').then((r) => r.data),
   // #12 self-delete (privacy.md §3): password-confirmed erasure, anonymize-not-delete.
   deleteMe: (password: string) => api.delete('/user/me', { data: { password } }).then((r) => r.data),

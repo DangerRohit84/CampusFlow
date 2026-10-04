@@ -276,9 +276,18 @@ export default function Layout() {
 
   // username setup flow: STUDENT mandatory, TEACHER/COLLEGE_ADMIN/SUPER optional with 7-day snooze.
   // WHY: students need /u/:username for portfolio sharing (mandatory); staff/admins can optionally set later. Skipping remembers dismissal for 7 days so not asked every time.
+  // 2026-10-04: gate on needsSetup (missing OR provisional auto-set not yet
+  // confirmed), NOT merely missing username — admin-added / login-backfilled
+  // name-derived usernames (setByUser=false) must still prompt to set/keep.
   const USERNAME_SKIP_TTL_MS = 7 * 24 * 60 * 60 * 1000
   const isStudent = user?.role === 'STUDENT'
   const getUsernameSkipKey = (uid: string) => `campusflow:username-skip:${uid}`
+  const needsUsernameSetupLocal = (u: any): boolean => {
+    if (!u) return false
+    if (u.needsSetup === true || u.needsUsernameSetup === true) return true
+    if (!u.username) return true
+    return u.usernameSetByUser === false
+  }
   const hasSkippedRecently = (uid: string): boolean => {
     try {
       const raw = localStorage.getItem(getUsernameSkipKey(uid))
@@ -293,9 +302,8 @@ export default function Layout() {
     // WHY cookie-only: gate on user (not token-only) — HttpOnly session has
     // user with null token, authAPI.me() works via cookies.
     if (!user) return
-    const uname = (user as any)?.username
-    if (uname) {
-      // username exists — ensure modal is closed
+    if (!needsUsernameSetupLocal(user as any)) {
+      // username confirmed — ensure modal is closed
       setShowUsernameModal(false)
       return
     }
@@ -309,16 +317,24 @@ export default function Layout() {
       try {
         const me = await authAPI.me().catch(() => null)
         if (cancelled) return
-        const remoteHasUsername = !!(me as any)?.username
-        const localHasUsername = !!(user as any)?.username
-        const hasUsername = remoteHasUsername || localHasUsername
-        if (hasUsername) {
-          const newU = (me as any)?.username
-          if (newU && newU !== (user as any)?.username) updateUser({ username: newU } as any)
+        // Sync fresh flags (username + setup/budget) into the store so the
+        // modal picks the right mode (setup vs change) + remaining copy.
+        if (me) {
+          const patch: Record<string, unknown> = {}
+          if ((me as any)?.username !== (user as any)?.username) patch.username = (me as any)?.username
+          for (const k of ['usernameSetByUser', 'usernameChangeCount', 'remainingChanges', 'needsSetup', 'needsUsernameSetup'] as const) {
+            if ((me as any)?.[k] !== (user as any)?.[k]) patch[k] = (me as any)?.[k]
+          }
+          if (Object.keys(patch).length) updateUser(patch as any)
+          if (!needsUsernameSetupLocal({ ...(user as any), ...(me as any) })) {
+            setShowUsernameModal(false)
+            return
+          }
+        } else if (!needsUsernameSetupLocal(user as any)) {
           setShowUsernameModal(false)
           return
         }
-        // still no username
+        // still needs setup
         if (!isStudent && hasSkippedRecently(user.id)) {
           setShowUsernameModal(false)
           return
@@ -326,7 +342,7 @@ export default function Layout() {
         setShowUsernameModal(true)
       } catch {
         // on error, fallback to local state; still respect snooze for non-students
-        if (!cancelled && !(user as any)?.username) {
+        if (!cancelled && needsUsernameSetupLocal(user as any)) {
           if (!isStudent && hasSkippedRecently(user.id)) setShowUsernameModal(false)
           else setShowUsernameModal(true)
         }
@@ -515,7 +531,8 @@ export default function Layout() {
     return (
     <div className="flex flex-col h-full max-h-screen">
       {/* Logo — brand kit v1.0 lockup (primary on light, reversed on dark #121212, 38px desktop / 32px mobile + 4px wrapper clearspace). Collapsed rail uses C-icon only per guide (<32px rule). */}
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-surface-200 dark:border-night-600/70 shrink-0">
+      {/* WHY collapsed rail: static px-3 left-aligned the C-icon — justify-center + px-0 keeps it centered, no left drift. Expanded keeps px-3 lockup. */}
+      <div className={clsx('py-2 flex items-center gap-2 border-b border-surface-200 dark:border-night-600/70 shrink-0', expanded ? 'px-3' : 'justify-center px-0')}>
         {expanded ? (
           <BrandLogo variant="auto" height={38} />
         ) : (
@@ -588,13 +605,28 @@ export default function Layout() {
                     aria-current={isActive ? 'page' : undefined}
                     className={clsx(
                       // WHY: WCAG 2.5.8 — 44px rail targets; focus-visible ring for keyboard.
-                      'w-full flex items-center gap-2 rounded-lg font-medium transition-colors duration-150 relative text-left text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
-                      expanded ? 'px-2.5 min-h-[44px] py-2' : 'justify-center px-0 min-h-[44px] min-w-[44px]',
+                      // WHY collapsed rail: justify-center + items-center + w-full + px-0 + text-center
+                      // keeps the 16px icon centered in the 56px content box (72px rail minus nav px-2).
+                      // Expanded keeps px-2.5 + text-left list layout. Utilities override components-layer
+                      // sidebar-link px-2.5 so collapsed stays px-0.
+                      'w-full flex items-center gap-2 rounded-lg font-medium transition-colors duration-150 relative text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
+                      expanded ? 'px-2.5 min-h-[44px] py-2 text-left' : 'justify-center items-center px-0 min-h-[44px] min-w-[44px] text-center',
                       isActive ? 'sidebar-link-active' : 'sidebar-link'
                     )}
                   >
-                    {isActive && <span className="locker-stripe" aria-hidden="true" />}
-                    <span className="relative inline-flex">
+                    {isActive && (
+                      <span
+                        className={clsx(
+                          'locker-stripe',
+                          // WHY collapsed rail: left-0 vertical reads as "green pill left" —
+                          // bottom-centered horizontal pill keeps active centered, no left drift.
+                          // Expanded keeps left vertical stripe. Mobile drawer is forceExpanded so untouched.
+                          !expanded && '!left-1/2 !top-auto !bottom-1 !-translate-x-1/2 !translate-y-0 !w-5 !h-[3px] !rounded-full'
+                        )}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="relative inline-flex items-center justify-center shrink-0">
                       <Icon size={16} aria-hidden="true" className={clsx(isActive ? 'text-primary-700 dark:text-primary-300' : 'text-surface-500')} />
                       {!expanded && showBadge && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-3.5 px-1 bg-danger-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center leading-none border-2 border-white">{badgeText}</span>
@@ -756,16 +788,16 @@ export default function Layout() {
         open={showUsernameModal}
         force={isStudent}
         onClose={() => {
-          // Student mandatory guard: only allow close if username actually exists
-          // Teacher/admin optional: allow dismiss and remember snooze for 7 days
-          const fresh = (useAuthStore.getState().user as any)?.username
-          const local = (user as any)?.username
-          const hasUsername = !!(fresh || local)
-          if (isStudent && !hasUsername) {
+          // Student mandatory guard: only allow close once setup is done
+          // (username confirmed — not merely present, provisional counts as pending).
+          // Teacher/admin optional: allow dismiss and remember snooze for 7 days.
+          const fresh = useAuthStore.getState().user as any
+          const stillNeedsSetup = needsUsernameSetupLocal(fresh) || needsUsernameSetupLocal(user as any)
+          if (isStudent && stillNeedsSetup) {
             toast.error('Please save a username to continue')
             return
           }
-          if (!isStudent && !hasUsername && user?.id) {
+          if (!isStudent && stillNeedsSetup && user?.id) {
             try { localStorage.setItem(getUsernameSkipKey(user.id), String(Date.now())) } catch {}
           }
           setShowUsernameModal(false)

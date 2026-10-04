@@ -196,6 +196,21 @@ model User {
   email          String   @unique
   name           String
   username       String?  @unique
+  // Username setup flow (2026-10-04, additive): provisional auto-set vs
+  // user-chosen + max-3 change budget. usernameSetByUser=false means the
+  // current username is provisional (admin-created null, register/login
+  // auto-generated from name/email) and the user must be prompted to
+  // set/keep it (free setup, not counted). usernameChangeCount counts
+  // POST-setup changes via PUT /user/username/change (max 3 for
+  // STUDENT/TEACHER/COLLEGE_ADMIN; SUPER_ADMIN exempt). Backfill: existing
+  // rows default false+0 (prompt + full budget, never lockout). History is
+  // NOT a new table — renames are already traced via AuditLog/broadcast
+  // (username:updated) + public /u/:username lookups stay exact-after-sanitize
+  // (stored lowercased => case-insensitive). Pre-migration code reads via
+  // (prisma as any) + try/catch fallback (P2022-tolerant, same pattern as
+  // mustChangePassword/passwordNudgeAt).
+  usernameSetByUser Boolean @default(false)
+  usernameChangeCount Int @default(0)
   passwordHash   String
   role           UserRole @default(STUDENT)
   collegeId      String?

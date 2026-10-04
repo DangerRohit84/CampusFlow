@@ -26,4 +26,15 @@ export interface User {
   // (no login block). FE shows a dismissible banner when either is true.
   mustChangePassword?: boolean
   passwordNudge?: boolean
+  // Username setup flow (2026-10-04, additive): provisional auto-set vs
+  // user-chosen + max-3 change budget (STUDENT/TEACHER/COLLEGE_ADMIN;
+  // SUPER_ADMIN exempt with remainingChanges=null). needsSetup/
+  // needsUsernameSetup drive the first-login UsernameSetupModal (true when
+  // username missing OR provisional auto-set not yet confirmed).
+  usernameSetByUser?: boolean
+  usernameChangeCount?: number
+  remainingChanges?: number | null
+  maxChanges?: number
+  needsSetup?: boolean
+  needsUsernameSetup?: boolean
 }

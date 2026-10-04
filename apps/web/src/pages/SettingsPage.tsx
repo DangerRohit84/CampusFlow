@@ -176,6 +176,12 @@ export default function SettingsPage() {
   }
 
   const sanitize = (v:string)=> v.toLowerCase().replace(/[^a-z0-9_.-]/g,'').slice(0,20)
+  // Username setup flow (2026-10-04): free setup vs counted change (max 3).
+  // remainingChanges comes from /user/profile (null = unlimited superadmin).
+  const usernameNeedsSetup = (profile as any)?.needsSetup === true || (profile as any)?.needsUsernameSetup === true || (user as any)?.needsSetup === true || (user as any)?.needsUsernameSetup === true || ((user as any)?.usernameSetByUser === false)
+  const usernameRemaining: number | null | undefined = ((profile as any)?.remainingChanges ?? (user as any)?.remainingChanges) as number | null | undefined
+  const usernameChangeCount: number | undefined = ((profile as any)?.usernameChangeCount ?? (user as any)?.usernameChangeCount) as number | undefined
+  const usernameBudgetSpent = typeof usernameRemaining === 'number' && usernameRemaining <= 0 && !usernameNeedsSetup
   const checkUsername = async (val:string) => {
     const u = sanitize(val)
     if (!u || u.length<3) { setUsernameAvailable(null); return }
@@ -190,13 +196,19 @@ export default function SettingsPage() {
   const handleSaveUsername = async () => {
     const u = sanitize(username)
     if (!/^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u)) { toast.error('3-20 chars, letters/numbers/_.-'); return }
+    if (usernameBudgetSpent) { toast.error('Maximum username changes reached (3). Contact support for an exception.'); return }
     setUsernameSaving(true)
     try {
-      const res = await userAPI.setUsername(u)
-      updateUser({ username: res.username } as any)
+      // Free setup for first set/keep; counted change afterwards (403 after 3).
+      const res = usernameNeedsSetup ? await userAPI.setupUsername(u) : await userAPI.changeUsername(u)
+      updateUser({ username: res.username, usernameSetByUser: true, usernameChangeCount: res.usernameChangeCount, remainingChanges: res.remainingChanges, needsSetup: false, needsUsernameSetup: false } as any)
       setUsername(res.username)
-      toast.success(`Username @${res.username} saved`)
-    } catch (e:any) { toast.error(e.response?.data?.error || 'Failed to save') }
+      try { setProfile((p: any) => p ? ({ ...p, username: res.username, usernameSetByUser: true, usernameChangeCount: res.usernameChangeCount, remainingChanges: res.remainingChanges, needsSetup: false, needsUsernameSetup: false }) : p) } catch {}
+      toast.success(usernameNeedsSetup ? `Username @${res.username} saved` : `Username changed to @${res.username}`)
+    } catch (e:any) {
+      if (e?.response?.status === 403) toast.error(e.response?.data?.error || 'Maximum username changes reached (3)')
+      else toast.error(e.response?.data?.error || 'Failed to save')
+    }
     setUsernameSaving(false)
   }
 
@@ -359,12 +371,13 @@ export default function SettingsPage() {
                         {usernameChecking ? <Loader2 size={14} className="animate-spin text-surface-400"/> : usernameAvailable===true ? <CheckCircle size={14} className="text-primary-500"/> : usernameAvailable===false ? <span className="text-[#ff4b5c] text-xs font-black">✕</span> : null}
                       </span>
                     </div>
-                    <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !username || usernameAvailable===false}
+                    <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !username || usernameAvailable===false || usernameBudgetSpent}
                       className="px-4 h-[44px] bg-primary-500 hover:bg-[#1ed760] text-black rounded-full text-sm font-black disabled:opacity-50 flex items-center gap-1.5 shadow-[0_8px_24px_rgba(30,215,96,0.25)] shrink-0">
                       {usernameSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
                     </button>
                   </div>
-                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Profile at <span className="font-mono font-bold text-primary-600">/u/{username || 'username'}</span> · 3-20 chars</p>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Profile at <span className="font-mono font-bold text-primary-600">/u/{username || 'username'}</span> · 3-20 chars{usernameRemaining === null ? ' · unlimited (admin)' : typeof usernameRemaining === 'number' ? ` · ${usernameRemaining} change${usernameRemaining === 1 ? '' : 's'} left of 3` : ''}{typeof usernameChangeCount === 'number' && usernameChangeCount > 0 ? ` · changed ${usernameChangeCount}×` : ''}</p>
+                  {usernameBudgetSpent && <p className="text-xs font-black text-[#ff4b5c]">No changes left — contact support for an exception.</p>}
                   {usernameAvailable===true && <p className="text-xs font-black text-primary-600">Available!</p>}
                   {usernameAvailable===false && <p className="text-xs font-black text-[#ff4b5c]">Not available</p>}
                 </div>

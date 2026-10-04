@@ -107,13 +107,17 @@ router.get('/grades/stats', async (req: AuthRequest, res: Response) => {
 
 
 
-// Helpers for username
-function sanitizeUsername(raw: string): string {
-  return raw.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '').replace(/^[._-]+/, '').slice(0, 20)
-}
-function isValidUsername(u: string): boolean {
-  return /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u) && u.length >= 3 && u.length <= 20
-}
+// Helpers for username — SSOT lives in utils/username.ts (format + setup/change
+// budget). Local wrappers kept as one-line delegates so existing call sites
+// below need no behavior change (DRY, no drift).
+import {
+  MAX_USERNAME_CHANGES,
+  sanitizeUsernameValue as sanitizeUsername,
+  isValidUsernameValue as isValidUsername,
+  needsUsernameSetup,
+  canChangeUsername,
+  isSameUsername,
+} from '../utils/username'
 
 function normalizePortfolioUrl(input: string): string | null {
   const raw = String(input || '').trim()
@@ -166,7 +170,216 @@ router.get('/check-username/:username', async (req: AuthRequest, res: Response) 
   }
 })
 
-// Set / update own username (once or change)
+// GET /username/status — setup/change budget for the caller (powers the
+// first-login modal + settings "N changes left" copy). Pre-migration safe:
+// missing cols read as false/0 (prompt + full budget, never lockout).
+router.get('/username/status', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await (prisma as any).user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    const setByUser = (user as any).usernameSetByUser === true
+    const count = Number((user as any).usernameChangeCount ?? 0)
+    const safeCount = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+    const role = String((user as any).role ?? '')
+    const needsSetup = needsUsernameSetup(user as any)
+    const remaining = role === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount)
+    res.json({
+      username: (user as any).username || null,
+      usernameSetByUser: setByUser,
+      usernameChangeCount: safeCount,
+      remainingChanges: remaining,
+      maxChanges: MAX_USERNAME_CHANGES,
+      needsSetup,
+      needsUsernameSetup: needsSetup,
+    })
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch username status' })
+  }
+})
+
+// POST /username/setup — FREE first set (not counted toward the 3-change
+// budget). For users with no username (admin-created) or a provisional
+// auto-set (name-derived backfill, setByUser=false). Keeping the current
+// provisional value is allowed: send { username: <current> } (or { keep: true })
+// to confirm without consuming budget. Once setByUser=true, further renames
+// must go through PUT /username/change (counted). 409 when already set up.
+router.post('/username/setup', async (req: AuthRequest, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as { username?: unknown; keep?: unknown }
+    const user = await (prisma as any).user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    if ((user as any).usernameSetByUser === true) {
+      res.status(409).json({ error: 'Username already set. Use change instead.', code: 'ALREADY_SETUP' })
+      return
+    }
+    const keep = body.keep === true
+    const rawInput = keep ? String((user as any).username ?? '') : String(body.username ?? '').trim()
+    if (!rawInput && keep && !(user as any).username) {
+      res.status(400).json({ error: 'No username to keep — provide a username' })
+      return
+    }
+    const username = sanitizeUsername(rawInput)
+    if (!username || !isValidUsername(username)) {
+      res.status(400).json({ error: 'Invalid username: 3-20 chars, letters/numbers/_.- only, must start/end with letter or number' })
+      return
+    }
+    // Keep-flow: same value (case-insensitive) — just confirm, free.
+    if ((user as any).username && isSameUsername(String((user as any).username), username)) {
+      try {
+        const updated = await (prisma as any).user.update({
+          where: { id: req.userId },
+          data: { usernameSetByUser: true } as any,
+        })
+        const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+        res.json({
+          id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email,
+          usernameSetByUser: true, usernameChangeCount: safeCount,
+          remainingChanges: Math.max(0, MAX_USERNAME_CHANGES - safeCount),
+          needsSetup: false, needsUsernameSetup: false,
+        })
+      } catch (e: any) {
+        if (e?.code === 'P2022' || /usernameSetByUser/i.test(String(e?.message || ''))) {
+          // Pre-migration: column missing — username already correct, treat as done.
+          res.json({ id: user.id, username: (user as any).username, name: user.name, email: user.email, usernameSetByUser: true, usernameChangeCount: 0, remainingChanges: MAX_USERNAME_CHANGES, needsSetup: false, needsUsernameSetup: false })
+          return
+        }
+        throw e
+      }
+      return
+    }
+    const existing = await (prisma as any).user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+    }).catch(() => (prisma as any).user.findFirst({ where: { username } }))
+    if (existing && existing.id !== req.userId) {
+      res.status(400).json({ error: 'Username already taken' })
+      return
+    }
+    try {
+      const updated = await (prisma as any).user.update({
+        where: { id: req.userId },
+        data: { username, usernameSetByUser: true } as any,
+      })
+      try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
+      const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+      res.json({
+        id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email,
+        usernameSetByUser: true, usernameChangeCount: safeCount,
+        remainingChanges: Math.max(0, MAX_USERNAME_CHANGES - safeCount),
+        needsSetup: false, needsUsernameSetup: false,
+      })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+      if (e?.code === 'P2022' || /usernameSetByUser|usernameChangeCount/i.test(msg)) {
+        // Pre-migration fallback: persist username only (budget cols land on migrate).
+        const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username } as any })
+        res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email, usernameSetByUser: true, usernameChangeCount: 0, remainingChanges: MAX_USERNAME_CHANGES, needsSetup: false, needsUsernameSetup: false })
+        return
+      }
+      throw e
+    }
+  } catch (error: any) {
+    const msg = String(error?.message || '')
+    if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+    if (msg.includes('username') || msg.includes('Unknown argument') || msg.includes('column')) {
+      res.status(503).json({ error: 'Username feature not yet migrated. Please run prisma migrate.' })
+      return
+    }
+    logger.error({ err: error }, 'username setup error')
+    res.status(500).json({ error: 'Failed to set username' })
+  }
+})
+
+// PUT /username/change — COUNTED rename (max 3 for STUDENT/TEACHER/
+// COLLEGE_ADMIN; SUPER_ADMIN exempt and never increments). Same-value
+// requests are a no-op and do NOT consume budget. 403 after budget spent.
+router.put('/username/change', async (req: AuthRequest, res: Response) => {
+  try {
+    const rawInput = String((req.body as any)?.username ?? '').trim()
+    const username = sanitizeUsername(rawInput)
+    if (!username || !isValidUsername(username)) {
+      res.status(400).json({ error: 'Invalid username: 3-20 chars, letters/numbers/_.- only, must start/end with letter or number' })
+      return
+    }
+    const user = await (prisma as any).user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    const role = String((user as any).role ?? '')
+    // No-op: same value (case-insensitive) — confirm + return, no budget spent.
+    if ((user as any).username && isSameUsername(String((user as any).username), username)) {
+      try {
+        const updated = await (prisma as any).user.update({
+          where: { id: req.userId },
+          data: { usernameSetByUser: true } as any,
+        })
+        const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+        res.json({
+          id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email,
+          usernameSetByUser: true, usernameChangeCount: safeCount,
+          remainingChanges: role === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount),
+          needsSetup: false, needsUsernameSetup: false,
+        })
+      } catch (e: any) {
+        if (e?.code === 'P2022' || /usernameSetByUser/i.test(String(e?.message || ''))) {
+          res.json({ id: user.id, username: (user as any).username, name: user.name, email: user.email, usernameSetByUser: true, usernameChangeCount: 0, remainingChanges: MAX_USERNAME_CHANGES, needsSetup: false, needsUsernameSetup: false })
+          return
+        }
+        throw e
+      }
+      return
+    }
+    const gate = canChangeUsername(user as any, role)
+    if (!gate.allowed) { res.status(gate.status).json({ error: gate.error }); return }
+    const existing = await (prisma as any).user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+    }).catch(() => (prisma as any).user.findFirst({ where: { username } }))
+    if (existing && existing.id !== req.userId) {
+      res.status(400).json({ error: 'Username already taken' })
+      return
+    }
+    const isSuper = role === 'SUPER_ADMIN'
+    try {
+      const updated = await (prisma as any).user.update({
+        where: { id: req.userId },
+        data: isSuper
+          ? ({ username, usernameSetByUser: true } as any)
+          : ({ username, usernameSetByUser: true, usernameChangeCount: { increment: 1 } } as any),
+      })
+      try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
+      const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+      res.json({
+        id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email,
+        usernameSetByUser: true, usernameChangeCount: safeCount,
+        remainingChanges: isSuper ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount),
+        needsSetup: false, needsUsernameSetup: false,
+      })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+      if (e?.code === 'P2022' || /usernameSetByUser|usernameChangeCount/i.test(msg)) {
+        const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username } as any })
+        res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email, usernameSetByUser: true, usernameChangeCount: 0, remainingChanges: MAX_USERNAME_CHANGES, needsSetup: false, needsUsernameSetup: false })
+        return
+      }
+      throw e
+    }
+  } catch (error: any) {
+    const msg = String(error?.message || '')
+    if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+    if (msg.includes('username') || msg.includes('Unknown argument') || msg.includes('column')) {
+      res.status(503).json({ error: 'Username feature not yet migrated. Please run prisma migrate.' })
+      return
+    }
+    logger.error({ err: error }, 'username change error')
+    res.status(500).json({ error: 'Failed to update username' })
+  }
+})
+
+// Set / update own username (LEGACY alias, backward compat).
+// Smart router: users who still need setup (no username OR provisional
+// auto-set) get FREE setup semantics (not counted); everyone else gets
+// COUNTED change semantics (max 3, 403 after). New clients should call
+// POST /username/setup or PUT /username/change directly; this alias keeps
+// old frontend (SettingsPage/UsernameSetupModal) correct during rollout.
 router.put('/username', async (req: AuthRequest, res: Response) => {
   try {
     const rawInput = String(req.body.username || '').trim()
@@ -175,17 +388,83 @@ router.put('/username', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ error: 'Invalid username: 3-20 chars, letters/numbers/_.- only, must start/end with letter or number' })
       return
     }
-    const existing = await (prisma as any).user.findFirst({ where: { username } })
+    const user = await (prisma as any).user.findUnique({ where: { id: req.userId } })
+    if (!user) { res.status(404).json({ error: 'User not found' }); return }
+    // Same-value no-op (keep): confirm without spending budget.
+    if ((user as any).username && isSameUsername(String((user as any).username), username)) {
+      try {
+        const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { usernameSetByUser: true } as any })
+        const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+        const role0 = String((updated as any).role ?? (user as any).role ?? '')
+        try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
+        res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email, usernameSetByUser: true, usernameChangeCount: safeCount, remainingChanges: role0 === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount), needsSetup: false, needsUsernameSetup: false })
+      } catch (e: any) {
+        if (e?.code === 'P2022' || /usernameSetByUser/i.test(String(e?.message || ''))) {
+          res.json({ id: user.id, username: (user as any).username, name: user.name, email: user.email })
+          return
+        }
+        throw e
+      }
+      return
+    }
+    if (needsUsernameSetup(user as any)) {
+      // FREE setup path (not counted).
+      const existing = await (prisma as any).user.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' } },
+      }).catch(() => (prisma as any).user.findFirst({ where: { username } }))
+      if (existing && existing.id !== req.userId) {
+        res.status(400).json({ error: 'Username already taken' })
+        return
+      }
+      try {
+        const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username, usernameSetByUser: true } as any })
+        try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
+        const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+        res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email, usernameSetByUser: true, usernameChangeCount: safeCount, remainingChanges: Math.max(0, MAX_USERNAME_CHANGES - safeCount), needsSetup: false, needsUsernameSetup: false })
+      } catch (e: any) {
+        const msg = String(e?.message || '')
+        if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+        if (e?.code === 'P2022' || /usernameSetByUser|usernameChangeCount/i.test(msg)) {
+          const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username } as any })
+          res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email })
+          return
+        }
+        throw e
+      }
+      return
+    }
+    // COUNTED change path (max 3, SUPER_ADMIN exempt).
+    const role = String((user as any).role ?? '')
+    const gate = canChangeUsername(user as any, role)
+    if (!gate.allowed) { res.status(gate.status).json({ error: gate.error }); return }
+    const existing = await (prisma as any).user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+    }).catch(() => (prisma as any).user.findFirst({ where: { username } }))
     if (existing && existing.id !== req.userId) {
       res.status(400).json({ error: 'Username already taken' })
       return
     }
-    const user = await (prisma as any).user.findUnique({ where: { id: req.userId } })
-    if (!user) { res.status(404).json({ error: 'User not found' }); return }
-    // optional: prevent frequent changes? allow for now
-    const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username } as any })
-    try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
-    res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email })
+    const isSuper = role === 'SUPER_ADMIN'
+    try {
+      const updated = await (prisma as any).user.update({
+        where: { id: req.userId },
+        data: isSuper
+          ? ({ username, usernameSetByUser: true } as any)
+          : ({ username, usernameSetByUser: true, usernameChangeCount: { increment: 1 } } as any),
+      })
+      try { broadcastUserMutation({ userId: req.userId, action: 'username:updated' }) } catch {}
+      const safeCount = Number((updated as any).usernameChangeCount ?? 0) || 0
+      res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email, usernameSetByUser: true, usernameChangeCount: safeCount, remainingChanges: isSuper ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount), needsSetup: false, needsUsernameSetup: false })
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('Unique constraint')) { res.status(400).json({ error: 'Username already taken' }); return }
+      if (e?.code === 'P2022' || /usernameSetByUser|usernameChangeCount/i.test(msg)) {
+        const updated = await (prisma as any).user.update({ where: { id: req.userId }, data: { username } as any })
+        res.json({ id: updated.id, username: (updated as any).username, name: updated.name, email: updated.email })
+        return
+      }
+      throw e
+    }
   } catch (error: any) {
     const msg = String(error?.message || '')
     if (msg.includes('Unique constraint')) {
@@ -238,10 +517,20 @@ router.get('/profile', async (req: AuthRequest, res: Response) => {
       return
     }
     const u = user as any
+    const setByUser = u.usernameSetByUser === true
+    const changeCount = Number(u.usernameChangeCount ?? 0)
+    const safeCount = Number.isFinite(changeCount) && changeCount > 0 ? Math.floor(changeCount) : 0
+    const needsSetup = needsUsernameSetup(user as any)
     res.json({
       id: user.id,
       name: user.name,
       username: u.username || null,
+      usernameSetByUser: setByUser,
+      usernameChangeCount: safeCount,
+      remainingChanges: String(user.role ?? '') === 'SUPER_ADMIN' ? null : Math.max(0, MAX_USERNAME_CHANGES - safeCount),
+      maxChanges: MAX_USERNAME_CHANGES,
+      needsSetup,
+      needsUsernameSetup: needsSetup,
       email: user.email,
       role: user.role,
       department: u.department,
