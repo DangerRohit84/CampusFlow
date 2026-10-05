@@ -17,7 +17,6 @@ import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBre
 import { shouldFetchLeaderboard, withTabVisited } from '../lib/codingTabs'
 import { averagePlatformRatings, hasRankForAverage } from '../lib/rating'
 import { sortLeaderboardRows, nextSort, type LeaderboardSortKey, type SortDir } from '../lib/leaderboardSort'
-import { readHandlesDraft, writeHandlesDraft, clearHandlesDraft, mergeHandlesWithDraft } from '../lib/handlesDraft'
 import { downloadShareCard } from '../components/coding/shareCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -141,15 +140,16 @@ export default function CodingProfilePage() {
   // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
   const centeringClass = useModalCenteringClass()
   const [profile, setProfile] = useState<CodingProfile | null>(null)
-  // Handles draft (issue #3): initialized from localStorage draft when present
-  // so typed usernames survive tab switches + focus refetches (no wipe).
-  const [handles, setHandles] = useState<Record<string, string>>(() => {
-    try {
-      const d = readHandlesDraft()
-      if (d && Object.keys(d).length) return d as Record<string, string>
-    } catch { /* fail-open empty */ }
-    return {}
-  })
+  // Handles draft: in-memory only (no web-storage persistence).
+  // WHY (fix 2026-10-05): controlled inputs keep value in React state (single
+  // source of truth); persist only on explicit Save PUT. Refresh discards
+  // (mount loads server original); in-app tab switches preserve via dirty guard
+  // below (no unmount loss, no loadData overwrite when dirty).
+  const [handles, setHandles] = useState<Record<string, string>>({})
+  // Dirty tracking: true once user edits, false after mount load / save.
+  // loadData skips handles overwrite when dirty so focus/socket refetch never
+  // wipes typed-but-unsaved input (survives tab switches in-memory).
+  const handlesDirtyRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -170,13 +170,10 @@ export default function CodingProfilePage() {
     setLbSortDir(n.dir)
   }
   const lbArrow = (k: LeaderboardSortKey) => (lbSortKey === k ? (lbSortDir === 'desc' ? ' ▼' : ' ▲') : '')
-  // Draft-preserving setter: updates state + persists draft (no wipe on tab switch).
+  // In-memory draft setter: updates state + marks dirty (no wipe on tab switch, no persistence).
   const updateHandles = (patch: Record<string, string>) => {
-    setHandles((prev) => {
-      const next = { ...prev, ...patch }
-      try { writeHandlesDraft(next) } catch { /* private-mode */ }
-      return next
-    })
+    handlesDirtyRef.current = true
+    setHandles((prev) => ({ ...prev, ...patch }))
   }
   // PERPAGE-HALF1: shared cached departments (was an uncached mount GET,
   // duplicated across 7 pages). Same array data for the leaderboard filter.
@@ -315,8 +312,9 @@ export default function CodingProfilePage() {
       if (epoch !== loadEpoch.current) return
       setProfile(profileData)
       setActivity(activityData as any)
-      // Draft-preserving (issue #3): server refetch (focus/socket/tab switch)
-      // must NOT wipe typed-but-unsaved usernames. Dirty draft wins.
+      // In-memory draft guard: server refetch (focus/socket/tab switch)
+      // must NOT wipe typed-but-unsaved usernames. When dirty, preserve
+      // in-memory handles; otherwise mount/refresh loads server original.
       const serverHandles: Record<string, string> = {
         leetcodeHandle: profileData?.leetcodeHandle || '',
         codeforcesHandle: profileData?.codeforcesHandle || '',
@@ -325,12 +323,9 @@ export default function CodingProfilePage() {
         gfgHandle: profileData?.gfgHandle || '',
         githubUsername: (profileData as any)?.githubUsername || '',
       }
-      let merged: Record<string, string> = serverHandles
-      try {
-        const draft = readHandlesDraft()
-        merged = mergeHandlesWithDraft(serverHandles, draft)
-      } catch { /* corrupted draft — fall back to server */ }
-      setHandles(merged)
+      if (!handlesDirtyRef.current) {
+        setHandles(serverHandles)
+      }
       // Reset github validation state from loaded profile
       if ((profileData as any)?.githubUsername) {
         setGithubValid(null)
@@ -458,9 +453,9 @@ export default function CodingProfilePage() {
       toast.success('Profiles saved! Hit Sync to fetch your stats. GitHub activity will update on your public calendar.')
       setGithubValid(githubRaw ? true : null)
       setGithubError(null)
-      // Draft saved — clear localStorage so the next loadData uses fresh server
-      // values (no stale draft shadowing). Validation + save unchanged.
-      try { clearHandlesDraft() } catch { /* ignore */ }
+      // Draft saved — reset dirty so the next loadData uses fresh server
+      // values (no stale in-memory shadowing). Validation + save unchanged.
+      handlesDirtyRef.current = false
       // Backend clears the per-user sync throttle when handles change, so a
       // stale countdown must not block the immediate re-sync for NEW handles.
       clearCooldownTimer()

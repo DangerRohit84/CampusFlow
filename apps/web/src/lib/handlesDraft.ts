@@ -1,53 +1,46 @@
-// apps/web/src/lib/handlesDraft.ts — CodingProfile handles draft persistence (pure + storage).
-// WHY (issue #3): while adding usernames, switching tab (browser focus refetch
-// via useEntitySync + socket refetch) wiped entered usernames. Root cause:
-// loadData() unconditionally overwrote `handles` with server profile.
-// Fix: localStorage draft persists across tab switches; loadData merges server
-// + draft (dirty draft wins, no wipe). Cleared on successful save. Validation
-// + save unchanged.
+// apps/web/src/lib/handlesDraft.ts — DEPRECATED in-memory shim (no persistence).
+// WHY (fix 2026-10-05): unsaved handles/usernames must NOT survive refresh.
+// Desired: controlled inputs with in-memory draft (useState/useRef) that survives
+// in-app tab switches (state lifted, no unmount loss) but DISCARDS on refresh
+// (mount always loads server original). No web storage for unsaved edits.
+// Best practice (React controlled forms): form value lives in React state as single
+// source of truth; persistence happens only on explicit Save (PUT). Storage-backed
+// drafts are reserved for long onboarding flows where refresh-survival is explicit —
+// not for Settings/handles where refresh must discard unsaved edits.
+// This module is kept for backward-compat imports only. All helpers are no-ops
+// except the pure merge (in-memory use). Do NOT add storage access here.
+/** @deprecated Never written — kept for import compat. Do not use for drafts. */
 export const HANDLES_DRAFT_KEY = 'cf-handles-draft';
 
 export type HandlesMap = Record<string, string>;
 
-/** Read draft from localStorage. Null when absent/corrupted. Pure-ish (fail-open). */
+/**
+ * @deprecated Always returns null — refresh discards unsaved edits.
+ * Mount loads server original; no draft restore.
+ */
 export function readHandlesDraft(): HandlesMap | null {
-  try {
-    const raw = localStorage.getItem(HANDLES_DRAFT_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
-    const out: HandlesMap = {};
-    for (const [k, v] of Object.entries(p)) {
-      if (typeof v === 'string') out[k] = v;
-    }
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-/** Persist draft (best-effort, private-mode safe). */
-export function writeHandlesDraft(h: HandlesMap): void {
-  try {
-    localStorage.setItem(HANDLES_DRAFT_KEY, JSON.stringify(h ?? {}));
-  } catch {
-    /* private-mode — draft still works in-memory for this mount */
-  }
-}
-
-/** Clear draft (after successful save). */
-export function clearHandlesDraft(): void {
-  try {
-    localStorage.removeItem(HANDLES_DRAFT_KEY);
-  } catch {
-    /* ignore */
-  }
+  return null;
 }
 
 /**
- * Merge server handles + local draft. Dirty draft values (non-empty strings)
+ * @deprecated No-op — unsaved edits stay in-memory only (no persistence).
+ */
+export function writeHandlesDraft(_h: HandlesMap): void {
+  return;
+}
+
+/**
+ * @deprecated No-op — nothing persisted, nothing to clear.
+ */
+export function clearHandlesDraft(): void {
+  return;
+}
+
+/**
+ * Merge server handles + in-memory draft. Dirty draft values (non-empty strings)
  * win so a refetch never wipes typed input; empty draft keys fall back to
- * server. Null draft returns server verbatim. Pure.
+ * server. Null draft returns server verbatim. Pure (no storage).
+ * @deprecated Prefer dirty-guard in page (skip overwrite when dirty); kept pure for tests.
  */
 export function mergeHandlesWithDraft(server: HandlesMap, draft: HandlesMap | null | undefined): HandlesMap {
   if (!draft || typeof draft !== 'object') return { ...server };
