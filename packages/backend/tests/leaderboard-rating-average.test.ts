@@ -41,15 +41,16 @@ describe('toLeaderboardRating (DB _avg.rating -> display, fail-open 0)', () => {
 })
 
 describe('leaderboard sort uses average (ties deterministic, missing fail-open)', () => {
-  it('sorts totalContests desc, then rating(avg) desc', () => {
+  it('sorts rating(avg) desc, then totalContests desc (positions by rating)', () => {
     const groups = [
       { userId: 'a', _count: { _all: 5 }, _avg: { rating: 1500 }, _max: { rating: 2000 } },
       { userId: 'b', _count: { _all: 5 }, _avg: { rating: 1700 }, _max: { rating: 1700 } },
       { userId: 'c', _count: { _all: 8 }, _avg: { rating: 1200 }, _max: { rating: 1200 } },
     ]
     const sorted = sortLeaderboardGroups(groups as any).map((g: any) => g.userId)
-    // c first (more contests), then b (higher average, not max)
-    expect(sorted).toEqual(['c', 'b', 'a'])
+    // rating-primary: b (1700) first despite fewer contests than c; c (1200) last
+    // (higher average, not max — a has max 2000 but avg 1500 so second)
+    expect(sorted).toEqual(['b', 'a', 'c'])
   })
   it('ties on contests+average break deterministically (userId asc)', () => {
     const groups = [

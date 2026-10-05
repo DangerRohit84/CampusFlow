@@ -9,6 +9,7 @@ import { getGithubCalendar, isValidGithubUsername } from '../services/githubActi
 import { ACTIVITY_WINDOW_DAYS } from '../services/codingActivity'
 import { maskEmail } from '../utils/roles'
 import { logger } from '../utils/logger'
+import { hasRankForAverage } from '../services/leaderboardRating'
 
 const router = Router()
 
@@ -338,10 +339,13 @@ router.get('/:username', publicProfileLimiter, async (req: Request, res: Respons
       const parsed = Array.isArray((codingProfile as any)?.platformStats) ? (codingProfile as any).platformStats : (typeof (codingProfile as any)?.platformStats === 'string' ? JSON.parse((codingProfile as any).platformStats || '[]') : [])
       if (Array.isArray(parsed)) {
         platformStats = parsed.filter((s: any) => s.valid)
+        // Solved SUM unchanged (counts even without rank — rating gate only).
         totalSolved = platformStats.reduce((sum: number, s: any) => sum + (s.problemsSolved || 0), 0)
-        const rated = platformStats.filter((s: any) => typeof s.rating === 'number' && Number.isFinite(s.rating))
-        // rating = AVERAGE across rated platforms (ignore nulls, fail-open null);
-        // bestRating kept deprecated for API compat (old clients).
+        // rating = AVERAGE across RANKED platforms only (rank-gated, fail-open null);
+        // rating without rank is skipped. bestRating kept deprecated for API compat.
+        const rated = platformStats.filter(
+          (s: any) => typeof s.rating === 'number' && Number.isFinite(s.rating) && hasRankForAverage(s),
+        )
         if (rated.length) {
           bestRating = Math.max(...rated.map((s: any) => s.rating))
           rating = Math.round(rated.reduce((sum: number, s: any) => sum + (s.rating as number), 0) / rated.length)

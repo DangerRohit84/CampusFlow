@@ -14,7 +14,9 @@ import ActivityHeatmap from '../components/coding/ActivityHeatmap'
 import ProblemsTab from '../components/coding/ProblemsTab'
 import { bucketParticipationsByDay, buildUnifiedHeatmapDays, calcStreaks, sumBreakdown, unifiedActiveByDay, filterUnifiedDaysByYear, getAvailableHeatmapYears, getHeatmapYearOptions, formatHeatmapRangeLabel, parseStoredHeatmapYear, ALL_SOURCES_ON, HEATMAP_RANGE_LAST_6, HEATMAP_YEAR_STORAGE_KEY, type SourceToggles, type ActivitySource } from '../lib/codingStreak'
 import { shouldFetchLeaderboard, withTabVisited } from '../lib/codingTabs'
-import { averagePlatformRatings } from '../lib/rating'
+import { averagePlatformRatings, hasRankForAverage } from '../lib/rating'
+import { sortLeaderboardRows, nextSort, type LeaderboardSortKey, type SortDir } from '../lib/leaderboardSort'
+import { readHandlesDraft, writeHandlesDraft, clearHandlesDraft, mergeHandlesWithDraft } from '../lib/handlesDraft'
 import { downloadShareCard } from '../components/coding/shareCard'
 import { PremiumHero, GlassPanel, BentoGrid, BentoCard, SectionCard } from '../components/premium/PremiumKit'
 import CenteredLoader from '../components/ui/CenteredLoader'
@@ -138,7 +140,15 @@ export default function CodingProfilePage() {
   // WHY: content-area centering — same lg-only sidebar offset as Modal (see modalCentering.ts).
   const centeringClass = useModalCenteringClass()
   const [profile, setProfile] = useState<CodingProfile | null>(null)
-  const [handles, setHandles] = useState<Record<string, string>>({})
+  // Handles draft (issue #3): initialized from localStorage draft when present
+  // so typed usernames survive tab switches + focus refetches (no wipe).
+  const [handles, setHandles] = useState<Record<string, string>>(() => {
+    try {
+      const d = readHandlesDraft()
+      if (d && Object.keys(d).length) return d as Record<string, string>
+    } catch { /* fail-open empty */ }
+    return {}
+  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -150,6 +160,23 @@ export default function CodingProfilePage() {
   const [historyFilter, setHistoryFilter] = useState('all')
   const [leaderboardPlatform, setLeaderboardPlatform] = useState('all')
   const [leaderboardDept, setLeaderboardDept] = useState('all')
+  // Leaderboard sortable headers (issue #1): rating desc default, click toggles.
+  const [lbSortKey, setLbSortKey] = useState<LeaderboardSortKey>('rating')
+  const [lbSortDir, setLbSortDir] = useState<SortDir>('desc')
+  const onLbSort = (k: LeaderboardSortKey) => {
+    const n = nextSort(lbSortKey, lbSortDir, k)
+    setLbSortKey(n.key)
+    setLbSortDir(n.dir)
+  }
+  const lbArrow = (k: LeaderboardSortKey) => (lbSortKey === k ? (lbSortDir === 'desc' ? ' ▼' : ' ▲') : '')
+  // Draft-preserving setter: updates state + persists draft (no wipe on tab switch).
+  const updateHandles = (patch: Record<string, string>) => {
+    setHandles((prev) => {
+      const next = { ...prev, ...patch }
+      try { writeHandlesDraft(next) } catch { /* private-mode */ }
+      return next
+    })
+  }
   // PERPAGE-HALF1: shared cached departments (was an uncached mount GET,
   // duplicated across 7 pages). Same array data for the leaderboard filter.
   const { data: departmentsData } = useDepartments()
@@ -287,14 +314,22 @@ export default function CodingProfilePage() {
       if (epoch !== loadEpoch.current) return
       setProfile(profileData)
       setActivity(activityData as any)
-      setHandles({
+      // Draft-preserving (issue #3): server refetch (focus/socket/tab switch)
+      // must NOT wipe typed-but-unsaved usernames. Dirty draft wins.
+      const serverHandles: Record<string, string> = {
         leetcodeHandle: profileData?.leetcodeHandle || '',
         codeforcesHandle: profileData?.codeforcesHandle || '',
         codechefHandle: profileData?.codechefHandle || '',
         hackerrankHandle: profileData?.hackerrankHandle || '',
         gfgHandle: profileData?.gfgHandle || '',
         githubUsername: (profileData as any)?.githubUsername || '',
-      })
+      }
+      let merged: Record<string, string> = serverHandles
+      try {
+        const draft = readHandlesDraft()
+        merged = mergeHandlesWithDraft(serverHandles, draft)
+      } catch { /* corrupted draft — fall back to server */ }
+      setHandles(merged)
       // Reset github validation state from loaded profile
       if ((profileData as any)?.githubUsername) {
         setGithubValid(null)
@@ -422,6 +457,9 @@ export default function CodingProfilePage() {
       toast.success('Profiles saved! Hit Sync to fetch your stats. GitHub activity will update on your public calendar.')
       setGithubValid(githubRaw ? true : null)
       setGithubError(null)
+      // Draft saved — clear localStorage so the next loadData uses fresh server
+      // values (no stale draft shadowing). Validation + save unchanged.
+      try { clearHandlesDraft() } catch { /* ignore */ }
       // Backend clears the per-user sync throttle when handles change, so a
       // stale countdown must not block the immediate re-sync for NEW handles.
       clearCooldownTimer()
@@ -524,12 +562,14 @@ export default function CodingProfilePage() {
   } catch { statsMap = {} }
 
   // Aggregate numbers
+  // Solved SUM unchanged (counts even without rank — rating gate only).
   const totalSolved = Object.values(statsMap).reduce((s, st) => s + (st.problemsSolved || 0), 0)
   const totalContests = participations.length
-  // rating = AVERAGE across rated platforms (ignore nulls, fail-open null);
-  // bestRating kept deprecated for API compat (share card fallback).
+  // rating = AVERAGE across RANKED platforms only (rank-gated, fail-open null);
+  // rating without rank is skipped. bestRating kept deprecated for API compat
+  // (share card fallback) — same ranked set for consistency with publicProfile.
   const rating = averagePlatformRatings(Object.values(statsMap))
-  const ratedPlatforms = Object.values(statsMap).filter(s => s.rating && s.valid !== false)
+  const ratedPlatforms = Object.values(statsMap).filter(s => s.rating && s.valid !== false && hasRankForAverage(s as any))
   const bestRating = ratedPlatforms.reduce((max, s) => Math.max(max, s.rating || 0), 0)
   const avgRank = participations.length > 0
     ? Math.round(participations.filter(p => p.rank).reduce((s, p) => s + p.rank, 0) / participations.filter(p => p.rank).length)
@@ -538,6 +578,13 @@ export default function CodingProfilePage() {
   const filteredParticipations = historyFilter === 'all'
     ? participations
     : participations.filter(p => p.platform === historyFilter)
+
+  // Leaderboard client sort (issue #1): positions by rating desc default.
+  // Rank numbers follow current sort (recomputed after sorting).
+  const sortedLeaderboard = useMemo(
+    () => sortLeaderboardRows((leaderboard as any) ?? [], lbSortKey, lbSortDir) as any[],
+    [leaderboard, lbSortKey, lbSortDir],
+  )
 
   // Unified heatmap: contests (participations, authoritative) + coding
   // solves (CodingActivity leetcode/codeforces from sync) + git (live GitHub
@@ -765,7 +812,7 @@ export default function CodingProfilePage() {
                       value={handles.githubUsername || ''}
                       onChange={(e) => {
                         const v = e.target.value
-                        setHandles({ ...handles, githubUsername: v })
+                        updateHandles({ githubUsername: v })
                         if (githubError) setGithubError(null)
                         if (githubValid !== null) setGithubValid(null)
                       }}
@@ -825,7 +872,7 @@ export default function CodingProfilePage() {
                       <input
                         type="text"
                         value={handles[p.key] || ''}
-                        onChange={(e) => setHandles({ ...handles, [p.key]: e.target.value })}
+                        onChange={(e) => updateHandles({ [p.key]: e.target.value })}
                         placeholder={`${p.label} username`}
                         className="flex-1 min-w-0 px-3 py-2 border border-surface-200 dark:border-night-600 bg-white dark:bg-night-850 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder-surface-400"
                       />
@@ -1318,14 +1365,31 @@ export default function CodingProfilePage() {
                 <thead>
                   <tr className="border-b border-surface-200 dark:border-night-600">
                     <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium w-14">#</th>
-                    <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Student</th>
+                    <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium">
+                      <button onClick={() => onLbSort('name')} aria-label="Sort by name" className="hover:text-surface-900 dark:hover:text-night-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                        Student{lbArrow('name')}
+                      </button>
+                    </th>
                     <th className="text-left py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Department</th>
-                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Contests</th>
-                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">Rating</th>
+                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">
+                      <button onClick={() => onLbSort('contests')} aria-label="Sort by contests" className="hover:text-surface-900 dark:hover:text-night-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                        Contests{lbArrow('contests')}
+                      </button>
+                    </th>
+                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">
+                      <button onClick={() => onLbSort('solved')} aria-label="Sort by solved" className="hover:text-surface-900 dark:hover:text-night-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                        Solved{lbArrow('solved')}
+                      </button>
+                    </th>
+                    <th className="text-center py-3 px-4 text-surface-500 dark:text-night-300 font-medium">
+                      <button onClick={() => onLbSort('rating')} aria-label="Sort by rating" className="hover:text-surface-900 dark:hover:text-night-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                        Rating{lbArrow('rating')}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.slice(0, 50).map((entry, i) => (
+                  {sortedLeaderboard.slice(0, 50).map((entry, i) => (
                     <tr key={entry.userId}
                       className={`border-b border-surface-100 dark:border-night-700 hover:bg-surface-100 dark:hover:bg-night-700 transition-colors ${
                         entry.userId === user?.id ? 'bg-primary-50/60 dark:bg-[rgba(0,168,143,0.07)]' : ''
@@ -1352,6 +1416,7 @@ export default function CodingProfilePage() {
                       </td>
                       <td className="py-3 px-4 text-surface-500 dark:text-night-300">{entry.department || '-'}</td>
                       <td className="py-3 px-4 text-center font-medium text-surface-900 dark:text-night-50">{entry.totalContests}</td>
+                      <td className="py-3 px-4 text-center font-medium text-surface-900 dark:text-night-50">{entry.totalSolved ?? 0}</td>
                       <td className="py-3 px-4 text-center font-semibold" style={{ color: cfColor(entry.rating ?? entry.bestRating) }}>
                         {(entry.rating ?? entry.bestRating) || '-'}
                       </td>
