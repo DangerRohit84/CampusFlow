@@ -172,7 +172,13 @@ export default function UsernameSetupModal({ open, onClose, onSkip, force = true
 
   if (!open) return null
 
-  const canSave = isValid(sanitize(username)) && available !== false && !checking && !saving
+  // DRAFT-ONLY: edits stay local until explicit Save (no auto PUT on change/blur).
+  // In change mode, Save disabled when unchanged (same as current confirmed username).
+  // In setup mode, saving the suggestion/provisional is allowed (first set is free).
+  const currentUsername = sanitize(String((user as any)?.username ?? ''))
+  const isUnchanged = sanitize(username) === currentUsername && currentUsername.length > 0
+  const isChangeUnchanged = effectiveMode === 'change' && isUnchanged
+  const canSave = isValid(sanitize(username)) && available !== false && !checking && !saving && !isChangeUnchanged
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     e.stopPropagation()

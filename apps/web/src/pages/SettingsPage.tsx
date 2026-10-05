@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { User, Bell, Camera, Save, LogOut, Code, Loader2, CheckCircle, ExternalLink, RefreshCw, Lock, Sun, Moon, Monitor, Settings2, Shield, Eye, EyeOff, Sparkles, KeyRound, Zap } from 'lucide-react'
 import Button from '../components/ui/Button'
@@ -178,21 +178,51 @@ export default function SettingsPage() {
   const sanitize = (v:string)=> v.toLowerCase().replace(/[^a-z0-9_.-]/g,'').slice(0,20)
   // Username setup flow (2026-10-04): free setup vs counted change (max 3).
   // remainingChanges comes from /user/profile (null = unlimited superadmin).
+  // DRAFT-ONLY (2026-10-05 fix): edits stay local until explicit Save click.
+  // onChange only updates draft + schedules debounced availability check — never
+  // calls setup/change PUT. No blur/effect auto-save. Save enabled only when
+  // dirty (changed vs original) + valid + available.
   const usernameNeedsSetup = (profile as any)?.needsSetup === true || (profile as any)?.needsUsernameSetup === true || (user as any)?.needsSetup === true || (user as any)?.needsUsernameSetup === true || ((user as any)?.usernameSetByUser === false)
   const usernameRemaining: number | null | undefined = ((profile as any)?.remainingChanges ?? (user as any)?.remainingChanges) as number | null | undefined
   const usernameChangeCount: number | undefined = ((profile as any)?.usernameChangeCount ?? (user as any)?.usernameChangeCount) as number | undefined
   const usernameBudgetSpent = typeof usernameRemaining === 'number' && usernameRemaining <= 0 && !usernameNeedsSetup
-  const checkUsername = async (val:string) => {
+  const usernameOriginal = sanitize(String((profile as any)?.username ?? (user as any)?.username ?? ''))
+  const sanitizedUsername = sanitize(username)
+  const isUsernameValid = /^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(sanitizedUsername)
+  const isUsernameUnchanged = sanitizedUsername === usernameOriginal
+  const isDirty = !isUsernameUnchanged && sanitizedUsername.length > 0
+  const usernameCheckTimer = useRef<number | null>(null)
+  const usernameCheckSeq = useRef(0)
+  const checkUsername = async (val:string, seq?: number) => {
     const u = sanitize(val)
-    if (!u || u.length<3) { setUsernameAvailable(null); return }
-    if (!/^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u)) { setUsernameAvailable(false); return }
-    setUsernameChecking(true)
+    if (!u || u.length<3) { if (seq === undefined || seq === usernameCheckSeq.current) setUsernameAvailable(null); return }
+    if (!/^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u)) { if (seq === undefined || seq === usernameCheckSeq.current) setUsernameAvailable(false); return }
+    // Skip check for unchanged/current username (self-taken + rate storm guard).
+    if (u === usernameOriginal) { if (seq === undefined || seq === usernameCheckSeq.current) setUsernameAvailable(null); return }
+    if (seq === undefined) setUsernameChecking(true)
+    else setUsernameChecking(true)
     try {
       const r = await userAPI.checkUsername(u)
-      setUsernameAvailable(r.available)
-    } catch { setUsernameAvailable(null) }
-    setUsernameChecking(false)
+      if (seq === undefined || seq === usernameCheckSeq.current) setUsernameAvailable(r.available)
+    } catch { if (seq === undefined || seq === usernameCheckSeq.current) setUsernameAvailable(null) }
+    if (seq === undefined || seq === usernameCheckSeq.current) setUsernameChecking(false)
   }
+  const scheduleUsernameCheck = (val:string) => {
+    const u = sanitize(val)
+    // Skip unchanged immediately (no network, clear pending).
+    if (u === usernameOriginal || !u || u.length < 3 || !/^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u)) {
+      if (usernameCheckTimer.current) window.clearTimeout(usernameCheckTimer.current)
+      // Mirror checkUsername fail-open without network for invalid/unchanged.
+      if (!u || u.length < 3 || u === usernameOriginal) setUsernameAvailable(null)
+      else setUsernameAvailable(false)
+      setUsernameChecking(false)
+      return
+    }
+    if (usernameCheckTimer.current) window.clearTimeout(usernameCheckTimer.current)
+    const seq = ++usernameCheckSeq.current
+    usernameCheckTimer.current = window.setTimeout(() => { void checkUsername(u, seq) }, 300)
+  }
+  useEffect(() => () => { if (usernameCheckTimer.current) window.clearTimeout(usernameCheckTimer.current) }, [])
   const handleSaveUsername = async () => {
     const u = sanitize(username)
     if (!/^[a-z0-9]([a-z0-9._-]{1,18}[a-z0-9])?$/.test(u)) { toast.error('3-20 chars, letters/numbers/_.-'); return }
@@ -363,7 +393,7 @@ export default function SettingsPage() {
                       <input
                         type="text"
                         value={username}
-                        onChange={(e)=>{ const v=sanitize(e.target.value); setUsername(v); checkUsername(v) }}
+                        onChange={(e)=>{ const v=sanitize(e.target.value); setUsername(v); scheduleUsernameCheck(v) }}
                         placeholder={user?.name?.toLowerCase().replace(/\s+/g,'_') || 'username'}
                         className="w-full pl-8 pr-10 py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-surface-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
                       />
@@ -371,15 +401,19 @@ export default function SettingsPage() {
                         {usernameChecking ? <Loader2 size={14} className="animate-spin text-surface-400"/> : usernameAvailable===true ? <CheckCircle size={14} className="text-primary-500"/> : usernameAvailable===false ? <span className="text-[#ff4b5c] text-xs font-black">✕</span> : null}
                       </span>
                     </div>
-                    <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !username || usernameAvailable===false || usernameBudgetSpent}
+                    <button onClick={handleSaveUsername} disabled={usernameSaving || usernameChecking || !isDirty || !isUsernameValid || usernameAvailable===false || usernameBudgetSpent}
+                      title={!isDirty ? 'No changes to save' : !isUsernameValid ? 'Enter a valid username (3-20 chars)' : undefined}
                       className="px-4 h-[44px] bg-primary-500 hover:bg-[#1ed760] text-black rounded-full text-sm font-black disabled:opacity-50 flex items-center gap-1.5 shadow-[0_8px_24px_rgba(30,215,96,0.25)] shrink-0">
                       {usernameSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
                     </button>
                   </div>
                   <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Profile at <span className="font-mono font-bold text-primary-600">/u/{username || 'username'}</span> · 3-20 chars{usernameRemaining === null ? ' · unlimited (admin)' : typeof usernameRemaining === 'number' ? ` · ${usernameRemaining} change${usernameRemaining === 1 ? '' : 's'} left of 3` : ''}{typeof usernameChangeCount === 'number' && usernameChangeCount > 0 ? ` · changed ${usernameChangeCount}×` : ''}</p>
+                  {isDirty && isUsernameValid && <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-1">Unsaved changes — click Save to apply</p>}
+                  {!isDirty && isUsernameValid && username && <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">No unsaved changes — edit to enable Save</p>}
+                  {!isUsernameValid && sanitizedUsername.length > 0 && <p className="text-xs font-bold text-[#ff4b5c] mt-1">3-20 chars, letters/numbers/_.-, start/end with letter or number</p>}
                   {usernameBudgetSpent && <p className="text-xs font-black text-[#ff4b5c]">No changes left — contact support for an exception.</p>}
-                  {usernameAvailable===true && <p className="text-xs font-black text-primary-600">Available!</p>}
-                  {usernameAvailable===false && <p className="text-xs font-black text-[#ff4b5c]">Not available</p>}
+                  {usernameAvailable===true && isDirty && <p className="text-xs font-black text-primary-600">Available!</p>}
+                  {usernameAvailable===false && isDirty && <p className="text-xs font-black text-[#ff4b5c]">Not available</p>}
                 </div>
 
                 <div>

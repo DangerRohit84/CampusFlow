@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { codingProfileAPI, waitForCodingSync } from '../lib/api'
 import { useDepartments } from '../hooks/useDepartments'
 import { notifyEntityMutated, useEntitySync } from '../lib/entitySync'
@@ -711,9 +712,20 @@ export default function CodingProfilePage() {
           <div>
             <h1 className="text-2xl font-bold text-surface-900 dark:text-night-50">{user?.name}</h1>
             <p className="text-sm text-surface-500 dark:text-night-300">
+              {(user as any)?.username ? (
+                <Link to={`/u/${encodeURIComponent((user as any)?.username)}`} title="View your public profile" className="font-mono font-medium text-primary-600 dark:text-success-300 cursor-pointer hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                  @{(user as any)?.username}
+                </Link>
+              ) : null}
+              {(user as any)?.username ? ' · ' : ''}
               {filledCount > 0 ? `${filledCount} platform${filledCount > 1 ? 's' : ''} linked` : 'No platforms linked yet'}
               {profile?.lastSyncedAt && ` ⬢ Last synced ${new Date(profile.lastSyncedAt).toLocaleDateString()}`}
             </p>
+            {(user as any)?.username ? (
+              <Link to="/settings" title="Edit username in Settings" className="text-xs text-surface-400 dark:text-night-400 cursor-pointer hover:underline hover:text-primary-600 dark:hover:text-primary-400 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                Edit username in Settings
+              </Link>
+            ) : null}
           </div>
         </div>
         <div className="flex gap-2">
@@ -864,7 +876,8 @@ export default function CodingProfilePage() {
               </div>
 
               <div>
-                <h3 className="font-semibold text-surface-900 dark:text-night-50 mb-4">Platform Handles</h3>
+                <h3 className="font-semibold text-surface-900 dark:text-night-50 mb-1">Platform Handles</h3>
+                <p className="text-xs text-surface-500 dark:text-night-300 mb-4">Your per-platform usernames — distinct from your CampusFlow @username (<span className="font-mono">/u/{(user as any)?.username || 'username'}</span>). Handles save unlimited via Save below; site username changes (max 3) live in Settings.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {platforms.map((p) => (
                     <div key={p.key} className="flex items-center gap-2">
@@ -1407,7 +1420,12 @@ export default function CodingProfilePage() {
                             {entry.name?.charAt(0) || '?'}
                           </div>
                           <div>
-                            <p className="font-medium text-surface-900 dark:text-night-50">{entry.name}</p>
+                            {/* College leaderboard name -> /u/:username (public profile).
+                                Mirrors ContestLeaderboardPage: obvious internal link — cursor-pointer +
+                                hover:underline + hover:text-primary + focus-visible ring (keyboard + SR
+                                accessible via react-router Link). FAIL-OPEN: missing username renders
+                                plain text (no /u/undefined link). Solved + rating sort untouched. */}
+                            {entry.username ? <Link to={`/u/${encodeURIComponent(entry.username)}`} title={`View ${entry.name}'s profile`} className="font-medium text-surface-900 dark:text-night-50 cursor-pointer hover:underline hover:text-primary-600 dark:hover:text-primary-400 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2">{entry.name}</Link> : <span className="font-medium text-surface-900 dark:text-night-50">{entry.name}</span>}
                             {entry.userId === user?.id && (
                               <span className="text-[10px] text-primary-500 dark:text-success-300 font-medium">You</span>
                             )}
