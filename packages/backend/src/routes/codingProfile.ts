@@ -528,11 +528,12 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
       _max: { rating: true },
     } as any)
 
-    // Sort: totalContests desc, then rating (AVERAGE) desc — not best/max.
-    // groupBy orderBy on aggregates varies by provider; sort in JS over
-    // ≤10k small group rows (not 1M full rows) for deterministic output.
-    // Ties break by userId asc (see leaderboardRating.sortLeaderboardGroups).
-    // Pure-return: sortLeaderboardGroups returns a NEW sorted copy (never mutates).
+    // Sort: rating (AVERAGE) desc, then totalContests desc — not best/max.
+    // Positions/rank numbers follow rating. groupBy orderBy on aggregates
+    // varies by provider; sort in JS over ≤10k small group rows (not 1M full
+    // rows) for deterministic output. Ties break by userId asc
+    // (see leaderboardRating.sortLeaderboardGroups). Pure-return:
+    // sortLeaderboardGroups returns a NEW sorted copy (never mutates).
     const sorted = sortLeaderboardGroups(groups)
 
     const total = sorted.length
@@ -543,21 +544,35 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
     // Participant details for the page only (single lookup, not N+1).
     // NARROW-READ: was include:{department:true} (full user incl. passwordHash +
     // full department). AFTER: select display cols only — same mapped payload
-    // {name,department,departmentId,incomingYear,avatar} (sensitive cols dropped).
+    // {name,username,department,departmentId,incomingYear,avatar} + totalSolved
+    // (sensitive cols dropped). username powers /u/:username links; totalSolved
+    // is SUM of platformStats.problemsSolved (not average — rating stays avg).
+    // No new frontend fetch: solved rides the same leaderboard payload.
     const userIds = pageGroups.map((g: any) => g.userId)
-    const users: any[] = userIds.length
-      ? await prisma.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, name: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } },
-        })
-      : []
+    const [users, profiles]: any[] = userIds.length
+      ? await Promise.all([
+          prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, username: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } },
+          }),
+          // Solved source: CodingProfile.platformStats (existing totalSolved
+          // logic — sum valid problemsSolved, fail-open 0). Page slice only
+          // (≤50 rows). Fail-open [] on any error (never 500 for solved).
+          (prisma as any).codingProfile.findMany({
+            where: { userId: { in: userIds } },
+            select: { userId: true, platformStats: true },
+          }).catch(() => []),
+        ])
+      : [[], []]
     const userMap = new Map(users.map((u: any) => [u.id, u]))
+    const solvedMap = new Map((profiles || []).map((p: any) => [p.userId, p.platformStats]))
 
     const paged = pageGroups.map((g: any) => {
       const u = userMap.get(g.userId) as any
       // rating = AVERAGE contest rating (rounded, fail-open 0); bestRating kept
       // deprecated for API compat (old clients / CSV). See leaderboardRating.
-      return mapLeaderboardGroup(g, u)
+      // totalSolved = SUM across platforms (fail-open 0); username for /u/:username.
+      return mapLeaderboardGroup(g, u, solvedMap.get(g.userId))
     })
 
     res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')

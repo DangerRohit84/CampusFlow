@@ -110,7 +110,13 @@ describe('cut include depth (same payload shape)', () => {
 
   it('codingProfile leaderboard hydrates with select (not include department:true)', () => {
     const src = readSrc('routes/codingProfile.ts')
-    expect(src).toContain('select: { id: true, name: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } }')
+    // WHY username:true is additive narrow (not widening): needed for /u/:username profile links.
+    // Still narrow — display cols only, no passwordHash/email/include.
+    // NOTE: 'passwordHash' appears in NARROW-READ comments as before/after evidence,
+    // so assert no selected field (passwordHash: true), not absence of the word.
+    expect(src).toContain('select: { id: true, name: true, username: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } }')
+    expect(src).toContain('username: true')
+    expect(src).not.toContain('passwordHash: true')
     // Old full include gone from leaderboard
     expect(src).not.toContain('where: { id: { in: userIds } },\n          include: { department: true }')
   })

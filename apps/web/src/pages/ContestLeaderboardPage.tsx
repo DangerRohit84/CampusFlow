@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { codingProfileAPI } from '../lib/api'
 import { useDepartments } from '../hooks/useDepartments'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
@@ -12,6 +12,7 @@ import { PremiumHero, BentoGrid, BentoCard, SectionCard } from '../components/pr
 import { motion } from 'framer-motion'
 import CenteredLoader from '../components/ui/CenteredLoader'
 import clsx from 'clsx'
+import { sortLeaderboardRows, nextSort, type LeaderboardSortKey, type SortDir } from '../lib/leaderboardSort'
 
 function exportToCSV(data: any[], filename: string, headers: string[]) {
   const csvRows = [headers.join(',')]
@@ -53,6 +54,17 @@ export default function ContestLeaderboardPage() {
   const [search, setSearch] = useState('')
   const [selectedDept, setSelectedDept] = useState('ALL')
   const [selectedYear, setSelectedYear] = useState('ALL')
+  // Sortable headers (issue #1): positions by rating(avg) desc by default.
+  // Click toggles asc/desc with arrow; rank numbers follow current sort.
+  const [sortKey, setSortKey] = useState<LeaderboardSortKey>('rating')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const onSort = (k: LeaderboardSortKey) => {
+    const n = nextSort(sortKey, sortDir, k)
+    setSortKey(n.key)
+    setSortDir(n.dir)
+    setPage(1)
+  }
+  const arrow = (k: LeaderboardSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '')
 
   useEffect(() => {
     if (isError) toast.error('Failed to load leaderboard')
@@ -103,14 +115,19 @@ export default function ContestLeaderboardPage() {
     })
   }, [leaderboard, search, selectedDept, selectedYear, departments])
 
-  // pagination on filtered
+  // client sort over filtered slice (backend default is rating-primary);
+  // rank numbers follow the CURRENT sort (recomputed after sorting).
+  const sorted = useMemo(() => sortLeaderboardRows(filtered as any, sortKey, sortDir) as any[], [filtered, sortKey, sortDir])
+
+  // pagination on sorted (was filtered)
   const PAGE_SIZE = 20
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pagedLeaderboard = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const pagedLeaderboard = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   useEffect(()=>{ setPage(1) }, [search, selectedDept, selectedYear])
 
   const handleExport = () => {
-    const data = filtered.length ? filtered : leaderboard
+    // Export follows current sort (rank = position in sorted order).
+    const data = sorted.length ? sorted : leaderboard
     if (data.length === 0) {
       toast.error('No data to export')
       return
@@ -119,15 +136,17 @@ export default function ContestLeaderboardPage() {
       data.map((e, i) => ({
         rank: i + 1,
         name: e.name,
+        username: e.username ?? '',
         department: e.department,
         year: e.incomingYear ?? '',
         contests: e.totalContests,
+        solved: e.totalSolved ?? 0,
         rating: e.rating ?? e.bestRating,
         bestRating: e.bestRating,
         avgRank: e.avgRank ?? '',
       })),
       'leaderboard.csv',
-      ['rank', 'name', 'department', 'year', 'contests', 'rating', 'bestRating', 'avgRank']
+      ['rank', 'name', 'username', 'department', 'year', 'contests', 'solved', 'rating', 'bestRating', 'avgRank']
     )
     toast.success(`Exported ${data.length} rows`)
   }
@@ -325,11 +344,28 @@ export default function ContestLeaderboardPage() {
               <thead>
                 <tr className="border-b border-surface-100 dark:border-white/10">
                   <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Rank</th>
-                  <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Name</th>
+                  <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">
+                    <button onClick={() => onSort('name')} aria-label="Sort by name" className="hover:text-surface-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                      Name{arrow('name')}
+                    </button>
+                  </th>
                   <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Department</th>
                   <th className="px-6 py-4 text-left text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Year</th>
-                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Contests</th>
-                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">Rating</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">
+                    <button onClick={() => onSort('contests')} aria-label="Sort by contests" className="hover:text-surface-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                      Contests{arrow('contests')}
+                    </button>
+                  </th>
+                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">
+                    <button onClick={() => onSort('solved')} aria-label="Sort by solved" className="hover:text-surface-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                      Solved{arrow('solved')}
+                    </button>
+                  </th>
+                  <th className="px-6 py-4 text-center text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-zinc-400">
+                    <button onClick={() => onSort('rating')} aria-label="Sort by rating" className="hover:text-surface-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded">
+                      Rating{arrow('rating')}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-50 dark:divide-white/5">
@@ -352,7 +388,16 @@ export default function ContestLeaderboardPage() {
                         <div className="w-8 h-8 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center text-xs font-black shrink-0">
                           {entry.name?.charAt(0)?.toUpperCase()}
                         </div>
-                        <span className="font-[700] text-surface-900 dark:text-white text-sm">{entry.name}</span>
+                        {/* Leaderboard name -> /u/:username (public profile, full page fixed).
+                            STYLE DECISION (documented): obvious internal link — cursor-pointer +
+                            hover:underline + hover:text-primary + focus-visible ring (keyboard + SR
+                            accessible via react-router Link). DIFFERS from contest cards
+                            (CodingContestsPage/CalendarPage: cursor-only, NO underline/color —
+                            external URLs, whole-card window.open _blank). Internal profile nav
+                            needs visible affordance; external cards avoid visual noise.
+                            FAIL-OPEN: missing username renders plain text (no /u/undefined link).
+                            Solved = SUM across platforms (not average — rating stays average). */}
+                        {entry.username ? <Link to={`/u/${encodeURIComponent(entry.username)}`} title={`View ${entry.name}'s profile`} className="font-[700] text-surface-900 dark:text-white text-sm cursor-pointer hover:underline hover:text-primary-600 dark:hover:text-primary-400 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2">{entry.name}</Link> : <span className="font-[700] text-surface-900 dark:text-white text-sm">{entry.name}</span>}
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -362,6 +407,7 @@ export default function ContestLeaderboardPage() {
                       <span className="px-2.5 py-1 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black text-xs font-black">{entry.incomingYear ? `Year ${entry.incomingYear}` : '—'}</span>
                     </td>
                     <td className="px-6 py-4 text-center font-[800] text-surface-900 dark:text-white">{entry.totalContests}</td>
+                    <td className="px-6 py-4 text-center font-[800] text-surface-900 dark:text-white">{entry.totalSolved ?? 0}</td>
                     <td className="px-6 py-4 text-center font-black text-primary-600 dark:text-primary-400">{(entry.rating ?? entry.bestRating) || '—'}</td>
                   </tr>
                   )
