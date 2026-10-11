@@ -5,6 +5,7 @@ import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
 import { chatAPI } from '../lib/api'
 import { sanitizeMarkdown } from '../lib/sanitize'
+import { focusChatInput } from '../lib/chatFocus'
 
 
 function getActiveProvider() {
@@ -41,6 +42,11 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  // WHY: input stays enabled during send (disabled would blur + drop the
+  // mobile keyboard); ref restores focus after send + on done so the user
+  // can type immediately with no extra click. preventScroll inside helper
+  // avoids layout shift / scroll jump.
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const activeProviderName = (() => {
     try {
@@ -68,6 +74,9 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg])
     setInput('')
     setIsTyping(true)
+    // Keep focus in the input after send (don't blur) — input stays enabled
+    // so this is a no-scroll refocus, safe on mobile keyboards.
+    focusChatInput(inputRef.current)
 
     try {
       const provider = getActiveProvider()
@@ -106,8 +115,12 @@ export default function ChatPage() {
           : "Sorry, I couldn't process that. Please try again."
       const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content, timestamp: new Date() }
       setMessages((prev) => [...prev, assistantMsg])
+    } finally {
+      setIsTyping(false)
+      // Re-focus on response complete so the user can type immediately
+      // with no extra click (preventScroll: no layout shift / mobile jump).
+      focusChatInput(inputRef.current)
     }
-    setIsTyping(false)
   }
 
   return (
@@ -178,9 +191,12 @@ export default function ChatPage() {
         <div className="p-4 border-t border-surface-100 dark:border-night-600 bg-white/50 dark:bg-night-800/50 backdrop-blur-sm">
           <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex items-center gap-3">
             <div className="flex-1 relative">
-              {/* WHY: raw input migrated to labelled control (was placeholder-only + #9ca3af). */}
+              {/* WHY: raw input migrated to labelled control (was placeholder-only + #9ca3af).
+                  Focus: input stays enabled during send (disabled would blur +
+                  drop mobile keyboard); ref + focusChatInput() in handleSend/finally
+                  restores focus with preventScroll so typing resumes with no click. */}
               <label htmlFor="chat-input" className="sr-only">Ask the campus assistant</label>
-              <input id="chat-input" type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask me anything about campus life..." aria-label="Ask me anything about campus life" className="w-full px-5 min-h-[44px] py-3.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 transition-all pr-12" disabled={isTyping} />
+              <input ref={inputRef} id="chat-input" type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask me anything about campus life..." aria-label="Ask me anything about campus life" className="w-full px-5 min-h-[44px] py-3.5 bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-night-50 placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 transition-all pr-12" />
               <Zap size={16} aria-hidden="true" className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-400 dark:text-night-400" />
             </div>
             <button type="submit" disabled={!input.trim() || isTyping} aria-label="Send message" className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center p-3.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-lg hover:shadow-xl hover:shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2">
