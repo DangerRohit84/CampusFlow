@@ -587,7 +587,7 @@ export default function AssignmentDetailPage() {
             <SectionCard title="Filters & Actions" subtitle={`Scope: ${hub.scope} · ${filteredSubmissions.length}/${submissions.length} submitted · ${filteredPending.length}/${pending.length} pending`} icon={<Filter size={16}/>} gradient="from-primary-500 via-primary-500 to-primary-600">
               <div className="flex flex-wrap gap-3 items-center">
                 <div className="relative flex-1 min-w-[220px]">
-                  <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
+                  <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500 dark:text-night-400" />
                   <label htmlFor="assign-search" className="sr-only">Search submissions by name, student ID or email</label>
                   <input id="assign-search" value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search name, student ID, email..." aria-label="Search submissions by name, student ID or email" className="w-full pl-9 pr-3 min-h-[44px] py-2.5 rounded-xl border border-surface-200 dark:border-[#282828] bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2" />
                 </div>
@@ -663,7 +663,7 @@ export default function AssignmentDetailPage() {
                     )
                   })}
                   {filteredSubmissions.length===0 && <div className="text-sm text-surface-400 dark:text-night-400 py-8 text-center border border-dashed rounded-2xl dark:border-[#282828] bg-surface-50/50 dark:bg-[#0a0a0a]/50">No submissions match filters</div>}
-                  {filteredSubmissions.length===0 && submissions.length>0 && <div className="text-xs text-center text-surface-400 dark:text-zinc-500">Try clearing department / year / search filters</div>}
+                  {filteredSubmissions.length===0 && submissions.length>0 && <div className="text-xs text-center text-surface-500 dark:text-night-400">Try clearing department / year / search filters</div>}
                   {filteredSubmissions.length===0 && submissions.length===0 && <div className="text-sm text-surface-400 dark:text-night-400 py-8 text-center border border-dashed rounded-2xl dark:border-[#282828]">No submissions yet — pending students appear in the Pending tab.</div>}
                 </div>
               ) : (

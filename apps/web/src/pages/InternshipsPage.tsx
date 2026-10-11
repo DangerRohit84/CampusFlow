@@ -288,7 +288,7 @@ export default function InternshipsPage() {
             <div className="relative hidden sm:block">
               <label htmlFor="internship-search" className="sr-only">Search internships</label>
               <input id="internship-search" type="search" aria-label="Search internships" placeholder="Search notices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:text-zinc-500" />
+                className="w-[200px] pl-4 pr-4 min-h-[44px] bg-surface-50 dark:bg-night-800 border border-surface-200 dark:border-night-600 rounded-xl text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2" />
             </div>
             {isTeacher && (
               <button

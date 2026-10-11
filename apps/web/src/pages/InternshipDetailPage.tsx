@@ -383,9 +383,10 @@ export default function InternshipDetailPage() {
               <div className="mt-2.5 rounded-xl bg-white/[0.032] dark:bg-white/[0.028] backdrop-blur-md border border-white/[0.035] dark:border-white/[0.035] p-2.5 flex items-center gap-2.5">
                 <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-500 to-emerald-500 flex items-center justify-center text-black shadow shrink-0"><DollarSign size={14}/></span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60 leading-none">Stipend Spotlight</p>
-                  <p className="text-[12px] font-black text-zinc-900 dark:text-white truncate mt-1">{internship.stipend || 'Unpaid / Not disclosed'}</p>
-                  <p className="text-[10px] font-bold text-zinc-500 dark:text-white/60 truncate">{internship.company || 'Company'} · {internship.role || 'Intern'} · {internship.duration || 'TBD'}</p>
+                  {/* WHY contrast: PremiumHero is always dark #0a0a0a — zinc-900/500 on translucent white fails in light mode (dark-on-dark). Use white-aware text. */}
+                  <p className="text-[10px] font-black tracking-widest uppercase text-white/60 dark:text-white/60 leading-none">Stipend Spotlight</p>
+                  <p className="text-[12px] font-black text-white dark:text-white truncate mt-1">{internship.stipend || 'Unpaid / Not disclosed'}</p>
+                  <p className="text-[10px] font-bold text-white/60 dark:text-white/60 truncate">{internship.company || 'Company'} · {internship.role || 'Intern'} · {internship.duration || 'TBD'}</p>
                 </div>
               </div>
             )}
@@ -419,8 +420,9 @@ export default function InternshipDetailPage() {
                     { label: 'Secs', value: String(countdownParts.s).padStart(2,'0') },
                   ].map((box) => (
                     <div key={box.label} className={clsx('rounded-xl p-2 bg-white/[0.028] dark:bg-white/[0.025] border backdrop-blur-md text-center shadow-sm', isCritical ? 'border-danger-500/30 dark:border-danger-500/30 animate-pulse' : 'border-white/[0.035] dark:border-white/[0.035]')}>
-                      <p className="font-mono tabular-nums text-[15px] font-black leading-none text-zinc-900 dark:text-white">{box.value}</p>
-                      <p className="text-[8px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60 mt-1">{box.label}</p>
+                      {/* WHY contrast: countdown boxes sit on always-dark hero — zinc-900 on white/[0.028] over #0a0a0a is ~1.1:1 in light mode. Use white-aware text. */}
+                      <p className="font-mono tabular-nums text-[15px] font-black leading-none text-white dark:text-white">{box.value}</p>
+                      <p className="text-[8px] font-black tracking-widest uppercase text-white/60 dark:text-white/60 mt-1">{box.label}</p>
                     </div>
                   ))}
                 </div>
@@ -490,19 +492,20 @@ export default function InternshipDetailPage() {
                       </div>
                       <BentoGrid className="mt-5">
                         <BentoCard span="col-span-6 md:col-span-4" padding={true} className="p-4 bg-white/80 dark:bg-white/[0.06] backdrop-blur">
-                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Role</p>
+                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Role</p>
                             <p className="font-display font-[700] text-surface-900 dark:text-white mt-1 text-sm leading-tight">{internship.role || 'Intern'}</p>
                             <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-0.5">{internship.company || 'Company'}</p>
                         </BentoCard>
                         <BentoCard span="col-span-6 md:col-span-4" padding={true} className="p-4 bg-white/80 dark:bg-white/[0.06] backdrop-blur">
-                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Duration</p>
+                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Duration</p>
                             <p className="font-display font-[700] text-surface-900 dark:text-white mt-1 text-sm">{internship.duration || 'TBD'}</p>
                             <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-0.5 flex items-center gap-1"><Timer size={11}/>{internship.mode || 'Remote'}</p>
                         </BentoCard>
                         <BentoCard span="col-span-12 md:col-span-4" padding={true} className="p-4 bg-[#0a0a0a] dark:bg-white text-white dark:text-black">
                             <p className="text-[10px] font-black tracking-widest uppercase text-white/60 dark:text-black/60">Apply Before</p>
                             <p className="font-display font-[700] mt-1 text-sm">{internship.deadline ? new Date(internship.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric'}) : 'Open'}</p>
-                            {countdown && <p className="text-xs font-bold text-primary-400 dark:text-primary-600 mt-0.5">{countdown}</p>}
+                            {/* WHY contrast: light card is black bg in light (needs light green) but white bg in dark (needs dark green #15803d, 4.6:1). primary-600 remaps to #1ed760 in dark (1.9:1 on white, fails) so use explicit green-700. */}
+                            {countdown && <p className="text-xs font-bold text-green-300 dark:text-green-700 mt-0.5">{countdown}</p>}
                         </BentoCard>
                       </BentoGrid>
                       <p className="mt-3 text-[11px] font-semibold text-primary-700/60 dark:text-primary-300/60 flex items-center gap-1.5"><Star size={11}/> Verified on CampusFlow · Sponsor credibility · Direct apply</p>
@@ -519,7 +522,7 @@ export default function InternshipDetailPage() {
                         <Building2 size={16} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Company</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Company</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1 truncate">{internship.company}</p>
                       </div>
                   </BentoCard>
@@ -530,7 +533,7 @@ export default function InternshipDetailPage() {
                         <Briefcase size={16} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Role</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Role</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1 truncate">{internship.role}</p>
                       </div>
                   </BentoCard>
@@ -541,7 +544,7 @@ export default function InternshipDetailPage() {
                         <DollarSign size={16} className="text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Stipend</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Stipend</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1 truncate">{internship.stipend}</p>
                       </div>
                   </BentoCard>
@@ -552,7 +555,7 @@ export default function InternshipDetailPage() {
                         <Timer size={16} className="text-amber-600 dark:text-amber-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Duration</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Duration</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1 truncate">{internship.duration}</p>
                       </div>
                   </BentoCard>
@@ -563,7 +566,7 @@ export default function InternshipDetailPage() {
                         <MapPin size={16} className="text-surface-600 dark:text-night-300" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Mode</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Mode</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1">{internship.mode}</p>
                       </div>
                   </BentoCard>
@@ -574,7 +577,7 @@ export default function InternshipDetailPage() {
                         <Calendar size={16} className="text-primary-600 dark:text-primary-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 leading-none">Starts</p>
+                        <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 leading-none">Starts</p>
                         <p className="text-sm font-[800] tracking-[-0.01em] text-surface-900 dark:text-white mt-1">{new Date(internship.startDate).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric'})}</p>
                       </div>
                   </BentoCard>
@@ -642,7 +645,7 @@ export default function InternshipDetailPage() {
                       </div>
                       <div className="space-y-2.5 text-sm mb-4">
                         <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                          <span className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Status</span>
+                          <span className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Status</span>
                           <span className={clsx('font-black text-xs px-3 py-1 rounded-full border',
                             myRegistration.status === 'SELECTED' ? 'bg-primary-500 text-black border-primary-500' :
                             myRegistration.status === 'REJECTED' ? 'bg-danger-50 dark:bg-danger-500/15 text-danger-700 dark:text-danger-300 border-danger-200 dark:border-danger-500/20' :
@@ -653,13 +656,13 @@ export default function InternshipDetailPage() {
                         </div>
                         {myRegistration.reportedAt && (
                           <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                            <span className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Reported</span>
+                            <span className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Reported</span>
                             <span className="font-[700] text-surface-900 dark:text-white text-xs">{new Date(myRegistration.reportedAt).toLocaleDateString()}</span>
                           </div>
                         )}
                       </div>
                       <div className="pt-4 border-t border-surface-100 dark:border-white/10">
-                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mb-3">Self-Report Status</p>
+                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-3">Self-Report Status</p>
                         <button
                           onClick={() => setShowReport(true)}
                           className="w-full h-11 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black font-black text-sm hover:shadow-lg hover:-translate-y-0.5 transition-all active:scale-[0.98]"
@@ -791,19 +794,19 @@ export default function InternshipDetailPage() {
                 <BentoGrid>
                   <BentoCard span="col-span-6" className="p-4 text-center">
                       <div className="w-10 h-10 rounded-xl bg-primary-500 text-black flex items-center justify-center mx-auto"><Building2 size={16}/></div>
-                      <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mt-2">Company</p>
+                      <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mt-2">Company</p>
                       <p className="font-display font-[700] text-surface-900 dark:text-white mt-1 text-sm truncate">{internship.company}</p>
                   </BentoCard>
                   <BentoCard span="col-span-6" className="p-4 text-center">
                       <div className="w-10 h-10 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center mx-auto"><Briefcase size={16}/></div>
-                      <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mt-2">Role</p>
+                      <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mt-2">Role</p>
                       <p className="font-display font-[700] text-surface-900 dark:text-white mt-1 text-sm truncate">{internship.role || 'Intern'}</p>
                   </BentoCard>
                   <BentoCard span="col-span-12" className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center"><Clock size={16}/></div>
                       <div>
-                        <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Deadline</p>
+                        <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Deadline</p>
                         <p className="text-sm font-[700] text-surface-900 dark:text-white">{internship.deadline ? new Date(internship.deadline).toLocaleDateString() : 'Open'}</p>
                       </div>
                     </div>
@@ -822,7 +825,7 @@ export default function InternshipDetailPage() {
               <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                 <div className="flex items-center gap-2.5 mb-2">
                   <span className="w-9 h-9 rounded-xl bg-primary-500 text-black flex items-center justify-center shrink-0"><Users size={16}/></span>
-                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Applied</p>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Applied</p>
                 </div>
                 <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{totalRegs}</p>
                 <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-night-400">Total applicants</p>
@@ -831,7 +834,7 @@ export default function InternshipDetailPage() {
               <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                 <div className="flex items-center gap-2.5 mb-2">
                   <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shrink-0"><CheckCircle size={16}/></span>
-                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Selected</p>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Selected</p>
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-primary-500 text-black text-[11px] font-black">{successRate}%</span>
                 </div>
                 <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{selectedCount}</p>
@@ -841,7 +844,7 @@ export default function InternshipDetailPage() {
               <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                 <div className="flex items-center gap-2.5 mb-2">
                   <span className="w-9 h-9 rounded-xl bg-danger-500 text-white flex items-center justify-center shrink-0"><XCircle size={16}/></span>
-                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Rejected</p>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Rejected</p>
                 </div>
                 <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{rejectedCount}</p>
                 <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-night-400">{rejectedCount} not selected</p>
@@ -850,11 +853,11 @@ export default function InternshipDetailPage() {
               <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                 <div className="flex items-center gap-2.5 mb-2">
                   <span className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0"><BarChart3 size={16}/></span>
-                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Insights</p>
+                  <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Insights</p>
                 </div>
                 <p className="font-display text-[16px] font-[800] leading-tight text-surface-900 dark:text-white">{internship.company || 'Company'}</p>
                 <p className="text-xs font-bold text-surface-500 dark:text-night-400 mt-1">{internship.role || 'Intern'} · {internship.mode || 'TBD'}</p>
-                <p className="mt-2 text-[10px] font-bold tracking-wide uppercase text-surface-400 dark:text-night-400 flex items-center gap-1"><TrendingUp size={10}/> Live pipeline</p>
+                <p className="mt-2 text-[10px] font-bold tracking-wide uppercase text-surface-500 dark:text-night-400 flex items-center gap-1"><TrendingUp size={10}/> Live pipeline</p>
               </BentoCard>
             </BentoGrid>
             <BentoGrid>
@@ -864,7 +867,7 @@ export default function InternshipDetailPage() {
                   <h4 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">By Department</h4>
                   <span className="ml-auto text-xs font-black px-2.5 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-black">{regDeptBreakdown.length} depts</span>
                 </div>
-                {regDeptBreakdown.length===0 ? <p className="text-xs text-surface-400 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
+                {regDeptBreakdown.length===0 ? <p className="text-xs text-surface-500 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
                   <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
                     {regDeptBreakdown.map(([dept,cnt])=> (
                       <div key={dept} className="flex items-center justify-between text-xs bg-surface-50 dark:bg-white/[0.04] rounded-xl px-3 py-2 border border-surface-100 dark:border-white/10">
@@ -881,7 +884,7 @@ export default function InternshipDetailPage() {
                   <h4 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">By Year</h4>
                   <span className="ml-auto text-xs font-black px-2.5 py-1 rounded-full bg-primary-500 text-black">{regYearBreakdown.length} cohorts</span>
                 </div>
-                {regYearBreakdown.length===0 ? <p className="text-xs text-surface-400 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
+                {regYearBreakdown.length===0 ? <p className="text-xs text-surface-500 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
                   <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
                     {regYearBreakdown.map(([y,cnt])=> (
                       <div key={y} className="flex items-center justify-between text-xs bg-surface-50 dark:bg-white/[0.04] rounded-xl px-3 py-2 border border-surface-100 dark:border-white/10">
@@ -909,7 +912,7 @@ export default function InternshipDetailPage() {
             }>
               <div className="flex flex-wrap gap-3 items-center">
                 <div className="relative flex-1 min-w-[220px]">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500 dark:text-night-400" />
                   <input value={regSearch} onChange={e=> setRegSearch(e.target.value)} placeholder="Search name, email, roll..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                 </div>
                 <select value={regDept} onChange={e=> setRegDept(e.target.value)} className="px-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-w-[160px]">
@@ -929,13 +932,13 @@ export default function InternshipDetailPage() {
                 <div className="text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                   <Users size={36} className="text-surface-300 dark:text-zinc-600 mx-auto mb-3" />
                   <p className="font-display font-[700] text-surface-600 dark:text-night-300">No registrations yet</p>
-                  <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Applicants will appear here</p>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Applicants will appear here</p>
                 </div>
               ) : filteredRegs.length===0 ? (
                 <div className="text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                   <Filter size={28} className="text-surface-300 dark:text-zinc-600 mx-auto mb-2" />
                   <p className="font-display font-[700] text-surface-600 dark:text-night-300">No matches</p>
-                  <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Try clearing department / year / search filters</p>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Try clearing department / year / search filters</p>
                   <button onClick={()=>{setRegSearch(''); setRegDept('ALL'); setRegYear('ALL')}} className="mt-3 px-4 h-9 rounded-full bg-primary-500 text-black text-xs font-black">Clear filters</button>
                 </div>
               ) : (
@@ -999,15 +1002,15 @@ export default function InternshipDetailPage() {
               <>
               <BentoGrid>
                 <BentoCard span="col-span-6 lg:col-span-4" className="text-center p-5">
-                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Status</p>
+                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Status</p>
                     <p className="mt-2 inline-flex px-3 py-1 rounded-full bg-primary-500 text-black text-xs font-black">{myRegistration.status}</p>
                 </BentoCard>
                 <BentoCard span="col-span-6 lg:col-span-4" className="text-center p-5">
-                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Company</p>
+                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Company</p>
                     <p className="font-display font-[700] text-surface-900 dark:text-white mt-1">{internship.company}</p>
                 </BentoCard>
                 <BentoCard span="col-span-12 lg:col-span-4" className="text-center p-5">
-                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Reported</p>
+                    <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Reported</p>
                     <p className="font-[700] text-surface-900 dark:text-white mt-1 text-sm">{myRegistration.reportedAt ? new Date(myRegistration.reportedAt).toLocaleDateString() : '—'}</p>
                 </BentoCard>
               </BentoGrid>
@@ -1062,7 +1065,7 @@ export default function InternshipDetailPage() {
               rows={4}
               placeholder="e.g. Applications close tomorrow — complete your profile."
               className="w-full px-4 py-3 border border-surface-200 dark:border-white/10 rounded-xl text-sm min-h-[44px] bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20" />
-            <p className="mt-1 text-right text-[11px] font-medium text-surface-400 dark:text-night-400">{remindMessage.length}/1000</p>
+            <p className="mt-1 text-right text-[11px] font-medium text-surface-500 dark:text-night-400">{remindMessage.length}/1000</p>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setShowRemind(false)} className="flex-1 h-11 bg-surface-100 dark:bg-white/10 text-surface-700 dark:text-white rounded-full font-black text-sm">Cancel</button>
               <button onClick={handleRemind} disabled={reminding || !remindMessage.trim()} className="flex-1 h-11 bg-primary-500 text-black rounded-full font-black text-sm hover:shadow-[0_8px_24px_rgba(30,215,96,0.30)] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5">
@@ -1127,7 +1130,7 @@ export default function InternshipDetailPage() {
                 </div>
               </div>
               <button onClick={() => setShowRegistrations(false)} className="w-9 h-9 rounded-full bg-surface-50 dark:bg-white/5 hover:bg-surface-100 dark:hover:bg-white/10 flex items-center justify-center transition-colors">
-                <XCircle size={18} className="text-surface-400" />
+                <XCircle size={18} className="text-surface-500 dark:text-night-400" />
               </button>
             </div>
             <div className="flex-1 overflow-auto p-6">

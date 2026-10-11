@@ -467,9 +467,10 @@ export default function HackathonDetailPage() {
               <div className="mt-2.5 rounded-xl bg-white/[0.032] dark:bg-white/[0.028] backdrop-blur-md border border-white/[0.035] dark:border-white/[0.035] p-2.5 flex items-center gap-2.5">
                 <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-primary-500 flex items-center justify-center text-white shadow shrink-0 dark:bg-gradient-to-br dark:from-amber-500 dark:to-primary-500 dark:text-white"><Trophy size={14}/></span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60 leading-none">Prize Pool</p>
-                  <p className="text-[12px] font-black text-zinc-900 dark:text-white truncate mt-1">{hackathon.prizePool}</p>
-                  {maxPrize && <p className="text-[10px] font-mono tabular-nums font-black text-primary-600 dark:text-primary-400">{prizeCurrency}{maxPrize.toLocaleString(prizeLocale)} top</p>}
+                  {/* WHY contrast: PremiumHero is always dark #0a0a0a — zinc-900/500 + primary-600 (#0a7a3a) on translucent white fails in light mode (dark-on-dark). Use white-aware + light green primary-300 (#6fd28a, 8:1 on dark). */}
+                  <p className="text-[10px] font-black tracking-widest uppercase text-white/60 dark:text-white/60 leading-none">Prize Pool</p>
+                  <p className="text-[12px] font-black text-white dark:text-white truncate mt-1">{hackathon.prizePool}</p>
+                  {maxPrize && <p className="text-[10px] font-mono tabular-nums font-black text-primary-300 dark:text-primary-300">{prizeCurrency}{maxPrize.toLocaleString(prizeLocale)} top</p>}
                 </div>
               </div>
             )}
@@ -508,8 +509,9 @@ export default function HackathonDetailPage() {
                     { label: 'Secs', value: String(countdownParts.s).padStart(2,'0') },
                   ].map((box) => (
                     <div key={box.label} className={clsx('rounded-xl p-2 bg-white/[0.028] dark:bg-white/[0.025] border backdrop-blur-md text-center shadow-sm', isCritical ? 'border-danger-500/30 dark:border-danger-500/30 animate-pulse' : 'border-white/[0.035] dark:border-white/[0.035]')}>
-                      <p className="font-mono tabular-nums text-[15px] font-black leading-none text-zinc-900 dark:text-white">{box.value}</p>
-                      <p className="text-[8px] font-black tracking-widest uppercase text-zinc-500 dark:text-white/60 mt-1">{box.label}</p>
+                      {/* WHY contrast: countdown boxes sit on always-dark hero — zinc-900 (#121212) on white/[0.028] over #0a0a0a is ~1.1:1 in light mode. Use white-aware text (white/60 labels pass on dark). */}
+                      <p className="font-mono tabular-nums text-[15px] font-black leading-none text-white dark:text-white">{box.value}</p>
+                      <p className="text-[8px] font-black tracking-widest uppercase text-white/60 dark:text-white/60 mt-1">{box.label}</p>
                     </div>
                   ))}
                 </div>
@@ -567,7 +569,7 @@ export default function HackathonDetailPage() {
                         <Calendar size={18} className="text-primary-600 dark:text-primary-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Event Starts</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Event Starts</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 whitespace-nowrap tracking-[-0.01em]">{new Date(hackathon.startDate).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric'})}</p>
                       </div>
                   </BentoCard>
@@ -578,7 +580,7 @@ export default function HackathonDetailPage() {
                         <Clock size={18} className={isUrgent ? 'text-danger-500 dark:text-danger-500' : 'text-zinc-600 dark:text-zinc-300'} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Deadline {isUrgent && '· Due soon'}</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Deadline {isUrgent && '· Due soon'}</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 whitespace-nowrap">{new Date(hackathon.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric'})}</p>
                       </div>
                   </BentoCard>
@@ -589,7 +591,7 @@ export default function HackathonDetailPage() {
                         <DollarSign size={18} className="text-warning-600 dark:text-warning-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Prize Pool</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Prize Pool</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 break-words leading-tight line-clamp-1">{hackathon.prizePool}</p>
                       </div>
                   </BentoCard>
@@ -600,7 +602,7 @@ export default function HackathonDetailPage() {
                         <Users size={18} className="text-primary-600 dark:text-primary-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Team Size</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Team Size</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 whitespace-nowrap">Up to {hackathon.teamSize}</p>
                       </div>
                   </BentoCard>
@@ -611,7 +613,7 @@ export default function HackathonDetailPage() {
                         <Timer size={18} className="text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Duration</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Duration</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 break-words leading-tight">{hackathon.duration}</p>
                       </div>
                   </BentoCard>
@@ -622,7 +624,7 @@ export default function HackathonDetailPage() {
                         <MapPin size={18} className="text-zinc-600 dark:text-zinc-300" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-surface-400 dark:text-night-400 uppercase tracking-widest leading-none">Location</p>
+                        <p className="text-[10px] font-black text-surface-500 dark:text-night-400 uppercase tracking-widest leading-none">Location</p>
                         <p className="text-sm font-[800] text-surface-900 dark:text-white mt-1 break-words leading-tight">{hackathon.location}</p>
                       </div>
                   </BentoCard>
@@ -669,7 +671,7 @@ export default function HackathonDetailPage() {
                   {/* Prize Tiers — bento varied 3 per row */}
                   {parsedTiers.length > 0 && (
                     <div className="mt-6">
-                      <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mb-3">Prize Breakdown</p>
+                      <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-3">Prize Breakdown</p>
                       <BentoGrid>
                         {parsedTiers.map((tier: string, i: number) => {
                           const tierAmounts = extractAmounts(tier)
@@ -694,7 +696,7 @@ export default function HackathonDetailPage() {
                   {/* Perks Bento — varied icon grid 2 per row */}
                   {parsedExtras.length > 0 && (
                     <div className="mt-6">
-                      <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mb-3">What You Get — Perks Bento</p>
+                      <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-3">What You Get — Perks Bento</p>
                       <BentoGrid>
                         {parsedExtras.map((extra: string, i: number) => {
                           const lower = extra.toLowerCase()
@@ -784,12 +786,12 @@ export default function HackathonDetailPage() {
                       <div className="space-y-2.5 text-sm mb-4">
                         {myRegistration.teamName && (
                           <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                            <span className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Team</span>
+                            <span className="text-xs font-bold tracking-widest uppercase text-surface-500 dark:text-night-400">Team</span>
                             <span className="font-[700] text-surface-900 dark:text-white text-sm">{myRegistration.teamName}</span>
                           </div>
                         )}
                         <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                          <span className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Status</span>
+                          <span className="text-xs font-bold tracking-widest uppercase text-surface-500 dark:text-night-400">Status</span>
                           <span className="font-[800] text-primary-600 dark:text-primary-400 text-xs px-2.5 py-1 rounded-full bg-primary-50 dark:bg-primary-500/15 border border-primary-200 dark:border-primary-500/20">
                             {myRegistration.status === 'COMPLETED' ? 'Completed' : myRegistration.status === 'SELECTED' ? `Round ${myRegistration.currentRound}` : 'Registered'}
                           </span>
@@ -802,12 +804,12 @@ export default function HackathonDetailPage() {
                         )}
                         {myRegistration.review && (
                           <div className="p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Your Review</p>
+                            <p className="text-[10px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Your Review</p>
                             <p className="text-sm font-medium text-surface-700 dark:text-night-200 mt-1 leading-relaxed">{myRegistration.review}</p>
                           </div>
                         )}
                         <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                          <span className="text-xs font-bold tracking-widest uppercase text-surface-400 dark:text-night-400">Current Round</span>
+                          <span className="text-xs font-bold tracking-widest uppercase text-surface-500 dark:text-night-400">Current Round</span>
                           <span className="w-7 h-7 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center text-xs font-black">{myRegistration.currentRound}</span>
                         </div>
                       </div>
@@ -821,7 +823,7 @@ export default function HackathonDetailPage() {
 
                       {hackathon.rounds.length > 0 && (
                         <div className="pt-4 border-t border-surface-100 dark:border-white/10">
-                          <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mb-3">Self-Report Progress</p>
+                          <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-3">Self-Report Progress</p>
                           <div className="space-y-2">
                             {hackathon.rounds.map((round: any) => {
                               const isCompleted = myRegistration.currentRound >= round.roundNumber
@@ -835,7 +837,7 @@ export default function HackathonDetailPage() {
                                     allDone && isCompleted ? 'bg-primary-50 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-500/20' :
                                     isCompleted ? 'bg-primary-50 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-500/20' :
                                     isNext ? 'bg-primary-500 text-black hover:shadow-[0_8px_24px_rgba(30,215,96,0.30)] hover:-translate-y-0.5 shadow dark:bg-primary-500 dark:text-black' :
-                                    'bg-surface-50 dark:bg-white/[0.04] text-surface-400 dark:text-night-400 border border-surface-100 dark:border-white/10 cursor-not-allowed'
+                                    'bg-surface-50 dark:bg-white/[0.04] text-surface-500 dark:text-night-400 border border-surface-100 dark:border-white/10 cursor-not-allowed'
                                   )}>
                                   {allDone && isCompleted ? <Trophy size={14} /> : isCompleted ? <CheckCircle size={14} /> : isNext ? <Rocket size={14} /> : <Clock size={14} />}
                                   {allDone && isCompleted ? `Round ${round.roundNumber} — Completed` :
@@ -929,7 +931,7 @@ export default function HackathonDetailPage() {
                       <span className="w-7 h-7 rounded-full bg-white dark:bg-[#0a0a0a] border border-surface-200 dark:border-white/10 flex items-center justify-center group-hover:bg-primary-500 group-hover:text-white transition-colors dark:group-hover:bg-primary-500 dark:group-hover:text-white"><ExternalLink size={12}/></span>
                     </a>
                   )}
-                  {!hackathon.url && <p className="text-xs font-medium text-surface-400 dark:text-night-400">No external links yet</p>}
+                  {!hackathon.url && <p className="text-xs font-medium text-surface-500 dark:text-night-400">No external links yet</p>}
                 </div>
               </BentoCard>
             </div>
@@ -962,7 +964,7 @@ export default function HackathonDetailPage() {
                   <div className="text-center py-12 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                     <Layers size={28} className="text-surface-300 mx-auto mb-2 dark:text-surface-300" />
                     <p className="font-display font-[700] text-surface-600 dark:text-night-300">No tracks defined yet</p>
-                    <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Organizer will publish tracks soon</p>
+                    <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Organizer will publish tracks soon</p>
                   </div>
                 )}
               </SectionCard>
@@ -992,7 +994,7 @@ export default function HackathonDetailPage() {
               <div className="text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                 <CircleDot size={36} className="text-surface-300 mx-auto mb-3 dark:text-surface-300" />
                 <p className="font-display font-[700] text-surface-600 dark:text-night-300">No rounds defined yet</p>
-                <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Timeline will appear here once organizer adds rounds</p>
+                <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Timeline will appear here once organizer adds rounds</p>
                 {isTeacher && (
                   <button
                     onClick={() => setShowAddRound(true)}
@@ -1167,18 +1169,18 @@ export default function HackathonDetailPage() {
                 <BentoGrid>
                   <BentoCard span="col-span-6" className="p-4 text-center">
                       <div className="w-10 h-10 rounded-xl bg-primary-500 text-white flex items-center justify-center mx-auto dark:bg-primary-500 dark:text-white"><Users size={16}/></div>
-                      <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mt-2">Team Size</p>
+                      <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mt-2">Team Size</p>
                       <p className="font-display font-[800] text-surface-900 dark:text-white mt-1">{hackathon.teamSize ? `Up to ${hackathon.teamSize}` : 'Flexible'}</p>
                   </BentoCard>
                   <BentoCard span="col-span-6" className="p-4 text-center">
                       <div className="w-10 h-10 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center mx-auto"><Timer size={16}/></div>
-                      <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400 mt-2">Duration</p>
+                      <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mt-2">Duration</p>
                       <p className="font-display font-[800] text-surface-900 dark:text-white mt-1">{hackathon.duration || 'TBD'}</p>
                   </BentoCard>
                   <BentoCard span="col-span-12" className="p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 dark:bg-amber-500 dark:text-white"><MapPin size={16}/></div>
                     <div>
-                      <p className="text-xs font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Location & Mode</p>
+                      <p className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Location & Mode</p>
                       <p className="text-sm font-[700] text-surface-900 dark:text-white mt-0.5">{hackathon.location || 'Online'} · {hackathon.mode || 'TBD'}</p>
                     </div>
                   </BentoCard>
@@ -1224,7 +1226,7 @@ export default function HackathonDetailPage() {
                 <div className="col-span-12 text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                   <Link2 size={28} className="text-surface-300 mx-auto mb-2 dark:text-surface-300" />
                   <p className="font-display font-[700] text-surface-600 dark:text-night-300">No external resources linked</p>
-                  <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Organizer will add links soon</p>
+                  <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Organizer will add links soon</p>
                 </div>
               )}
             </BentoGrid>
@@ -1241,7 +1243,7 @@ export default function HackathonDetailPage() {
                   <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                     <div className="flex items-center gap-2.5 mb-2">
                       <span className="w-9 h-9 rounded-xl bg-primary-500 text-black flex items-center justify-center shrink-0 dark:bg-primary-500 dark:text-black"><Users size={16}/></span>
-                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Registered</p>
+                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Registered</p>
                     </div>
                     <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{totalRegs}</p>
                     <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-night-400">Total teams joined</p>
@@ -1252,7 +1254,7 @@ export default function HackathonDetailPage() {
                   <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                     <div className="flex items-center gap-2.5 mb-2">
                       <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shrink-0"><CheckCircle size={16}/></span>
-                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Selected</p>
+                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Selected</p>
                       <span className="ml-auto px-2 py-0.5 rounded-full bg-primary-500 text-black text-[11px] font-black dark:bg-primary-500 dark:text-black">{successRate}%</span>
                     </div>
                     <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{selectedCount}</p>
@@ -1262,7 +1264,7 @@ export default function HackathonDetailPage() {
                   <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                     <div className="flex items-center gap-2.5 mb-2">
                       <span className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 dark:bg-amber-500 dark:text-white"><Trophy size={16}/></span>
-                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Completed</p>
+                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Completed</p>
                     </div>
                     <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{completedCount}</p>
                     <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-night-400">{completedCount} finished final round</p>
@@ -1271,7 +1273,7 @@ export default function HackathonDetailPage() {
                   <BentoCard span="col-span-12 md:col-span-3" className="p-5">
                     <div className="flex items-center gap-2.5 mb-2">
                       <span className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 dark:bg-emerald-500 dark:text-white"><BarChart3 size={16}/></span>
-                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-night-400">Prize Pool</p>
+                      <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Prize Pool</p>
                     </div>
                     {hackathon.prizePool ? (
                       <>
@@ -1280,9 +1282,9 @@ export default function HackathonDetailPage() {
                         {totalPrize && totalPrize!==maxPrize && <p className="text-[11px] font-bold text-surface-500 dark:text-night-400">{prizeCurrency}{totalPrize.toLocaleString(prizeLocale)} combined</p>}
                       </>
                     ) : (
-                      <><p className="font-display text-[16px] font-[800] text-surface-500 dark:text-night-400">—</p><p className="text-[11px] font-medium text-surface-400 dark:text-night-400 mt-1">No prize listed</p></>
+                      <><p className="font-display text-[16px] font-[800] text-surface-500 dark:text-night-400">—</p><p className="text-[11px] font-medium text-surface-500 dark:text-night-400 mt-1">No prize listed</p></>
                     )}
-                    <p className="mt-2 text-[10px] font-bold tracking-wide uppercase text-surface-400 dark:text-night-400 flex items-center gap-1"><TrendingUp size={10}/> Live analytics</p>
+                    <p className="mt-2 text-[10px] font-bold tracking-wide uppercase text-surface-500 dark:text-night-400 flex items-center gap-1"><TrendingUp size={10}/> Live analytics</p>
                   </BentoCard>
                 </BentoGrid>
 
@@ -1294,7 +1296,7 @@ export default function HackathonDetailPage() {
                       <h4 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">By Department</h4>
                       <span className="ml-auto text-xs font-black px-2.5 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-black">{regDeptBreakdown.length} depts</span>
                     </div>
-                    {regDeptBreakdown.length===0 ? <p className="text-xs text-surface-400 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
+                    {regDeptBreakdown.length===0 ? <p className="text-xs text-surface-500 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
                       <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
                         {regDeptBreakdown.map(([dept,cnt])=> (
                           <div key={dept} className="flex items-center justify-between text-xs bg-surface-50 dark:bg-white/[0.04] rounded-xl px-3 py-2 border border-surface-100 dark:border-white/10">
@@ -1311,7 +1313,7 @@ export default function HackathonDetailPage() {
                       <h4 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">By Year</h4>
                       <span className="ml-auto text-xs font-black px-2.5 py-1 rounded-full bg-primary-500 text-black dark:bg-primary-500 dark:text-black">{regYearBreakdown.length} cohorts</span>
                     </div>
-                    {regYearBreakdown.length===0 ? <p className="text-xs text-surface-400 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
+                    {regYearBreakdown.length===0 ? <p className="text-xs text-surface-500 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
                       <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
                         {regYearBreakdown.map(([y,cnt])=> (
                           <div key={y} className="flex items-center justify-between text-xs bg-surface-50 dark:bg-white/[0.04] rounded-xl px-3 py-2 border border-surface-100 dark:border-white/10">
@@ -1340,7 +1342,7 @@ export default function HackathonDetailPage() {
                 }>
                   <div className="flex flex-wrap gap-3 items-center">
                     <div className="relative flex-1 min-w-[220px]">
-                      <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
+                      <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500 dark:text-night-400" />
                       <label htmlFor="hack-reg-search" className="sr-only">Search registrations by name, email, roll or team</label>
                       <input id="hack-reg-search" value={regSearch} onChange={e=> setRegSearch(e.target.value)} placeholder="Search name, email, roll, team..." aria-label="Search registrations by name, email, roll or team" className="w-full pl-9 pr-3 min-h-[44px] py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2" />
                     </div>
@@ -1359,15 +1361,15 @@ export default function HackathonDetailPage() {
                 <SectionCard title="All Registrations" subtitle={`${filteredRegs.length}/${totalRegs} shown · ${selectedCount} selected · Live`} icon={<Users size={16}/>} gradient="from-primary-500 via-primary-600 to-emerald-500 dark:from-primary-500 dark:via-primary-600 dark:to-emerald-500">
                   {hackathon.registrations.length === 0 ? (
                     <div className="text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
-                      <Users size={36} className="text-surface-300 dark:text-zinc-600 mx-auto mb-3" />
+                      <Users size={36} className="text-surface-500 dark:text-night-400 mx-auto mb-3" />
                       <p className="font-display font-[700] text-surface-600 dark:text-night-300">No registrations yet</p>
-                      <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Teams will appear here once they register</p>
+                      <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Teams will appear here once they register</p>
                     </div>
                   ) : filteredRegs.length === 0 ? (
                     <div className="text-center py-14 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
-                      <Filter size={28} className="text-surface-300 dark:text-zinc-600 mx-auto mb-2" />
+                      <Filter size={28} className="text-surface-500 dark:text-night-400 mx-auto mb-2" />
                       <p className="font-display font-[700] text-surface-600 dark:text-night-300">No matches</p>
-                      <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Try clearing department / year / search filters</p>
+                      <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Try clearing department / year / search filters</p>
                       <button onClick={()=>{setRegSearch(''); setRegDept('ALL'); setRegYear('ALL')}} className="mt-3 px-4 h-9 rounded-full bg-primary-500 text-black text-xs font-black dark:bg-primary-500 dark:text-black">Clear filters</button>
                     </div>
                   ) : (
@@ -1449,17 +1451,17 @@ export default function HackathonDetailPage() {
                   <>
                   <BentoGrid>
                     <BentoCard span="col-span-6 lg:col-span-3" className="text-center p-5">
-                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Team</p>
+                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Team</p>
                         <p className="font-display font-[800] text-surface-900 dark:text-white mt-1 truncate">{myRegistration.teamName || '-'}</p>
                     </BentoCard>
                     <BentoCard span="col-span-6 lg:col-span-3" className="text-center p-5">
-                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Status</p>
+                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Status</p>
                         <p className="mt-1 inline-flex px-3 py-1 rounded-full bg-primary-500 text-black text-xs font-black dark:bg-primary-500 dark:text-black">
                           {myRegistration.status === 'COMPLETED' ? 'Completed' : myRegistration.status === 'SELECTED' ? `Round ${myRegistration.currentRound}` : 'Registered'}
                         </p>
                     </BentoCard>
                     <BentoCard span="col-span-6 lg:col-span-3" className="text-center p-5">
-                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Current Round</p>
+                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Current Round</p>
                         <p className="mt-1 w-9 h-9 rounded-full bg-[#0a0a0a] dark:bg-white text-white dark:text-black font-black flex items-center justify-center mx-auto">{myRegistration.currentRound}</p>
                     </BentoCard>
                     {myRegistration.winPosition ? (
@@ -1469,13 +1471,13 @@ export default function HackathonDetailPage() {
                       </BentoCard>
                     ) : (
                       <BentoCard span="col-span-6 lg:col-span-3" className="text-center p-5">
-                          <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Position</p>
+                          <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Position</p>
                           <p className="font-[700] text-surface-500 dark:text-night-400 mt-1">—</p>
                       </BentoCard>
                     )}
                     {myRegistration.review && (
                       <div className="col-span-12 p-4 rounded-xl bg-surface-50 dark:bg-white/[0.04] border border-surface-100 dark:border-white/10">
-                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-400 dark:text-night-400">Review</p>
+                        <p className="text-[11px] font-black tracking-widest uppercase text-surface-500 dark:text-night-400">Review</p>
                         <p className="text-sm font-medium text-surface-700 dark:text-night-200 mt-1 leading-relaxed">{myRegistration.review}</p>
                       </div>
                     )}
@@ -1487,7 +1489,7 @@ export default function HackathonDetailPage() {
                 ) : (
                   <div className="text-center py-10 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-dashed border-surface-200 dark:border-white/10">
                     <p className="font-display font-[700] text-surface-600 dark:text-night-300">You haven't registered yet</p>
-                    <p className="text-xs font-medium text-surface-400 dark:text-night-400 mt-1">Join now to track your journey</p>
+                    <p className="text-xs font-medium text-surface-500 dark:text-night-400 mt-1">Join now to track your journey</p>
                     {hackathon.eligibilityEnabled && (
                       <div className={clsx('mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-black border',
                     isEligible ? 'bg-primary-50 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300 border-primary-200 dark:border-primary-500/20' : 'bg-danger-50 dark:bg-danger-500/15 text-danger-700 dark:text-danger-300 border-danger-200 dark:border-danger-500/20'
@@ -1538,7 +1540,7 @@ export default function HackathonDetailPage() {
                   className="w-full px-4 py-3 border border-surface-200 dark:border-white/10 rounded-xl text-sm h-20 bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:border-primary-500/30 dark:focus:border-primary-500/30" placeholder="Name1, Name2, Name3..." />
               </div>
               <div>
-                <label className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1 block">Project Idea <span className="font-medium normal-case tracking-normal text-surface-400 dark:text-night-400">(optional)</span></label>
+                <label className="text-xs font-black tracking-widest uppercase text-surface-500 dark:text-night-400 mb-1 block">Project Idea <span className="font-medium normal-case tracking-normal text-surface-500 dark:text-night-400">(optional)</span></label>
                 <textarea value={form.projectIdea}
                   onChange={(e) => setForm({ ...form, projectIdea: e.target.value })}
                   className="w-full px-4 py-3 border border-surface-200 dark:border-white/10 rounded-xl text-sm h-20 bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:border-primary-500/30 dark:focus:border-primary-500/30" placeholder="Brief project idea..." />
@@ -1567,7 +1569,7 @@ export default function HackathonDetailPage() {
               rows={4}
               placeholder="e.g. Round 2 starts tomorrow at 10am — check the timeline tab."
               className="w-full px-4 py-3 border border-surface-200 dark:border-white/10 rounded-xl text-sm min-h-[44px] bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20" />
-            <p className="mt-1 text-right text-[11px] font-medium text-surface-400 dark:text-night-400">{remindMessage.length}/1000</p>
+            <p className="mt-1 text-right text-[11px] font-medium text-surface-500 dark:text-night-400">{remindMessage.length}/1000</p>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setShowRemind(false)} className="flex-1 h-11 bg-surface-100 dark:bg-white/10 text-surface-700 dark:text-white rounded-full font-black text-sm">Cancel</button>
               <button onClick={handleRemind} disabled={reminding || !remindMessage.trim()} className="flex-1 h-11 bg-primary-500 text-black rounded-full font-black text-sm hover:shadow-[0_8px_24px_rgba(30,215,96,0.30)] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5">
@@ -1594,7 +1596,7 @@ export default function HackathonDetailPage() {
                 </div>
               </div>
               <button onClick={() => setShowRegistrations(false)} className="w-9 h-9 rounded-full bg-surface-50 dark:bg-white/5 hover:bg-surface-100 dark:hover:bg-white/10 flex items-center justify-center transition-colors dark:hover:bg-surface-100">
-                <XCircle size={18} className="text-surface-400 dark:text-surface-400" />
+                <XCircle size={18} className="text-surface-500 dark:text-night-400" />
               </button>
             </div>
             <div className="flex-1 overflow-auto p-6">

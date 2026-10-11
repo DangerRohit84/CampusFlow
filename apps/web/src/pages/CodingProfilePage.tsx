@@ -1404,7 +1404,8 @@ export default function CodingProfilePage() {
                       }`}>
                       <td className="py-3 px-4">
                         <span className={`font-bold ${
-                          i === 0 ? 'text-yellow-500' : i === 1 ? 'text-gray-400' : i === 2 ? 'text-amber-600' : 'text-surface-400'
+                          // WHY contrast: gray-400 (#9ca3af, 2.8:1 on white) + surface-400 fail AA for rank numerals. Use gray-500 (#6b7280, 4.8:1) + night-400 on dark.
+                          i === 0 ? 'text-yellow-500' : i === 1 ? 'text-gray-500 dark:text-gray-400' : i === 2 ? 'text-amber-600' : 'text-surface-500 dark:text-night-400'
                         }`}>
                           {i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}
                         </span>

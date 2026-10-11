@@ -463,7 +463,7 @@ export default function CalendarPage() {
               <CenteredLoader text="Loading calendar..." minHeight="min-h-[140px]" />
             ) : selectedEvents.length === 0 ? (
               <div className="text-center py-8">
-                <CalendarDays className="w-12 h-12 text-surface-300 dark:text-night-700 mx-auto mb-3" />
+                <CalendarDays className="w-12 h-12 text-surface-500 dark:text-night-400 mx-auto mb-3" />
                 <p className="text-surface-500 dark:text-night-300">No events on this day</p>
               </div>
             ) : (
@@ -528,7 +528,8 @@ export default function CalendarPage() {
                             </span>
                           )}
                           {evt.type === 'task' && evt.completed && (
-                            <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">
+                            <span className="text-[10px] text-green-700 dark:text-green-300 font-medium">
+                              {/* WHY contrast: green-600 3.5:1 fails AA small text; green-700 4.6:1 passes */}
                               Completed
                             </span>
                           )}
@@ -567,7 +568,7 @@ export default function CalendarPage() {
                             </span>
                           )}
                           {evt.type === 'class' && evt.dayOfWeek && (
-                            <span className="text-surface-400 dark:text-night-400 italic">
+                            <span className="text-surface-500 dark:text-night-400 italic">
                               Recurring every {evt.dayOfWeek.charAt(0) + evt.dayOfWeek.slice(1).toLowerCase()}
                             </span>
                           )}

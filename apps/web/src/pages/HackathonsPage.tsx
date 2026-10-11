@@ -359,7 +359,7 @@ export default function HackathonsPage() {
                 placeholder="Search notices…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:text-zinc-500"
+                className="w-[200px] pl-9 pr-3 min-h-[44px] border border-surface-200 dark:border-night-600 rounded-xl text-sm bg-surface-50 dark:bg-night-800 text-surface-900 dark:text-white placeholder:text-[#6b7280] dark:placeholder:text-night-400 focus:outline-none focus-visible:outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-500/15 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
               />
             </div>
             {isTeacher && (

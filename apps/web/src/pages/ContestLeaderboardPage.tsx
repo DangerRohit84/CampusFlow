@@ -209,7 +209,8 @@ export default function ContestLeaderboardPage() {
         <BentoCard span="col-span-12 md:col-span-3" className="p-5">
           <div className="flex items-center gap-2.5 mb-2">
             <span className="w-9 h-9 rounded-xl bg-primary-500 text-black flex items-center justify-center shrink-0"><Users size={16}/></span>
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-zinc-500">Participants</p>
+            {/* WHY contrast: surface-400 (#9ca3af, 2.8:1) + zinc-500 on dark fail AA for 10px labels. Use surface-500 (#6b7280, 4.8:1) + night-400 (#a1a1aa, 7:1 on dark). */}
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Participants</p>
           </div>
           <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{totalParticipants}</p>
           <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-zinc-400">{totalContestsSum} total contests</p>
@@ -218,7 +219,7 @@ export default function ContestLeaderboardPage() {
         <BentoCard span="col-span-12 md:col-span-3" className="p-5">
           <div className="flex items-center gap-2.5 mb-2">
             <span className="w-9 h-9 rounded-xl bg-[#0a0a0a] dark:bg-white text-white dark:text-black flex items-center justify-center shrink-0"><BarChart3 size={16}/></span>
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-zinc-500">Avg Contests</p>
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Avg Contests</p>
           </div>
           <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{avgContests}</p>
           <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-zinc-400">Per participant</p>
@@ -227,7 +228,7 @@ export default function ContestLeaderboardPage() {
         <BentoCard span="col-span-12 md:col-span-3" className="p-5">
           <div className="flex items-center gap-2.5 mb-2">
             <span className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0"><Star size={16}/></span>
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-zinc-500">Top Rating</p>
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Top Rating</p>
           </div>
           <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{topRating || '—'}</p>
           <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-zinc-400 truncate">{topCoder?.name || 'No data'} {topCoder?.department ? `· ${topCoder.department}` : ''}</p>
@@ -236,7 +237,7 @@ export default function ContestLeaderboardPage() {
         <BentoCard span="col-span-12 md:col-span-3" className="p-5">
           <div className="flex items-center gap-2.5 mb-2">
             <span className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0"><GraduationCap size={16}/></span>
-            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-400 dark:text-zinc-500">Departments</p>
+            <p className="text-[10px] font-black tracking-[0.12em] uppercase text-surface-500 dark:text-night-400">Departments</p>
           </div>
           <p className="font-display text-[28px] font-[800] leading-none text-surface-900 dark:text-white">{deptBreakdown.length}</p>
           <p className="mt-1 text-[11px] font-bold text-surface-500 dark:text-zinc-400">{deptBreakdown.slice(0,2).map(d=>`${d[0]} ${d[1]}`).join(' · ') || 'No breakdown'}</p>
@@ -254,7 +255,7 @@ export default function ContestLeaderboardPage() {
             <h4 className="font-display text-[15px] font-[800] tracking-[-0.02em] text-[#0a0a0a] dark:text-white">By Department</h4>
             <span className="ml-auto text-xs font-black px-2.5 py-1 rounded-full bg-surface-900 dark:bg-white text-white dark:text-black">{deptBreakdown.length} depts</span>
           </div>
-          {deptBreakdown.length===0 ? <p className="text-xs text-surface-400 dark:text-zinc-500 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
+          {deptBreakdown.length===0 ? <p className="text-xs text-surface-500 dark:text-night-400 py-6 text-center border border-dashed rounded-2xl dark:border-white/10">No data</p> : (
             <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
               {deptBreakdown.map(([dept,cnt])=> (
                 <div key={dept} className="flex items-center justify-between text-xs bg-surface-50 dark:bg-white/[0.04] rounded-xl px-3 py-2 border border-surface-100 dark:border-white/10">
@@ -273,7 +274,7 @@ export default function ContestLeaderboardPage() {
           </div>
           {availableYears.length===0 ? (
             <div className="space-y-1.5">
-              <p className="text-xs text-surface-400 dark:text-zinc-500 py-2">Year data appears when profiles have incomingYear</p>
+              <p className="text-xs text-surface-500 dark:text-night-400 py-2">Year data appears when profiles have incomingYear</p>
               <div className="flex flex-wrap gap-1.5">
                 {[1,2,3,4].map(y=> <span key={y} className="px-2.5 py-1 rounded-full bg-surface-50 dark:bg-white/[0.04] border border-surface-200 dark:border-white/10 text-xs font-bold text-surface-600 dark:text-zinc-300">Year {y}</span>)}
               </div>
@@ -305,7 +306,7 @@ export default function ContestLeaderboardPage() {
       }>
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[220px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 dark:text-zinc-500" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500 dark:text-night-400" />
             <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Search name, department..." className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-[#0a0a0a] text-sm text-surface-900 dark:text-white placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
           </div>
           <select value={selectedDept} onChange={e=> setSelectedDept(e.target.value)} className="px-3 py-2.5 rounded-xl border border-surface-200 dark:border-white/10 bg-white dark:bg-[#0a0a0a] text-surface-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-w-[160px]">
@@ -325,15 +326,15 @@ export default function ContestLeaderboardPage() {
       {filtered.length === 0 ? (
         leaderboard.length === 0 ? (
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] p-12 text-center">
-            <Trophy size={40} className="mx-auto text-surface-300 dark:text-zinc-600 mb-3" />
+            <Trophy size={40} className="mx-auto text-surface-500 dark:text-night-400 mb-3" />
             <p className="text-surface-600 dark:text-zinc-300 font-bold">No leaderboard data yet</p>
-            <p className="text-sm text-surface-400 dark:text-zinc-500 mt-1">Participants will appear here after contests</p>
+            <p className="text-sm text-surface-500 dark:text-night-400 mt-1">Participants will appear here after contests</p>
           </div>
         ) : (
           <div className="bg-white dark:bg-[#121212] rounded-[24px] border border-surface-200 dark:border-[#282828] p-12 text-center">
-            <Filter size={28} className="mx-auto text-surface-300 dark:text-zinc-600 mb-2" />
+            <Filter size={28} className="mx-auto text-surface-500 dark:text-night-400 mb-2" />
             <p className="text-surface-600 dark:text-zinc-300 font-bold">No matches</p>
-            <p className="text-sm text-surface-400 dark:text-zinc-500 mt-1">Try clearing department / year / search filters</p>
+            <p className="text-sm text-surface-500 dark:text-night-400 mt-1">Try clearing department / year / search filters</p>
             <button onClick={()=>{setSearch(''); setSelectedDept('ALL'); setSelectedYear('ALL')}} className="mt-4 px-5 h-10 rounded-full bg-primary-500 text-black text-sm font-black">Clear filters</button>
           </div>
         )
