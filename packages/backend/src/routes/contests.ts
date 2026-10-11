@@ -700,12 +700,21 @@ router.put('/:id/mute', async (req: AuthRequest, res: Response) => {
 // Get single coding contest
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const contest = await prisma.codingContest.findUnique({
-      where: { id: req.params.id as string },
-      include: { creator: { select: { name: true, email: true, role: true } } },
-    })
+    const [user, contest] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
+      prisma.codingContest.findUnique({
+        where: { id: req.params.id as string },
+        include: { creator: { select: { name: true, email: true, role: true } } },
+      }),
+    ])
 
-    if (!contest) {
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    if (!contest || !canUserSeeContest(user as any, contest as any)) {
+      // 404 (not 403) so college-scoped ids are not enumerable (mirrors POST /:id/remind, PUT /:id/mute).
       res.status(404).json({ error: 'Contest not found' })
       return
     }

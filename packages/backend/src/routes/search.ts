@@ -82,7 +82,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.room.findMany({
-        where: { OR: [{ name: like }, { description: like }] }, take: 6, orderBy: { createdAt: 'desc' }
+        // College scope via teacher relation (rooms have no direct collegeId — same as rooms.ts:337).
+        // SUPER global; non-super with college pinned to own; null-college fail-closed (never whole table).
+        where: (() => {
+          const searchOR = { OR: [{ name: like }, { description: like }] } as any
+          if (isSuperSearch) return searchOR
+          if (collegeId) return { teacher: { collegeId }, ...searchOR }
+          return { teacher: { collegeId: '__no_college__' }, ...searchOR }
+        })(), take: 6, orderBy: { createdAt: 'desc' }
       }).catch(()=>[] as any[]),
       prisma.codingContest.findMany({
         // Order 4: platform is native Platform enum — no contains/mode filter.
@@ -90,7 +97,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         // platform key (LEETCODE/CODECHEF/...), else title-only (avoids P2000
         // on invalid enum + keeps search total ≤6). Validated against the REAL
         // enum (no `as any` lie).
-        where: (() => { const p = tryToPlatformEnumStrict(trimmed); return p ? { OR: [{ title: like }, { platform: { equals: p } }] } : { OR: [{ title: like }] } })(),
+        // College scope: own + global via OR (mirrors contests.ts:192-207); SUPER global;
+        // null-college only global (fail-closed, never whole table).
+        where: (() => {
+          const p = tryToPlatformEnumStrict(trimmed)
+          const searchOR: any = p ? { OR: [{ title: like }, { platform: { equals: p } }] } : { OR: [{ title: like }] }
+          if (isSuperSearch) return searchOR
+          if (collegeId) return { AND: [{ OR: [{ collegeId }, { collegeId: null }] }, searchOR] }
+          return { AND: [{ collegeId: null }, searchOR] }
+        })(),
         take: 6,
         orderBy: { startTime: 'desc' },
       }).catch(()=>[] as any[]),

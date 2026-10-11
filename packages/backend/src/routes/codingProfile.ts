@@ -496,6 +496,20 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
     const requester = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } })
     if (!requester) { res.status(404).json({ error: 'User not found' }); return }
 
+    // Fail-closed tenant isolation (mirrors hackathons.ts:452-456 / internships.ts:71-75):
+    // non-SUPER without college sees nothing (was fail-open global groupBy via where={}).
+    // SUPER_ADMIN stays global by design; client ?collegeId is never trusted for non-super.
+    if (requester.role !== 'SUPER_ADMIN' && !requester.collegeId) {
+      res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+      const wantsEmptyPaged = req.query.page != null || req.query.limit != null
+      if (wantsEmptyPaged) {
+        res.json({ data: [], pagination: { page, limit, total: 0, pages: 0 } })
+      } else {
+        res.json([])
+      }
+      return
+    }
+
     const where: any = {}
     // Order 4: platform is the native enum (UPPERCASE). Frontend sends
     // lowercase ids ('codeforces') — normalize at the boundary, 400 on ghost.
@@ -510,6 +524,23 @@ router.get('/leaderboard', authenticate, async (req: AuthRequest, res: Response)
     const collegeFilter: any = {}
     if (requester.role !== 'SUPER_ADMIN' && requester.collegeId) {
       collegeFilter.collegeId = requester.collegeId
+    }
+    // Defense-in-depth: departmentId must belong to requester's college (non-SUPER).
+    // Prevents cross-college oracle; fail-closed empty (never ignore college).
+    if (departmentId && departmentId !== 'all' && requester.role !== 'SUPER_ADMIN') {
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, collegeId: requester.collegeId! },
+      }).catch(() => null)
+      if (!dept) {
+        res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+        const wantsEmptyPagedDept = req.query.page != null || req.query.limit != null
+        if (wantsEmptyPagedDept) {
+          res.json({ data: [], pagination: { page, limit, total: 0, pages: 0 } })
+        } else {
+          res.json([])
+        }
+        return
+      }
     }
     const userFilter: any = { ...collegeFilter }
     if (departmentId && departmentId !== 'all') userFilter.departmentId = departmentId
@@ -605,14 +636,37 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
     const cursorId = req.query.cursor ? String(req.query.cursor) : null
     const cursorClause: any = cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}
 
+    // Fail-closed tenant isolation: fetch requester upfront (was only in fallback).
+    // Non-SUPER without college sees nothing (mirrors leaderboard fail-closed).
+    const participantRequester = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }).catch(() => null)
+    if (!participantRequester) { res.status(404).json({ error: 'User not found' }); return }
+    if (participantRequester.role !== 'SUPER_ADMIN' && !participantRequester.collegeId) {
+      res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
+      if (wantsPaged) {
+        res.json({ data: [], pagination: { page, limit, total: 0, pages: 0, nextCursor: null } })
+      } else {
+        res.json([])
+      }
+      return
+    }
+
     // First try direct contestId lookup (paginated + counted in parallel)
     // NARROW-READ: was include:{user:{include:{department:true}}} (full user incl.
     // passwordHash + full department per row). AFTER: select display cols only —
     // same functional payload (id/name/avatar/dept), sensitive cols dropped.
     // PARALLEL (keeps 322-330 pattern): page + count via ONE Promise.all (was sequential).
     const narrowUserSelect = { id: true, name: true, avatar: true, departmentId: true, incomingYear: true, department: { select: { id: true, name: true } } } as const
+    // College scope for primary (mirrors fallback platformWhere.user scoping).
+    // SUPER stays global; non-super pinned to own college; forged ?collegeId never trusted.
+    const participantUserScope: any = {}
+    if (participantRequester.role !== 'SUPER_ADMIN' && participantRequester.collegeId) {
+      participantUserScope.collegeId = participantRequester.collegeId
+    }
+    const scopedWhere: any = Object.keys(participantUserScope).length
+      ? { contestId, user: participantUserScope }
+      : { contestId }
     const pageArgs: any = {
-      where: { contestId },
+      where: scopedWhere,
       include: { user: { select: narrowUserSelect } },
       orderBy: [{ rank: 'asc' }, { id: 'asc' }],
       take: limit,
@@ -624,7 +678,7 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
     if (wantsPaged) {
       const [pageRows, pageTotal] = await Promise.all([
         prisma.contestParticipation.findMany(pageArgs),
-        prisma.contestParticipation.count({ where: { contestId } }),
+        prisma.contestParticipation.count({ where: scopedWhere }),
       ])
       participations = pageRows as any[]
       total = pageTotal
@@ -635,12 +689,10 @@ router.get('/contest/:contestId/participants', authenticate, async (req: AuthReq
     // Fallback: if no results via contestId, try matching by platform + contestName or URL (college-scoped)
     // 10k guard: cap scan to 50 best-ranked rows (was 1000) with pagination slice —
     // fuzzy match needs in-memory normalize, but bounded input keeps it O(50) not O(1000).
-    // PARALLEL: contest + requester are independent (was 2 sequential awaits).
+    // Requester already fetched upfront (reuse participantRequester, no second user read).
     if (participations.length === 0) {
-      const [contest, requester] = await Promise.all([
-        prisma.codingContest.findUnique({ where: { id: contestId } }),
-        prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, role: true, collegeId: true } }),
-      ])
+      const contest = await prisma.codingContest.findUnique({ where: { id: contestId } })
+      const requester = participantRequester
       if (contest) {
         // Order 4: contest.platform is already the native enum (UPPERCASE) —
         // use it directly at the Prisma boundary (never .toLowerCase(), which
